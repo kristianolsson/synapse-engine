@@ -39,6 +39,11 @@ The "dumb pipe" infrastructure for the **Synapse** system. This service handles 
     nano .env
     ```
 
+    **Key Configuration:**
+    - `EMAIL_ADDRESS`: The account to ingest from (and reply from).
+    - `ALLOWED_SENDERS`: Whitelist of email addresses authorized to send tasks.
+    - `REPLY_TO_ADDRESS`: (Optional) Redirect all system replies to this address (bypassing sender).
+
 ## Deployment (macOS)
 
 Run as a background service using `launchd`.
