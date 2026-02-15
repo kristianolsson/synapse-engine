@@ -7,13 +7,13 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/kristianolsson/Documents/code/life-os-engine/venv/bin/python</string>
+        <string>/Users/kristianolsson/Documents/code/synapse-engine/venv/bin/python</string>
         <string>-m</string>
         <string>services.ingestion.email_listener</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/kristianolsson/Documents/code/life-os-engine</string>
+    <string>/Users/kristianolsson/Documents/code/synapse-engine</string>
 
     <key>RunAtLoad</key>
     <true/>
