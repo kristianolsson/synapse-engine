@@ -79,6 +79,15 @@ class TestPipeToGemini:
         assert result.success is True
         assert result.output == ""
         assert result.return_code == 0
+        # Verify correct command structure (-p flag)
+        from services.ingestion import config
+        mock_run.assert_called_with(
+            [config.GEMINI_CMD, "-p", "test prompt"],
+            cwd=config.VAULT_PATH,
+            capture_output=True,
+            text=True,
+            timeout=config.GEMINI_TIMEOUT_SECONDS,
+        )
 
     @patch("services.ingestion.pipe.subprocess.run")
     def test_clarification_output(self, mock_run):
