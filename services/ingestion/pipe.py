@@ -72,7 +72,8 @@ def pipe_to_gemini(prompt: str) -> PipeResult:
     Returns a PipeResult with success status and any output.
     """
     vault_path = config.VAULT_PATH
-    cmd = [config.GEMINI_CMD, "-p", prompt]
+    # Use --prompt=VALUE syntax to prevent CLI from interpreting "---" as a flag
+    cmd = [config.GEMINI_CMD, f"--prompt={prompt}", "--yolo"]
 
     logger.info("Piping prompt to Gemini CLI (vault=%s)", vault_path)
     logger.debug("Prompt:\n%s", prompt)

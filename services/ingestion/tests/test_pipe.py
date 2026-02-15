@@ -82,7 +82,7 @@ class TestPipeToGemini:
         # Verify correct command structure (-p flag)
         from services.ingestion import config
         mock_run.assert_called_with(
-            [config.GEMINI_CMD, "-p", "test prompt"],
+            [config.GEMINI_CMD, f"--prompt=test prompt", "--yolo"],
             cwd=config.VAULT_PATH,
             capture_output=True,
             text=True,
