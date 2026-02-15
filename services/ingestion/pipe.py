@@ -7,6 +7,8 @@ running inside the notes vault. The CLI is the sole agent for file ops and git.
 
 import logging
 import subprocess
+import json
+import re
 from dataclasses import dataclass, field
 
 from . import config
@@ -73,7 +75,8 @@ def pipe_to_gemini(prompt: str) -> PipeResult:
     """
     vault_path = config.VAULT_PATH
     # Use --prompt=VALUE syntax to prevent CLI from interpreting "---" as a flag
-    cmd = [config.GEMINI_CMD, f"--prompt={prompt}", "--yolo"]
+    # Use --output-format=json to reliably parse the response
+    cmd = [config.GEMINI_CMD, f"--prompt={prompt}", "--yolo", "--output-format=json"]
 
     logger.info("Piping prompt to Gemini CLI (vault=%s)", vault_path)
     logger.debug("Prompt:\n%s", prompt)
@@ -95,9 +98,25 @@ def pipe_to_gemini(prompt: str) -> PipeResult:
             logger.error("Gemini CLI error (code %d): %s", result.returncode, error_msg)
             return PipeResult(success=False, output=error_msg, return_code=result.returncode)
 
+        if match := re.search(r"(\{.*\})", stdout, re.DOTALL):
+            try:
+                data = json.loads(match.group(1))
+                response = data.get("response", "").strip()
+                
+                if response:
+                    # Non-empty response = agent wants to relay something (question/error)
+                    logger.info("Gemini CLI returned response: %s", response[:200])
+                    return PipeResult(success=False, output=response, return_code=0)
+                
+                # Empty response = success (silent)
+                logger.info("Gemini CLI completed successfully (silent response)")
+                return PipeResult(success=True, output="", return_code=0)
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse JSON from stdout despite --output-format=json")
+        
+        # Fallback for non-JSON output (e.g. fatal errors before JSON emission)
         if stdout:
-            # Non-empty output = agent wants to relay something (question/error)
-            logger.info("Gemini CLI returned output (likely clarification): %s", stdout[:200])
+            logger.info("Gemini CLI returned non-JSON output: %s", stdout[:200])
             return PipeResult(success=False, output=stdout, return_code=0)
 
         # Empty output = success

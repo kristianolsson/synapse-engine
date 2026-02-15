@@ -70,6 +70,35 @@ class TestBuildPrompt:
 
 class TestPipeToGemini:
     @patch("services.ingestion.pipe.subprocess.run")
+    def test_success_json_with_warnings(self, mock_run):
+        """Ignore preamble and parse JSON response."""
+        json_output = """
+(node:1234) DeprecationWarning...
+{
+  "response": "Done!"
+}
+"""
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=json_output, stderr=""
+        )
+        result = pipe_to_gemini("test prompt")
+        assert result.success is False  # Non-empty response = feedback
+        assert result.output == "Done!"
+        assert result.return_code == 0
+
+    @patch("services.ingestion.pipe.subprocess.run")
+    def test_success_silent_with_json(self, mock_run):
+        """JSON with empty response field = silent success."""
+        json_output = '{"response": ""}'
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=json_output, stderr=""
+        )
+        result = pipe_to_gemini("test prompt")
+        assert result.success is True
+        assert result.output == ""
+        assert result.return_code == 0
+
+    @patch("services.ingestion.pipe.subprocess.run")
     def test_success_silent(self, mock_run):
         """Empty stdout → success."""
         mock_run.return_value = MagicMock(
@@ -82,7 +111,7 @@ class TestPipeToGemini:
         # Verify correct command structure (-p flag)
         from services.ingestion import config
         mock_run.assert_called_with(
-            [config.GEMINI_CMD, f"--prompt=test prompt", "--yolo"],
+            [config.GEMINI_CMD, f"--prompt=test prompt", "--yolo", "--output-format=json"],
             cwd=config.VAULT_PATH,
             capture_output=True,
             text=True,
