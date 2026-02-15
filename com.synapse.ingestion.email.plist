@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.lifeos.ingestion.email</string>
+    <string>com.synapse.ingestion.email</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -22,10 +22,10 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/tmp/lifeos-ingestion.out.log</string>
+    <string>/tmp/synapse-ingestion.out.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/tmp/lifeos-ingestion.err.log</string>
+    <string>/tmp/synapse-ingestion.err.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

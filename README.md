@@ -1,6 +1,6 @@
-# Life-OS Engine
+# Synapse Engine
 
-The "dumb pipe" infrastructure for the Gemini Life-OS. This service handles external communication (Email, Telegram) and pipes standardized prompts to the Gemini CLI for autonomous vault management.
+The "dumb pipe" infrastructure for the **Synapse** system. This service handles external communication (Email, Telegram) and pipes standardized prompts to the Gemini CLI for autonomous management of the **Synapse Vault**.
 
 ## Architecture
 
@@ -45,18 +45,18 @@ Run as a background service using `launchd`.
 
 1.  **Install Plist:**
     ```bash
-    cp com.lifeos.ingestion.email.plist ~/Library/LaunchAgents/
+    cp com.synapse.ingestion.email.plist ~/Library/LaunchAgents/
     ```
 
 2.  **Load Service:**
     ```bash
-    launchctl load ~/Library/LaunchAgents/com.lifeos.ingestion.email.plist
+    launchctl load ~/Library/LaunchAgents/com.synapse.ingestion.email.plist
     ```
 
 3.  **Logs:**
     ```bash
-    tail -f /tmp/lifeos-ingestion.out.log
-    tail -f /tmp/lifeos-ingestion.err.log
+    tail -f /tmp/synapse-ingestion.out.log
+    tail -f /tmp/synapse-ingestion.err.log
     ```
 
 ## Development
