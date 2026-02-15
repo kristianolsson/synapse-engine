@@ -149,3 +149,65 @@ class TestProcessEmail:
             should_reply, text = process_email(raw, tmpdir)
         assert should_reply is True
         assert "Repo is locked" in text
+
+
+class TestEmailReplyLogic:
+    @patch("services.ingestion.email_reply.send_reply")
+    @patch("services.ingestion.email_listener.config")
+    @patch("services.ingestion.email_listener.process_email")
+    def test_reply_to_override(self, mock_process, mock_config, mock_send_reply):
+        # Config: Reply to admin, not sender
+        mock_config.REPLY_TO_ADDRESS = "admin@example.com"
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_config.RATE_LIMIT_MAX = 10
+        mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
+
+        from services.ingestion.email_listener import EmailListener
+        listener = EmailListener()
+        # Mock dependencies
+        listener.client = MagicMock()
+        listener.rate_limiter = MagicMock()
+        listener.rate_limiter.allow.return_value = True
+
+        # Mock incoming email
+        raw_bytes = _make_simple_email(from_addr="user@example.com", subject="Test")
+        listener.client.fetch.return_value = {123: {b"RFC822": raw_bytes}}
+
+        # Mock process result (needs reply)
+        mock_process.return_value = (True, "Error details")
+
+        # Run
+        listener._fetch_and_process([123])
+
+        # Verify reply sent to admin
+        mock_send_reply.assert_called_once()
+        args = mock_send_reply.call_args[1]
+        assert args["to_addr"] == "admin@example.com"
+        assert args["body"] == "Error details"
+
+    @patch("services.ingestion.email_reply.send_reply")
+    @patch("services.ingestion.email_listener.config")
+    @patch("services.ingestion.email_listener.process_email")
+    def test_reply_to_sender_default(self, mock_process, mock_config, mock_send_reply):
+        # Config: No override
+        mock_config.REPLY_TO_ADDRESS = ""
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_config.RATE_LIMIT_MAX = 10
+        mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
+
+        from services.ingestion.email_listener import EmailListener
+        listener = EmailListener()
+        listener.client = MagicMock()
+        listener.rate_limiter = MagicMock()
+        listener.rate_limiter.allow.return_value = True
+
+        raw_bytes = _make_simple_email(from_addr="user@example.com", subject="Test")
+        listener.client.fetch.return_value = {123: {b"RFC822": raw_bytes}}
+
+        mock_process.return_value = (True, "Details")
+
+        listener._fetch_and_process([123])
+
+        mock_send_reply.assert_called_once()
+        args = mock_send_reply.call_args[1]
+        assert args["to_addr"] == "user@example.com"

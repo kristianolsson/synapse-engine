@@ -31,6 +31,10 @@ ALLOWED_SENDERS = [
     if s.strip()
 ]
 
+# --- Reply Settings ---
+# If set, all system replies go to this address instead of the original sender.
+REPLY_TO_ADDRESS = os.getenv("REPLY_TO_ADDRESS", "").strip().lower()
+
 # --- Vault ---
 VAULT_PATH = os.getenv("VAULT_PATH", str(Path(__file__).resolve().parent.parent.parent / "notes"))
 

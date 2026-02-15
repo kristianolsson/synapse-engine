@@ -222,7 +222,7 @@ class EmailListener:
                         raw_bytes, policy=email.policy.default
                     )
                     send_reply(
-                        to_addr=extract_sender(raw_msg),
+                        to_addr=config.REPLY_TO_ADDRESS or extract_sender(raw_msg),
                         subject=raw_msg.get("Subject", ""),
                         body=reply_text,
                         original_message_id=raw_msg.get("Message-ID", ""),

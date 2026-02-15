@@ -33,8 +33,11 @@ def send_reply(
     Returns:
         True if sent successfully, False otherwise.
     """
-    # Security: only reply to whitelisted addresses
-    if to_addr.lower() not in config.ALLOWED_SENDERS:
+    # Security: only reply to whitelisted addresses OR the configured reply-to address
+    if (
+        to_addr.lower() != config.REPLY_TO_ADDRESS
+        and to_addr.lower() not in config.ALLOWED_SENDERS
+    ):
         logger.warning("Refusing to reply to non-whitelisted address: %s", to_addr)
         return False
 
