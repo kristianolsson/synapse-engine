@@ -267,6 +267,12 @@ class EmailListener:
         logger.info("Starting email listener...")
         self._reconnect()
 
+        # Process any unread messages that arrived while the service was down
+        backlog = self.client.search(["UNSEEN"])
+        if backlog:
+            logger.info("Found %d unread message(s) on startup.", len(backlog))
+            self._fetch_and_process(backlog)
+
         while self._running:
             try:
                 # Start IDLE
