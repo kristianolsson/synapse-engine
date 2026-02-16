@@ -228,9 +228,16 @@ class EmailListener:
                         original_message_id=raw_msg.get("Message-ID", ""),
                     )
 
-                # Mark as read
+                # Mark as read and archive (move out of INBOX)
                 self.client.add_flags([uid], [b"\\Seen"])
-                logger.info("UID %s processed and marked as read.", uid)
+                try:
+                    self.client.move([uid], "[Gmail]/All Mail")
+                except Exception:
+                    # Fallback: copy + delete if MOVE not supported
+                    self.client.copy([uid], "[Gmail]/All Mail")
+                    self.client.delete_messages([uid])
+                    self.client.expunge([uid])
+                logger.info("UID %s processed, marked as read, and archived.", uid)
 
             except Exception as e:
                 logger.error("Failed to process UID %s: %s", uid, e)
