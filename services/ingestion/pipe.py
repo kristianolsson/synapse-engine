@@ -112,6 +112,11 @@ def pipe_to_gemini(prompt: str) -> PipeResult:
                 response = data.get("response", "").strip()
                 
                 if response:
+                    # Check for success signal code word
+                    if response.strip() == "SYNAPSE_OK":
+                        logger.info("Gemini CLI completed successfully (SYNAPSE_OK)")
+                        return PipeResult(success=True, output="", return_code=0)
+
                     # Non-empty response = agent wants to relay something (question/error)
                     logger.info("Gemini CLI returned response: %s", response[:200])
                     return PipeResult(success=False, output=response, return_code=0)
