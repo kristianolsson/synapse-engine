@@ -12,7 +12,7 @@ import os
 import re
 import signal
 import sys
-import tempfile
+from datetime import date
 import time
 from collections import deque
 from email.message import EmailMessage
@@ -84,24 +84,38 @@ def extract_text_body(msg: EmailMessage) -> str:
     return ""
 
 
-def extract_images(msg: EmailMessage, temp_dir: str) -> list[str]:
+def extract_images(msg: EmailMessage) -> list[str]:
     """
     Extract image attachments and inline images from an email.
-    Saves them to temp_dir and returns a list of file paths.
+    Saves them to the vault's assets/ingestion/ folder and returns
+    a list of absolute file paths.
     """
     image_paths = []
     if not msg.is_multipart():
         return image_paths
+
+    assets_dir = os.path.join(config.VAULT_PATH, "assets", "ingestion")
+    os.makedirs(assets_dir, exist_ok=True)
+    today = date.today().isoformat()
 
     for part in msg.walk():
         content_type = part.get_content_type()
         if content_type and content_type.startswith("image/"):
             payload = part.get_payload(decode=True)
             if payload:
-                filename = part.get_filename() or f"image_{len(image_paths)}.jpg"
-                # Sanitize filename
-                filename = re.sub(r"[^\w.\-]", "_", filename)
-                filepath = os.path.join(temp_dir, filename)
+                raw_name = part.get_filename() or f"image_{len(image_paths)}.jpg"
+                raw_name = re.sub(r"[^\w.\-]", "_", raw_name)
+                stem, ext = os.path.splitext(raw_name)
+                filename = f"{today}_{stem}{ext}"
+
+                # Handle name conflicts with _1, _2, etc.
+                filepath = os.path.join(assets_dir, filename)
+                counter = 1
+                while os.path.exists(filepath):
+                    filename = f"{today}_{stem}_{counter}{ext}"
+                    filepath = os.path.join(assets_dir, filename)
+                    counter += 1
+
                 with open(filepath, "wb") as f:
                     f.write(payload)
                 image_paths.append(filepath)
@@ -113,7 +127,7 @@ def extract_images(msg: EmailMessage, temp_dir: str) -> list[str]:
 # ── Message Processing ──────────────────────────────────────────────
 
 
-def process_email(raw_bytes: bytes, temp_dir: str) -> tuple[bool, str]:
+def process_email(raw_bytes: bytes) -> tuple[bool, str]:
     """
     Parse a raw email, validate the sender, build a prompt, and pipe it.
 
@@ -142,7 +156,7 @@ def process_email(raw_bytes: bytes, temp_dir: str) -> tuple[bool, str]:
         return False, ""
 
     body = extract_text_body(msg)
-    images = extract_images(msg, temp_dir)
+    images = extract_images(msg)
 
     incoming = IncomingMessage(
         source_type="email",
@@ -238,8 +252,7 @@ class EmailListener:
                 raw_data = self.client.fetch([uid], ["RFC822"])
                 raw_bytes = raw_data[uid][b"RFC822"]
 
-                with tempfile.TemporaryDirectory(prefix="lifeos_img_") as tmp:
-                    should_reply, reply_text = process_email(raw_bytes, tmp)
+                should_reply, reply_text = process_email(raw_bytes)
 
                 if should_reply and reply_text:
                     from .email_reply import send_reply

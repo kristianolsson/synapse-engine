@@ -96,11 +96,12 @@ class TestExtractImages:
     def test_no_images(self):
         raw = _make_simple_email()
         msg = email.message_from_bytes(raw)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            images = extract_images(msg, tmpdir)
-            assert images == []
+        images = extract_images(msg)
+        assert images == []
 
-    def test_with_image_attachment(self):
+    @patch("services.ingestion.email_listener.config")
+    def test_with_image_attachment(self, mock_config, tmp_path):
+        mock_config.VAULT_PATH = str(tmp_path)
         msg = MIMEMultipart()
         msg["From"] = "test@example.com"
         msg.attach(MIMEText("See attached", "plain"))
@@ -108,10 +109,9 @@ class TestExtractImages:
         img = MIMEImage(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, name="test.png")
         msg.attach(img)
         parsed = email.message_from_bytes(msg.as_bytes())
-        with tempfile.TemporaryDirectory() as tmpdir:
-            images = extract_images(parsed, tmpdir)
-            assert len(images) == 1
-            assert "test.png" in images[0]
+        images = extract_images(parsed)
+        assert len(images) == 1
+        assert "test.png" in images[0]
 
 
 # ── process_email tests ─────────────────────────────────────────────
@@ -123,8 +123,7 @@ class TestProcessEmail:
     def test_rejects_unauthorized_sender(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["allowed@example.com"]
         raw = _make_simple_email(from_addr="hacker@evil.com")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            should_reply, text = process_email(raw, tmpdir)
+        should_reply, text = process_email(raw)
         assert should_reply is False
         mock_pipe.assert_not_called()
 
@@ -134,8 +133,7 @@ class TestProcessEmail:
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(success=True, output="")
         raw = _make_simple_email(from_addr="user@example.com", body="Buy milk")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            should_reply, text = process_email(raw, tmpdir)
+        should_reply, text = process_email(raw)
         assert should_reply is False
         assert text == ""
 
@@ -145,8 +143,7 @@ class TestProcessEmail:
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(success=False, output="Repo is locked")
         raw = _make_simple_email(from_addr="user@example.com", body="Add todo")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            should_reply, text = process_email(raw, tmpdir)
+        should_reply, text = process_email(raw)
         assert should_reply is True
         assert "Repo is locked" in text
 

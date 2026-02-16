@@ -39,7 +39,9 @@ def build_prompt(msg: IncomingMessage) -> str:
     image_refs = ""
     if msg.image_paths:
         refs = "\n".join(f"  - {p}" for p in msg.image_paths)
-        image_refs = f"\n\n**Attached Images:**\n{refs}"
+        image_refs = (
+            f"\n\n**Attached Images (use read_file to analyze):**\n{refs}"
+        )
 
     prompt = (
         f"---\n"
