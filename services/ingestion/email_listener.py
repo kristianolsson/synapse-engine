@@ -130,6 +130,15 @@ def process_email(raw_bytes: bytes, temp_dir: str) -> tuple[bool, str]:
     # Sender whitelist check
     if sender not in config.ALLOWED_SENDERS:
         logger.warning("Rejected email from unauthorized sender: %s", sender)
+        if config.REPLY_TO_ADDRESS:
+            from .email_reply import send_reply
+
+            send_reply(
+                to_addr=config.REPLY_TO_ADDRESS,
+                subject="Synapse: Rejected email",
+                body=f"Rejected email from unauthorized sender.\n\nFrom: {sender}\nSubject: {subject}",
+                original_message_id=msg.get("Message-ID", ""),
+            )
         return False, ""
 
     body = extract_text_body(msg)
