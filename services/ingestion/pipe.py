@@ -6,6 +6,7 @@ running inside the notes vault. The CLI is the sole agent for file ops and git.
 """
 
 import logging
+import os
 import subprocess
 import json
 import re
@@ -81,6 +82,12 @@ def pipe_to_gemini(prompt: str) -> PipeResult:
     logger.info("Piping prompt to Gemini CLI (vault=%s)", vault_path)
     logger.debug("Prompt:\n%s", prompt)
 
+    # Build env with the Gemini CLI's directory in PATH (needed for nvm-managed node)
+    env = os.environ.copy()
+    gemini_dir = os.path.dirname(config.GEMINI_CMD)
+    if gemini_dir:
+        env["PATH"] = gemini_dir + ":" + env.get("PATH", "")
+
     try:
         result = subprocess.run(
             cmd,
@@ -88,6 +95,7 @@ def pipe_to_gemini(prompt: str) -> PipeResult:
             capture_output=True,
             text=True,
             timeout=config.GEMINI_TIMEOUT_SECONDS,
+            env=env,
         )
 
         stdout = result.stdout.strip()

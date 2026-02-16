@@ -48,17 +48,13 @@ The "dumb pipe" infrastructure for the **Synapse** system. This service handles 
 
 Run as a background service using `launchd`.
 
-1.  **Install Plist:**
+1.  **Install & Start:**
     ```bash
-    cp com.synapse.ingestion.email.plist ~/Library/LaunchAgents/
+    ./install.sh
     ```
+    This auto-detects your paths, generates the plist, and installs the service.
 
-2.  **Load Service:**
-    ```bash
-    launchctl load ~/Library/LaunchAgents/com.synapse.ingestion.email.plist
-    ```
-
-3.  **Logs:**
+2.  **Logs:**
     ```bash
     tail -f /tmp/synapse-ingestion.out.log
     tail -f /tmp/synapse-ingestion.err.log

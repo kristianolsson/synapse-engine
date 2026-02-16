@@ -43,5 +43,27 @@ RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "10"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
 # --- Gemini CLI ---
-GEMINI_CMD = os.getenv("GEMINI_CMD", "gemini")
+def _resolve_gemini_cmd() -> str:
+    """Resolve the gemini CLI path, auto-detecting from the login shell if needed."""
+    explicit = os.getenv("GEMINI_CMD", "").strip()
+    if explicit:
+        return explicit
+    # Auto-detect: ask the login shell where gemini lives (handles nvm, etc.)
+    import subprocess, shutil
+    found = shutil.which("gemini")
+    if found:
+        return found
+    try:
+        result = subprocess.run(
+            ["bash", "-lc", "which gemini"],
+            capture_output=True, text=True, timeout=5,
+        )
+        path = result.stdout.strip()
+        if path and result.returncode == 0:
+            return path
+    except Exception:
+        pass
+    return "gemini"
+
+GEMINI_CMD = _resolve_gemini_cmd()
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "120"))
