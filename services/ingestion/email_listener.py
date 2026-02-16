@@ -213,11 +213,17 @@ class EmailListener:
                 self._backoff = min(self._backoff * 2, self.MAX_BACKOFF)
 
     def _fetch_and_process(self, msg_uids: list[int]):
-        """Fetch and process a batch of message UIDs."""
-        for uid in msg_uids:
+        """Fetch and process unread messages one at a time.
+        
+        Re-searches for UNSEEN after each message since archive/move
+        can invalidate remaining UIDs.
+        """
+        while msg_uids:
+            uid = msg_uids[0]
+
             if not self.rate_limiter.allow():
-                logger.warning("Rate limit reached, skipping UID %s", uid)
-                continue
+                logger.warning("Rate limit reached, skipping remaining messages")
+                break
 
             try:
                 raw_data = self.client.fetch([uid], ["RFC822"])
@@ -227,7 +233,6 @@ class EmailListener:
                     should_reply, reply_text = process_email(raw_bytes, tmp)
 
                 if should_reply and reply_text:
-                    # Import here to avoid circular dependencies
                     from .email_reply import send_reply
 
                     raw_msg = email.message_from_bytes(
@@ -253,6 +258,9 @@ class EmailListener:
 
             except Exception as e:
                 logger.error("Failed to process UID %s: %s", uid, e)
+
+            # Re-search for remaining UNSEEN messages (UIDs may have changed)
+            msg_uids = self.client.search(["UNSEEN"])
 
     def run(self):
         """Main loop: connect, IDLE, process, repeat."""
