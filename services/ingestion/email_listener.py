@@ -179,6 +179,18 @@ class EmailListener:
         self.client = IMAPClient(config.IMAP_HOST, port=config.IMAP_PORT, ssl=True)
         self.client.login(config.EMAIL_ADDRESS, config.EMAIL_APP_PASSWORD)
         self.client.select_folder("INBOX")
+
+        # Detect the "All Mail" folder by its \All flag (locale-independent)
+        self._archive_folder = None
+        for flags, _delim, name in self.client.list_folders():
+            if b"\\All" in flags:
+                self._archive_folder = name
+                break
+        if self._archive_folder:
+            logger.info("Archive folder: %s", self._archive_folder)
+        else:
+            logger.warning("No archive folder found, emails will only be marked as read.")
+
         logger.info("Connected and INBOX selected.")
         self._backoff = self.INITIAL_BACKOFF  # Reset on successful connect
 
@@ -230,13 +242,13 @@ class EmailListener:
 
                 # Mark as read and archive (move out of INBOX)
                 self.client.add_flags([uid], [b"\\Seen"])
-                try:
-                    self.client.move([uid], "[Gmail]/All Mail")
-                except Exception:
-                    # Fallback: copy + delete if MOVE not supported
-                    self.client.copy([uid], "[Gmail]/All Mail")
-                    self.client.delete_messages([uid])
-                    self.client.expunge([uid])
+                if self._archive_folder:
+                    try:
+                        self.client.move([uid], self._archive_folder)
+                    except Exception:
+                        self.client.copy([uid], self._archive_folder)
+                        self.client.delete_messages([uid])
+                        self.client.expunge([uid])
                 logger.info("UID %s processed, marked as read, and archived.", uid)
 
             except Exception as e:
