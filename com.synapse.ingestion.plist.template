@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.synapse.ingestion.email</string>
+    <string>com.synapse.ingestion</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/kristianolsson/Documents/code/synapse-engine/venv/bin/python</string>
+        <string>__PROJECT_DIR__/venv/bin/python</string>
         <string>-m</string>
-        <string>services.ingestion.email_listener</string>
+        <string>services.ingestion.main</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/kristianolsson/Documents/code/synapse-engine</string>
+    <string>__PROJECT_DIR__</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -30,7 +30,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/kristianolsson/.nvm/versions/node/v22.12.0/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <string>__NODE_BIN__:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     </dict>
 </dict>
 </plist>

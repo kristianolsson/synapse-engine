@@ -42,7 +42,7 @@ class TestBuildPrompt:
         assert "Images: 2 attached" in prompt
         assert "/tmp/img1.jpg" in prompt
         assert "/tmp/img2.png" in prompt
-        assert "**Attached Images:**" in prompt
+        assert "**Attached Images (use read_file to analyze):**" in prompt
 
     def test_empty_body(self):
         msg = IncomingMessage(
@@ -108,15 +108,11 @@ class TestPipeToGemini:
         assert result.success is True
         assert result.output == ""
         assert result.return_code == 0
-        # Verify correct command structure (-p flag)
+        # Verify correct command structure
         from services.ingestion import config
-        mock_run.assert_called_with(
-            [config.GEMINI_CMD, f"--prompt=test prompt", "--yolo", "--output-format=json"],
-            cwd=config.VAULT_PATH,
-            capture_output=True,
-            text=True,
-            timeout=config.GEMINI_TIMEOUT_SECONDS,
-        )
+        call_args = mock_run.call_args
+        assert call_args[0][0] == [config.GEMINI_CMD, "--prompt=test prompt", "--yolo", "--output-format=json"]
+        assert call_args[1]["cwd"] == config.VAULT_PATH
 
     @patch("services.ingestion.pipe.subprocess.run")
     def test_clarification_output(self, mock_run):

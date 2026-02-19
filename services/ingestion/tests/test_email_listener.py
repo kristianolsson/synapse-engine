@@ -9,12 +9,12 @@ from unittest.mock import patch, MagicMock
 import tempfile
 
 from services.ingestion.email_listener import (
-    RateLimiter,
     extract_sender,
     extract_text_body,
     extract_images,
     process_email,
 )
+from services.ingestion.rate_limiter import RateLimiter
 
 
 # ── RateLimiter tests ───────────────────────────────────────────────
@@ -33,7 +33,7 @@ class TestRateLimiter:
         assert rl.allow() is True
         assert rl.allow() is False
 
-    @patch("services.ingestion.email_listener.time")
+    @patch("services.ingestion.rate_limiter.time")
     def test_window_expiry(self, mock_time):
         rl = RateLimiter(max_events=1, window_seconds=10)
         mock_time.time.return_value = 100.0
@@ -169,6 +169,7 @@ class TestEmailReplyLogic:
         # Mock incoming email
         raw_bytes = _make_simple_email(from_addr="user@example.com", subject="Test")
         listener.client.fetch.return_value = {123: {b"RFC822": raw_bytes}}
+        listener.client.search.return_value = []  # No more UNSEEN after processing
 
         # Mock process result (needs reply)
         mock_process.return_value = (True, "Error details")
@@ -200,6 +201,7 @@ class TestEmailReplyLogic:
 
         raw_bytes = _make_simple_email(from_addr="user@example.com", subject="Test")
         listener.client.fetch.return_value = {123: {b"RFC822": raw_bytes}}
+        listener.client.search.return_value = []  # No more UNSEEN after processing
 
         mock_process.return_value = (True, "Details")
 

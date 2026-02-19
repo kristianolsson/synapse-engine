@@ -5,8 +5,8 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TEMPLATE="$PROJECT_DIR/com.synapse.ingestion.email.plist.template"
-PLIST_NAME="com.synapse.ingestion.email.plist"
+TEMPLATE="$PROJECT_DIR/com.synapse.ingestion.plist.template"
+PLIST_NAME="com.synapse.ingestion.plist"
 PLIST_OUT="$PROJECT_DIR/$PLIST_NAME"
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 
@@ -60,3 +60,4 @@ launchctl load "$LAUNCH_AGENTS/$PLIST_NAME"
 
 echo "✅ Service installed and started."
 echo "   Logs: tail -f /tmp/synapse-ingestion.err.log"
+

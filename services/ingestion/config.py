@@ -67,3 +67,19 @@ def _resolve_gemini_cmd() -> str:
 
 GEMINI_CMD = _resolve_gemini_cmd()
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "120"))
+
+# --- Telegram Settings ---
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_ALLOWED_USER_IDS = [
+    int(uid.strip())
+    for uid in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",")
+    if uid.strip()
+]
+TELEGRAM_MAX_FILE_SIZE_MB = int(os.getenv("TELEGRAM_MAX_FILE_SIZE_MB", "10"))
+
+# --- Channel Selection ---
+ENABLED_CHANNELS = [
+    ch.strip().lower()
+    for ch in os.getenv("ENABLED_CHANNELS", "email").split(",")
+    if ch.strip()
+]

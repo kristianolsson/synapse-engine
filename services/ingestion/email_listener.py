@@ -13,6 +13,7 @@ import re
 import signal
 import sys
 from datetime import date
+from typing import Optional
 import time
 from collections import deque
 from email.message import EmailMessage
@@ -21,31 +22,9 @@ from imapclient import IMAPClient
 
 from . import config
 from .pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from .rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
-
-
-# ── Rate Limiter ────────────────────────────────────────────────────
-
-
-class RateLimiter:
-    """Sliding-window rate limiter."""
-
-    def __init__(self, max_events: int, window_seconds: int):
-        self.max_events = max_events
-        self.window_seconds = window_seconds
-        self._timestamps: deque[float] = deque()
-
-    def allow(self) -> bool:
-        """Return True if the event is allowed, False if rate-limited."""
-        now = time.time()
-        # Purge expired timestamps
-        while self._timestamps and (now - self._timestamps[0]) > self.window_seconds:
-            self._timestamps.popleft()
-        if len(self._timestamps) >= self.max_events:
-            return False
-        self._timestamps.append(now)
-        return True
 
 
 # ── Email Parsing ───────────────────────────────────────────────────
@@ -188,9 +167,9 @@ class EmailListener:
     INITIAL_BACKOFF = 5  # seconds
     MAX_BACKOFF = 300  # 5 minutes
 
-    def __init__(self):
-        self.client: IMAPClient | None = None
-        self.rate_limiter = RateLimiter(
+    def __init__(self, rate_limiter: Optional[RateLimiter] = None):
+        self.client: Optional[IMAPClient] = None
+        self.rate_limiter = rate_limiter or RateLimiter(
             config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW_SECONDS
         )
         self._running = True
@@ -330,27 +309,4 @@ class EmailListener:
                 pass
 
 
-# ── Entry Point ─────────────────────────────────────────────────────
 
-
-def main():
-    """CLI entry point for the email listener service."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    listener = EmailListener()
-
-    def signal_handler(sig, frame):
-        listener.stop()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    listener.run()
-
-
-if __name__ == "__main__":
-    main()
