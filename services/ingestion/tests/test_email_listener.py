@@ -9,11 +9,13 @@ from unittest.mock import patch, MagicMock
 import tempfile
 
 from services.ingestion.email_listener import (
+    EmailListener,
     extract_sender,
     extract_text_body,
     extract_images,
     process_email,
 )
+from services.ingestion.session_manager import SessionManager
 from services.ingestion.rate_limiter import RateLimiter
 
 
@@ -123,7 +125,8 @@ class TestProcessEmail:
     def test_rejects_unauthorized_sender(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["allowed@example.com"]
         raw = _make_simple_email(from_addr="hacker@evil.com")
-        should_reply, text = process_email(raw)
+        sm = MagicMock(spec=SessionManager)
+        should_reply, text = process_email(raw, sm)
         assert should_reply is False
         mock_pipe.assert_not_called()
 
@@ -131,9 +134,10 @@ class TestProcessEmail:
     @patch("services.ingestion.email_listener.config")
     def test_success_silent(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
-        mock_pipe.return_value = MagicMock(success=True, output="")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="")
         raw = _make_simple_email(from_addr="user@example.com", body="Buy milk")
-        should_reply, text = process_email(raw)
+        sm = MagicMock(spec=SessionManager)
+        should_reply, text = process_email(raw, sm)
         assert should_reply is False
         assert text == ""
 
@@ -141,9 +145,10 @@ class TestProcessEmail:
     @patch("services.ingestion.email_listener.config")
     def test_error_triggers_reply(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
-        mock_pipe.return_value = MagicMock(success=False, output="Repo is locked")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="")
         raw = _make_simple_email(from_addr="user@example.com", body="Add todo")
-        should_reply, text = process_email(raw)
+        sm = MagicMock(spec=SessionManager)
+        should_reply, text = process_email(raw, sm)
         assert should_reply is True
         assert "Repo is locked" in text
 

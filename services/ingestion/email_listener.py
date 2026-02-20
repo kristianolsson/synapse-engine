@@ -23,6 +23,7 @@ from imapclient import IMAPClient
 from . import config
 from .pipe import IncomingMessage, build_prompt, pipe_to_gemini
 from .rate_limiter import RateLimiter
+from .session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ def extract_images(msg: EmailMessage) -> list[str]:
 # ── Message Processing ──────────────────────────────────────────────
 
 
-def process_email(raw_bytes: bytes) -> tuple[bool, str]:
+def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bool, str]:
     """
     Parse a raw email, validate the sender, build a prompt, and pipe it.
 
@@ -117,6 +118,12 @@ def process_email(raw_bytes: bytes) -> tuple[bool, str]:
     msg = email.message_from_bytes(raw_bytes, policy=email.policy.default)
     sender = extract_sender(msg)
     subject = msg.get("Subject", "(no subject)")
+    
+    in_reply_to = msg.get("In-Reply-To", "").strip()
+    message_id = msg.get("Message-ID", "").strip()
+    # If the email is a reply in a thread, link it to the existing thread's session context.
+    # Otherwise, start a fresh session specifically for this new email thread.
+    session_key = in_reply_to if in_reply_to else message_id
 
     logger.info("Processing email from=%s subject=%r", sender, subject)
 
@@ -135,6 +142,13 @@ def process_email(raw_bytes: bytes) -> tuple[bool, str]:
         return False, ""
 
     body = extract_text_body(msg)
+
+    if body.strip() == "/new":
+        if session_manager.clear_session(session_key):
+            return True, "Session cleared. Starting a fresh context."
+        else:
+            return True, "No active session to clear."
+
     images = extract_images(msg)
 
     incoming = IncomingMessage(
@@ -146,12 +160,16 @@ def process_email(raw_bytes: bytes) -> tuple[bool, str]:
     )
 
     prompt = build_prompt(incoming)
-    result = pipe_to_gemini(prompt)
+    session_id = session_manager.get_session(session_key)
+    result = pipe_to_gemini(prompt, session_id=session_id)
 
-    if result.success:
-        return False, ""
-    else:
+    if result.session_id:
+        session_manager.save_session(session_key, result.session_id)
+
+    if result.requires_reply:
         return True, result.output
+    else:
+        return False, ""
 
 
 # ── IMAP IDLE Loop ──────────────────────────────────────────────────
@@ -172,6 +190,7 @@ class EmailListener:
         self.rate_limiter = rate_limiter or RateLimiter(
             config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW_SECONDS
         )
+        self.session_manager = SessionManager()
         self._running = True
         self._backoff = self.INITIAL_BACKOFF
 
@@ -231,7 +250,7 @@ class EmailListener:
                 raw_data = self.client.fetch([uid], ["RFC822"])
                 raw_bytes = raw_data[uid][b"RFC822"]
 
-                should_reply, reply_text = process_email(raw_bytes)
+                should_reply, reply_text = process_email(raw_bytes, self.session_manager)
 
                 if should_reply and reply_text:
                     from .email_reply import send_reply

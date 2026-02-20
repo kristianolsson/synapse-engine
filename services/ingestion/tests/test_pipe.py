@@ -82,7 +82,8 @@ class TestPipeToGemini:
             returncode=0, stdout=json_output, stderr=""
         )
         result = pipe_to_gemini("test prompt")
-        assert result.success is False  # Non-empty response = feedback
+        assert result.is_error is False
+        assert result.requires_reply is True
         assert result.output == "Done!"
         assert result.return_code == 0
 
@@ -94,7 +95,8 @@ class TestPipeToGemini:
             returncode=0, stdout=json_output, stderr=""
         )
         result = pipe_to_gemini("test prompt")
-        assert result.success is True
+        assert result.is_error is False
+        assert result.requires_reply is False
         assert result.output == ""
         assert result.return_code == 0
 
@@ -105,7 +107,8 @@ class TestPipeToGemini:
             returncode=0, stdout="", stderr=""
         )
         result = pipe_to_gemini("test prompt")
-        assert result.success is True
+        assert result.is_error is False
+        assert result.requires_reply is False
         assert result.output == ""
         assert result.return_code == 0
         # Verify correct command structure
@@ -123,7 +126,8 @@ class TestPipeToGemini:
             stderr="",
         )
         result = pipe_to_gemini("test prompt")
-        assert result.success is False
+        assert result.is_error is True
+        assert result.requires_reply is True
         assert "Which project" in result.output
 
     @patch("services.ingestion.pipe.subprocess.run")
@@ -135,16 +139,57 @@ class TestPipeToGemini:
             stderr="fatal: repo locked",
         )
         result = pipe_to_gemini("test prompt")
-        assert result.success is False
+        assert result.is_error is True
+        assert result.requires_reply is True
         assert "repo locked" in result.output
         assert result.return_code == 1
+
+    @patch("services.ingestion.pipe.subprocess.run")
+    def test_resume_session_success(self, mock_run):
+        """Passing a session_id should include --resume in the command."""
+        json_output = '{"response": "SYNAPSE_OK", "session_id": "new-123"}'
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=json_output, stderr=""
+        )
+        result = pipe_to_gemini("test prompt", session_id="old-456")
+        assert result.is_error is False
+        assert result.requires_reply is False
+        assert result.output == ""
+        assert result.session_id == "new-123"
+        from services.ingestion import config
+        call_args = mock_run.call_args_list[0]
+        assert call_args[0][0] == [config.GEMINI_CMD, "--resume", "old-456", "--prompt=test prompt", "--yolo", "--output-format=json"]
+
+    @patch("services.ingestion.pipe.subprocess.run")
+    def test_resume_session_fallback(self, mock_run):
+        """If --resume fails, it should strip the flag and try again."""
+        json_output_fail = '{"error": "Session expired"}'
+        json_output_success = '{"response": "SYNAPSE_OK", "session_id": "new-123"}'
+        
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stdout=json_output_fail, stderr=""),
+            MagicMock(returncode=0, stdout=json_output_success, stderr="")
+        ]
+        
+        result = pipe_to_gemini("test prompt", session_id="old-456")
+        assert result.is_error is False
+        assert result.requires_reply is False
+        assert result.session_id == "new-123"
+        assert mock_run.call_count == 2
+        
+        from services.ingestion import config
+        first_call = mock_run.call_args_list[0][0][0]
+        second_call = mock_run.call_args_list[1][0][0]
+        assert "--resume" in first_call
+        assert "--resume" not in second_call
 
     @patch("services.ingestion.pipe.subprocess.run")
     def test_timeout(self, mock_run):
         """Timeout → error with message."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="gemini", timeout=120)
         result = pipe_to_gemini("test prompt")
-        assert result.success is False
+        assert result.is_error is True
+        assert result.requires_reply is True
         assert "timed out" in result.output
         assert result.return_code == -1
 
@@ -153,6 +198,7 @@ class TestPipeToGemini:
         """Missing CLI binary → helpful error."""
         mock_run.side_effect = FileNotFoundError()
         result = pipe_to_gemini("test prompt")
-        assert result.success is False
+        assert result.is_error is True
+        assert result.requires_reply is True
         assert "not found" in result.output
         assert result.return_code == -1

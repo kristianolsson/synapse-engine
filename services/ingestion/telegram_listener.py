@@ -23,6 +23,7 @@ from telegram.ext import (
 from . import config
 from .pipe import IncomingMessage, build_prompt, pipe_to_gemini
 from .rate_limiter import RateLimiter
+from .session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ async def extract_attachments(update: Update) -> list[str]:
 # ── Message Processing ──────────────────────────────────────────────
 
 
-async def handle_message(update: Update, context, rate_limiter: RateLimiter) -> None:
+async def handle_message(update: Update, context, rate_limiter: RateLimiter, session_manager: SessionManager) -> None:
     """Process an incoming Telegram message."""
     message = update.message
     if not message:
@@ -122,6 +123,14 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter) -> 
 
     # Extract content
     text = message.text or message.caption or ""
+
+    if text.strip() == "/new":
+        if session_manager.clear_session(str(user.id)):
+            await message.reply_text("Session cleared. Starting a fresh context.")
+        else:
+            await message.reply_text("No active session to clear.")
+        return
+
     image_paths = await extract_attachments(update)
 
     if message.voice:
@@ -142,16 +151,20 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter) -> 
     )
 
     prompt = build_prompt(incoming)
+    session_id = session_manager.get_session(str(user.id))
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, pipe_to_gemini, prompt)
+    result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id)
 
-    if result.success:
-        # Telegram persona always gives feedback
-        await message.reply_text("✓")
-    else:
+    if result.session_id:
+        session_manager.save_session(str(user.id), result.session_id)
+
+    if result.requires_reply:
         # Relay error/clarification/response to user
         reply = result.output[:4096]  # Telegram message limit
         await message.reply_text(reply)
+    else:
+        # Telegram persona always gives feedback
+        await message.reply_text("✓")
 
 
 # ── Telegram Listener ──────────────────────────────────────────────
@@ -164,6 +177,7 @@ class TelegramListener:
         self.rate_limiter = rate_limiter or RateLimiter(
             config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW_SECONDS
         )
+        self.session_manager = SessionManager()
         self._app: Optional[Application] = None
 
     def run(self) -> None:
@@ -189,11 +203,12 @@ class TelegramListener:
             .build()
         )
 
-        # Capture rate_limiter for the closure
+        # Capture state for the closure
         rl = self.rate_limiter
+        sm = self.session_manager
 
         async def _handler(update: Update, context) -> None:
-            await handle_message(update, context, rl)
+            await handle_message(update, context, rl, sm)
 
         # Handle text messages, photos, documents, and voice notes (for unsupported reply)
         self._app.add_handler(

@@ -5,7 +5,13 @@ from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
 import pytest
 
+from services.ingestion import config
 from services.ingestion.rate_limiter import RateLimiter
+from services.ingestion.session_manager import SessionManager
+from services.ingestion.telegram_listener import (
+    handle_message,
+    download_attachment,
+)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -31,17 +37,20 @@ def _make_update(user_id=12345, chat_type="private", text="Buy milk", photo=None
 
 
 class TestTelegramSecurity:
+    def setUp(self):
+        config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        self.rate_limiter = RateLimiter(10, 60)
+        self.session_manager = MagicMock(spec=SessionManager)
+        self.session_manager.get_session.return_value = None
+
     @pytest.mark.asyncio
     @patch("services.ingestion.telegram_listener.config")
     @patch("services.ingestion.telegram_listener.pipe_to_gemini")
     async def test_rejects_group_chat(self, mock_pipe, mock_config):
-        from services.ingestion.telegram_listener import handle_message
-
-        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
-        rl = RateLimiter(10, 60)
+        self.setUp()
         update = _make_update(chat_type="group")
 
-        await handle_message(update, None, rl)
+        await handle_message(update, None, self.rate_limiter, MagicMock(spec=SessionManager))
 
         mock_pipe.assert_not_called()
         update.message.reply_text.assert_not_called()
@@ -56,7 +65,7 @@ class TestTelegramSecurity:
         rl = RateLimiter(10, 60)
         update = _make_update(user_id=12345)
 
-        await handle_message(update, None, rl)
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         mock_pipe.assert_not_called()
         update.message.reply_text.assert_not_called()
@@ -68,11 +77,11 @@ class TestTelegramSecurity:
         from services.ingestion.telegram_listener import handle_message
 
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
-        mock_pipe.return_value = MagicMock(success=True, output="")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="")
         rl = RateLimiter(10, 60)
         update = _make_update(user_id=12345, text="Add todo")
 
-        await handle_message(update, None, rl)
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         mock_pipe.assert_called_once()
 
@@ -92,7 +101,7 @@ class TestTelegramRateLimiting:
         rl.allow()  # Exhaust the limiter
         update = _make_update()
 
-        await handle_message(update, None, rl)
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         mock_pipe.assert_not_called()
         update.message.reply_text.assert_called_once()
@@ -112,11 +121,11 @@ class TestTelegramMessageProcessing:
 
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
-        mock_pipe.return_value = MagicMock(success=True, output="")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="")
         rl = RateLimiter(10, 60)
         update = _make_update(text="Buy groceries")
 
-        await handle_message(update, None, rl)
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         update.message.reply_text.assert_called_once_with("✓")
 
@@ -129,11 +138,11 @@ class TestTelegramMessageProcessing:
 
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
-        mock_pipe.return_value = MagicMock(success=False, output="Repo is locked")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="")
         rl = RateLimiter(10, 60)
         update = _make_update(text="Add todo")
 
-        await handle_message(update, None, rl)
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         update.message.reply_text.assert_called_once_with("Repo is locked")
 
@@ -149,7 +158,7 @@ class TestTelegramMessageProcessing:
         rl = RateLimiter(10, 60)
         update = _make_update(text="")
         update.message.text = ""
-        await handle_message(update, None, rl)
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         mock_pipe.assert_not_called()
 
@@ -167,7 +176,7 @@ class TestTelegramMessageProcessing:
         update = _make_update(text="")
         update.message.voice = MagicMock()
 
-        await handle_message(update, None, rl)
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         mock_pipe.assert_not_called()
         update.message.reply_text.assert_called_once_with("Sorry, voice notes are not supported yet.")
@@ -181,11 +190,11 @@ class TestTelegramMessageProcessing:
 
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
-        mock_pipe.return_value = MagicMock(success=True, output="")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="")
         rl = RateLimiter(10, 60)
         update = _make_update(text="Hello")
 
-        await handle_message(update, None, rl)
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         prompt_arg = mock_pipe.call_args[0][0]
         assert "Type: telegram" in prompt_arg

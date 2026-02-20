@@ -83,3 +83,11 @@ ENABLED_CHANNELS = [
     for ch in os.getenv("ENABLED_CHANNELS", "email").split(",")
     if ch.strip()
 ]
+
+# --- State Maintenance ---
+SESSION_STORAGE_PATH = os.getenv(
+    "SESSION_STORAGE_PATH",
+    str(Path(__file__).resolve().parent.parent.parent / "sessions.json")
+)
+SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", "60"))
+
