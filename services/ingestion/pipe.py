@@ -10,11 +10,15 @@ import os
 import subprocess
 import json
 import re
+import threading
 from dataclasses import dataclass, field
 
 from . import config
 
 logger = logging.getLogger(__name__)
+
+# Global lock to prevent concurrent Gemini CLI executions across threads
+_gemini_lock = threading.Lock()
 
 
 @dataclass
@@ -90,68 +94,71 @@ def pipe_to_gemini(prompt: str) -> PipeResult:
     if gemini_dir:
         env["PATH"] = gemini_dir + ":" + env.get("PATH", "")
 
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=vault_path,
-            capture_output=True,
-            text=True,
-            timeout=config.GEMINI_TIMEOUT_SECONDS,
-            env=env,
-        )
+    logger.debug("Waiting for Gemini CLI lock...")
+    with _gemini_lock:
+        logger.debug("Acquired Gemini CLI lock.")
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=vault_path,
+                capture_output=True,
+                text=True,
+                timeout=config.GEMINI_TIMEOUT_SECONDS,
+                env=env,
+            )
 
-        stdout = result.stdout.strip()
-        stderr = result.stderr.strip()
+            stdout = result.stdout.strip()
+            stderr = result.stderr.strip()
 
-        if result.returncode != 0:
-            error_msg = stderr or stdout or f"Gemini CLI exited with code {result.returncode}"
-            logger.error("Gemini CLI error (code %d): %s", result.returncode, error_msg)
-            return PipeResult(success=False, output=error_msg, return_code=result.returncode)
+            if result.returncode != 0:
+                error_msg = stderr or stdout or f"Gemini CLI exited with code {result.returncode}"
+                logger.error("Gemini CLI error (code %d): %s", result.returncode, error_msg)
+                return PipeResult(success=False, output=error_msg, return_code=result.returncode)
 
-        if match := re.search(r"(\{.*\})", stdout, re.DOTALL):
-            try:
-                data = json.loads(match.group(1))
-                response = data.get("response", "").strip()
-                
-                if response:
-                    # Check for success signal code word
-                    if response.strip() == "SYNAPSE_OK":
-                        logger.info("Gemini CLI completed successfully (SYNAPSE_OK)")
-                        return PipeResult(success=True, output="", return_code=0)
+            if match := re.search(r"(\{.*\})", stdout, re.DOTALL):
+                try:
+                    data = json.loads(match.group(1))
+                    response = data.get("response", "").strip()
+                    
+                    if response:
+                        # Check for success signal code word
+                        if response.strip() == "SYNAPSE_OK":
+                            logger.info("Gemini CLI completed successfully (SYNAPSE_OK)")
+                            return PipeResult(success=True, output="", return_code=0)
 
-                    # Non-empty response = agent wants to relay something (question/error)
-                    logger.info("Gemini CLI returned response: %s", response[:200])
-                    return PipeResult(success=False, output=response, return_code=0)
-                
-                # Empty response = success (silent)
-                logger.info("Gemini CLI completed successfully (silent response)")
-                return PipeResult(success=True, output="", return_code=0)
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse JSON from stdout despite --output-format=json")
-        
-        # Fallback for non-JSON output (e.g. fatal errors before JSON emission)
-        if stdout:
-            logger.info("Gemini CLI returned non-JSON output: %s", stdout[:200])
-            return PipeResult(success=False, output=stdout, return_code=0)
+                        # Non-empty response = agent wants to relay something (question/error)
+                        logger.info("Gemini CLI returned response: %s", response[:200])
+                        return PipeResult(success=False, output=response, return_code=0)
+                    
+                    # Empty response = success (silent)
+                    logger.info("Gemini CLI completed successfully (silent response)")
+                    return PipeResult(success=True, output="", return_code=0)
+                except json.JSONDecodeError:
+                    logger.warning("Failed to parse JSON from stdout despite --output-format=json")
+            
+            # Fallback for non-JSON output (e.g. fatal errors before JSON emission)
+            if stdout:
+                logger.info("Gemini CLI returned non-JSON output: %s", stdout[:200])
+                return PipeResult(success=False, output=stdout, return_code=0)
 
-        # Empty output = success
-        logger.info("Gemini CLI completed successfully (silent)")
-        return PipeResult(success=True, output="", return_code=0)
+            # Empty output = success
+            logger.info("Gemini CLI completed successfully (silent)")
+            return PipeResult(success=True, output="", return_code=0)
 
-    except subprocess.TimeoutExpired:
-        logger.error("Gemini CLI timed out after %ds", config.GEMINI_TIMEOUT_SECONDS)
-        return PipeResult(
-            success=False,
-            output=f"Gemini CLI timed out after {config.GEMINI_TIMEOUT_SECONDS} seconds.",
-            return_code=-1,
-        )
-    except FileNotFoundError:
-        logger.error("Gemini CLI not found at '%s'", config.GEMINI_CMD)
-        return PipeResult(
-            success=False,
-            output=f"Gemini CLI not found at '{config.GEMINI_CMD}'. Is it installed and in PATH?",
-            return_code=-1,
-        )
-    except Exception as e:
-        logger.error("Unexpected error piping to Gemini CLI: %s", e)
-        return PipeResult(success=False, output=str(e), return_code=-1)
+        except subprocess.TimeoutExpired:
+            logger.error("Gemini CLI timed out after %ds", config.GEMINI_TIMEOUT_SECONDS)
+            return PipeResult(
+                success=False,
+                output=f"Gemini CLI timed out after {config.GEMINI_TIMEOUT_SECONDS} seconds.",
+                return_code=-1,
+            )
+        except FileNotFoundError:
+            logger.error("Gemini CLI not found at '%s'", config.GEMINI_CMD)
+            return PipeResult(
+                success=False,
+                output=f"Gemini CLI not found at '{config.GEMINI_CMD}'. Is it installed and in PATH?",
+                return_code=-1,
+            )
+        except Exception as e:
+            logger.error("Unexpected error piping to Gemini CLI: %s", e)
+            return PipeResult(success=False, output=str(e), return_code=-1)
