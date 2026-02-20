@@ -81,3 +81,13 @@ class TestSendReply:
         sent_msg = mock_server.send_message.call_args[0][0]
         assert sent_msg["In-Reply-To"] == "<abc123@gmail.com>"
         assert sent_msg["References"] == "<abc123@gmail.com>"
+        send_reply(
+            to_addr="user@example.com",
+            subject="Test",
+            body="Clarification needed.",
+            original_message_id="<abc123@gmail.com>",
+            original_references="<root-id@gmail.com> <prev-id@gmail.com>",
+        )
+        sent_msg_with_refs = mock_server.send_message.call_args[0][0]
+        assert sent_msg_with_refs["In-Reply-To"] == "<abc123@gmail.com>"
+        assert sent_msg_with_refs["References"] == "<root-id@gmail.com> <prev-id@gmail.com> <abc123@gmail.com>"

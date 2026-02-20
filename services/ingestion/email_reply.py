@@ -20,6 +20,7 @@ def send_reply(
     subject: str,
     body: str,
     original_message_id: str = "",
+    original_references: str = "",
 ) -> bool:
     """
     Send an email reply via SMTP.
@@ -29,6 +30,7 @@ def send_reply(
         subject: Original email subject (will be prefixed with "Re: ").
         body: Reply body text (the Gemini CLI output).
         original_message_id: Message-ID of the original email for threading.
+        original_references: Existing References string from the original email.
 
     Returns:
         True if sent successfully, False otherwise.
@@ -51,7 +53,12 @@ def send_reply(
     # Threading headers for proper Gmail conversation grouping
     if original_message_id:
         msg["In-Reply-To"] = original_message_id
-        msg["References"] = original_message_id
+        
+        # RFC 2822: References should be the original References + the original Message-ID
+        if original_references:
+            msg["References"] = f"{original_references} {original_message_id}"
+        else:
+            msg["References"] = original_message_id
 
     try:
         logger.info("Sending reply to %s: %r", to_addr, reply_subject)

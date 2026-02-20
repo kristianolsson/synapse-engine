@@ -120,10 +120,19 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     subject = msg.get("Subject", "(no subject)")
     
     in_reply_to = msg.get("In-Reply-To", "").strip()
+    references = msg.get("References", "").strip()
     message_id = msg.get("Message-ID", "").strip()
-    # If the email is a reply in a thread, link it to the existing thread's session context.
-    # Otherwise, start a fresh session specifically for this new email thread.
-    session_key = in_reply_to if in_reply_to else message_id
+    
+    # Session grouping logic:
+    # 1. If 'References' exists, the root thread ID is usually the first ID in the list.
+    # 2. If no 'References', fallback to 'In-Reply-To'.
+    # 3. If neither, it's a completely new thread, so use its own 'Message-ID'.
+    if references:
+        session_key = references.split()[0]
+    elif in_reply_to:
+        session_key = in_reply_to
+    else:
+        session_key = message_id
 
     logger.info("Processing email from=%s subject=%r", sender, subject)
 
@@ -138,6 +147,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
                 subject="Synapse: Rejected email",
                 body=f"Rejected email from unauthorized sender.\n\nFrom: {sender}\nSubject: {subject}",
                 original_message_id=msg.get("Message-ID", ""),
+                original_references=msg.get("References", ""),
             )
         return False, ""
 
@@ -263,6 +273,7 @@ class EmailListener:
                         subject=raw_msg.get("Subject", ""),
                         body=reply_text,
                         original_message_id=raw_msg.get("Message-ID", ""),
+                        original_references=raw_msg.get("References", ""),
                     )
 
                 # Mark as read and archive (move out of INBOX)
