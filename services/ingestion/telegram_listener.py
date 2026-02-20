@@ -124,6 +124,11 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter) -> 
     text = message.text or message.caption or ""
     image_paths = await extract_attachments(update)
 
+    if message.voice:
+        logger.info("Unsupported voice message from user %d", user.id)
+        await message.reply_text("Sorry, voice notes are not supported yet.")
+        return
+
     if not text and not image_paths:
         logger.info("Empty message from user %d, ignoring", user.id)
         return
@@ -189,10 +194,10 @@ class TelegramListener:
         async def _handler(update: Update, context) -> None:
             await handle_message(update, context, rl)
 
-        # Handle text messages, photos, and documents
+        # Handle text messages, photos, documents, and voice notes (for unsupported reply)
         self._app.add_handler(
             MessageHandler(
-                filters.TEXT | filters.PHOTO | filters.Document.ALL,
+                filters.TEXT | filters.PHOTO | filters.Document.ALL | filters.VOICE,
                 _handler,
             )
         )

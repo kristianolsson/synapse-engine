@@ -21,6 +21,7 @@ def _make_update(user_id=12345, chat_type="private", text="Buy milk", photo=None
     update.message.caption = None
     update.message.photo = photo or []
     update.message.document = document
+    update.message.voice = None
     update.message.reply_text = AsyncMock()
     update.get_bot.return_value = MagicMock()
     return update
@@ -148,11 +149,28 @@ class TestTelegramMessageProcessing:
         rl = RateLimiter(10, 60)
         update = _make_update(text="")
         update.message.text = ""
-        update.message.caption = None
+        await handle_message(update, None, rl)
+
+        mock_pipe.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.telegram_listener.config")
+    @patch("services.ingestion.telegram_listener.pipe_to_gemini")
+    @patch("services.ingestion.telegram_listener.extract_attachments", new_callable=AsyncMock)
+    async def test_voice_message_replies_unsupported(self, mock_extract, mock_pipe, mock_config):
+        from services.ingestion.telegram_listener import handle_message
+
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_extract.return_value = []
+        rl = RateLimiter(10, 60)
+        
+        update = _make_update(text="")
+        update.message.voice = MagicMock()
 
         await handle_message(update, None, rl)
 
         mock_pipe.assert_not_called()
+        update.message.reply_text.assert_called_once_with("Sorry, voice notes are not supported yet.")
 
     @pytest.mark.asyncio
     @patch("services.ingestion.telegram_listener.config")
