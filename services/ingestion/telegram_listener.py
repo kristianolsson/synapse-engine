@@ -81,13 +81,6 @@ async def extract_attachments(update: Update) -> list[str]:
         if path:
             paths.append(path)
 
-    # Voice notes (.ogg)
-    if message.voice:
-        voice = message.voice
-        path = await download_attachment(voice, f"voice_{voice.file_unique_id}.ogg", bot)
-        if path:
-            paths.append(path)
-
     # Documents (files, PDFs, etc.)
     if message.document:
         doc = message.document
@@ -196,10 +189,10 @@ class TelegramListener:
         async def _handler(update: Update, context) -> None:
             await handle_message(update, context, rl)
 
-        # Handle text messages, photos, documents, and voice notes
+        # Handle text messages, photos, and documents
         self._app.add_handler(
             MessageHandler(
-                filters.TEXT | filters.PHOTO | filters.Document.ALL | filters.VOICE,
+                filters.TEXT | filters.PHOTO | filters.Document.ALL,
                 _handler,
             )
         )
