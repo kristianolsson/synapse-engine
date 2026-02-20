@@ -47,11 +47,13 @@ def build_prompt(msg: IncomingMessage) -> str:
             f"\n\n**Attached Images (use read_file to analyze):**\n{refs}"
         )
 
+    subject_line = f"Subject: {msg.subject}\n" if msg.subject else ""
+
     prompt = (
         f"---\n"
         f"Type: {msg.source_type}\n"
         f"Sender: {msg.sender}\n"
-        f"Subject: {msg.subject}\n"
+        f"{subject_line}"
         f"Context: Ingested via {msg.source_type.upper()}\n"
         f"{image_line}\n"
         f"---\n\n"

@@ -142,7 +142,8 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter) -> 
     )
 
     prompt = build_prompt(incoming)
-    result = pipe_to_gemini(prompt)
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, pipe_to_gemini, prompt)
 
     if result.success:
         # Telegram persona always gives feedback
