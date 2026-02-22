@@ -147,7 +147,7 @@ class TestPipeToGemini:
         # Verify correct command structure
         from services.ingestion import config
         call_args = mock_run.call_args
-        assert call_args[0][0] == [config.GEMINI_CMD, "--prompt=test prompt", "--yolo", "--output-format=json"]
+        assert call_args[0][0] == [config.GEMINI_CMD, "--prompt=test prompt", "--yolo", "--output-format=json", "--model=pro"]
         assert call_args[1]["cwd"] == config.VAULT_PATH
 
     @patch("services.ingestion.pipe.subprocess.run")
@@ -191,7 +191,7 @@ class TestPipeToGemini:
         assert result.session_id == "new-123"
         from services.ingestion import config
         call_args = mock_run.call_args_list[0]
-        assert call_args[0][0] == [config.GEMINI_CMD, "--resume", "old-456", "--prompt=test prompt", "--yolo", "--output-format=json"]
+        assert call_args[0][0] == [config.GEMINI_CMD, "--resume", "old-456", "--prompt=test prompt", "--yolo", "--output-format=json", "--model=pro"]
 
     @patch("services.ingestion.pipe.subprocess.run")
     def test_resume_session_fallback(self, mock_run):

@@ -107,13 +107,13 @@ def extract_images(msg: EmailMessage) -> list[str]:
 # ── Message Processing ──────────────────────────────────────────────
 
 
-def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bool, str]:
+def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bool, str, Optional[dict]]:
     """
     Parse a raw email, validate the sender, build a prompt, and pipe it.
 
-    Returns (should_reply, reply_text).
-    - should_reply=False, reply_text="" → success (silent)
-    - should_reply=True, reply_text="..." → error/clarification to relay
+    Returns (should_reply, reply_text, stats).
+    - should_reply=False, reply_text="", stats=None → success (silent)
+    - should_reply=True, reply_text="...", stats={...} → error/clarification to relay
     """
     msg = email.message_from_bytes(raw_bytes, policy=email.policy.default)
     sender = extract_sender(msg)
@@ -149,15 +149,15 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
                 original_message_id=msg.get("Message-ID", ""),
                 original_references=msg.get("References", ""),
             )
-        return False, ""
+        return False, "", None
 
     body = extract_text_body(msg)
 
     if body.strip() == "/new":
         if session_manager.clear_session(session_key):
-            return True, "Session cleared. Starting a fresh context."
+            return True, "Session cleared. Starting a fresh context.", None
         else:
-            return True, "No active session to clear."
+            return True, "No active session to clear.", None
 
     images = extract_images(msg)
 
@@ -177,9 +177,9 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         session_manager.save_session(session_key, result.session_id)
 
     if result.requires_reply:
-        return True, result.output
+        return True, result.output, result.stats
     else:
-        return False, ""
+        return False, "", result.stats
 
 
 # ── IMAP IDLE Loop ──────────────────────────────────────────────────
@@ -260,7 +260,7 @@ class EmailListener:
                 raw_data = self.client.fetch([uid], ["RFC822"])
                 raw_bytes = raw_data[uid][b"RFC822"]
 
-                should_reply, reply_text = process_email(raw_bytes, self.session_manager)
+                should_reply, reply_text, stats = process_email(raw_bytes, self.session_manager)
 
                 if should_reply and reply_text:
                     from .email_reply import send_reply
@@ -274,6 +274,7 @@ class EmailListener:
                         body=reply_text,
                         original_message_id=raw_msg.get("Message-ID", ""),
                         original_references=raw_msg.get("References", ""),
+                        stats=stats,
                     )
 
                 # Mark as read and archive (move out of INBOX)

@@ -24,6 +24,7 @@ from . import config
 from .pipe import IncomingMessage, build_prompt, pipe_to_gemini
 from .rate_limiter import RateLimiter
 from .session_manager import SessionManager
+from .stats_formatter import format_stats_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -158,13 +159,19 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     if result.session_id:
         session_manager.save_session(str(user.id), result.session_id)
 
-    if result.requires_reply:
-        # Relay error/clarification/response to user
-        reply = result.output[:4096]  # Telegram message limit
-        await message.reply_text(reply)
-    else:
-        # Telegram persona always gives feedback
-        await message.reply_text("✓")
+    reply_text = result.output
+    if not reply_text:
+        reply_text = "✓"
+
+    # Append stats if available
+    reply_text += format_stats_telegram(result.stats)
+
+    # Relay error/clarification/response to user
+    # Telegram message limit is 4096 chars
+    if len(reply_text) > 4096:
+        reply_text = reply_text[:4093] + "..."
+        
+    await message.reply_text(reply_text)
 
 
 # ── Telegram Listener ──────────────────────────────────────────────

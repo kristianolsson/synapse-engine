@@ -11,6 +11,7 @@ import smtplib
 from email.mime.text import MIMEText
 
 from . import config
+from .stats_formatter import format_stats_email
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ def send_reply(
     body: str,
     original_message_id: str = "",
     original_references: str = "",
+    stats: dict = None,
 ) -> bool:
     """
     Send an email reply via SMTP.
@@ -31,6 +33,7 @@ def send_reply(
         body: Reply body text (the Gemini CLI output).
         original_message_id: Message-ID of the original email for threading.
         original_references: Existing References string from the original email.
+        stats: Optional execution statistics to append to the reply.
 
     Returns:
         True if sent successfully, False otherwise.
@@ -45,7 +48,9 @@ def send_reply(
 
     reply_subject = subject if subject.startswith("Re:") else f"Re: {subject}"
 
-    msg = MIMEText(body, "plain", "utf-8")
+    final_body = body + format_stats_email(stats)
+
+    msg = MIMEText(final_body, "plain", "utf-8")
     msg["From"] = config.EMAIL_ADDRESS
     msg["To"] = to_addr
     msg["Subject"] = reply_subject

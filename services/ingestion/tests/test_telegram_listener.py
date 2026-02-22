@@ -121,7 +121,7 @@ class TestTelegramMessageProcessing:
 
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
-        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
         rl = RateLimiter(10, 60)
         update = _make_update(text="Buy groceries")
 
@@ -133,12 +133,82 @@ class TestTelegramMessageProcessing:
     @patch("services.ingestion.telegram_listener.config")
     @patch("services.ingestion.telegram_listener.pipe_to_gemini")
     @patch("services.ingestion.telegram_listener.extract_attachments", new_callable=AsyncMock)
+    async def test_success_with_stats(self, mock_extract, mock_pipe, mock_config):
+        from services.ingestion.telegram_listener import handle_message
+
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_extract.return_value = []
+        
+        # Mock pipe result with stats
+        stats = {
+            "models": {
+                "gemini-pro": {"api": {"totalRequests": 2, "totalErrors": 0, "totalLatencyMs": 100}}
+            }
+        }
+        mock_pipe.return_value = MagicMock(
+            is_error=False, 
+            requires_reply=False, 
+            output="Done", 
+            session_id="", 
+            stats=stats
+        )
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="Analyze this")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        # Check if reply contains the original output AND the stats
+        args = update.message.reply_text.call_args[0][0]
+        assert "Done" in args
+        assert "gemini-pro (2 req, 0 err)" in args
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.telegram_listener.config")
+    @patch("services.ingestion.telegram_listener.pipe_to_gemini")
+    @patch("services.ingestion.telegram_listener.extract_attachments", new_callable=AsyncMock)
+    async def test_success_with_tool_stats(self, mock_extract, mock_pipe, mock_config):
+        from services.ingestion.telegram_listener import handle_message
+
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_extract.return_value = []
+        
+        stats = {
+            "models": {
+                "gemini-pro": {"api": {"totalRequests": 1, "totalErrors": 0}}
+            },
+            "tools": {
+                "byName": {
+                    "google_web_search": {"count": 2, "success": 1, "fail": 1}
+                }
+            }
+        }
+        mock_pipe.return_value = MagicMock(
+            is_error=False, 
+            requires_reply=False, 
+            output="Done", 
+            session_id="", 
+            stats=stats
+        )
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="Analyze this")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        args = update.message.reply_text.call_args[0][0]
+        assert "Done" in args
+        assert "gemini-pro (1 req, 0 err)" in args
+        assert "google_web_search: 2 (1 ok, 1 fail)" in args
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.telegram_listener.config")
+    @patch("services.ingestion.telegram_listener.pipe_to_gemini")
+    @patch("services.ingestion.telegram_listener.extract_attachments", new_callable=AsyncMock)
     async def test_error_replies_with_output(self, mock_extract, mock_pipe, mock_config):
         from services.ingestion.telegram_listener import handle_message
 
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
-        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="", stats=None)
         rl = RateLimiter(10, 60)
         update = _make_update(text="Add todo")
 

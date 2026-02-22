@@ -123,6 +123,7 @@ class PipeResult:
     output: str  # text to relay to user (if requires_reply is True)
     return_code: int = 0
     session_id: str = ""
+    stats: Optional[dict] = None
 
 
 def pipe_to_gemini(prompt: str, session_id: Optional[str] = None) -> PipeResult:
@@ -170,20 +171,21 @@ def pipe_to_gemini(prompt: str, session_id: Optional[str] = None) -> PipeResult:
                         data = json.loads(match.group(1))
                         response = data.get("response", "").strip()
                         returned_session_id = data.get("session_id", "")
+                        stats = data.get("stats", None)
                         
                         if response:
                             # Check for success signal code word
                             if response.strip() == "SYNAPSE_OK":
                                 logger.info("Gemini CLI completed successfully (SYNAPSE_OK)")
-                                return PipeResult(is_error=False, requires_reply=False, output="", return_code=0, session_id=returned_session_id)
+                                return PipeResult(is_error=False, requires_reply=False, output="", return_code=0, session_id=returned_session_id, stats=stats)
 
                             # Non-empty response = agent wants to relay something (question/error)
                             logger.info("Gemini CLI returned response: %s", response[:200])
-                            return PipeResult(is_error=False, requires_reply=True, output=response, return_code=0, session_id=returned_session_id)
+                            return PipeResult(is_error=False, requires_reply=True, output=response, return_code=0, session_id=returned_session_id, stats=stats)
                         
                         # Empty response = silent success
                         logger.info("Gemini CLI completed successfully (silent response)")
-                        return PipeResult(is_error=False, requires_reply=False, output="", return_code=0, session_id=returned_session_id)
+                        return PipeResult(is_error=False, requires_reply=False, output="", return_code=0, session_id=returned_session_id, stats=stats)
                     except json.JSONDecodeError:
                         logger.warning("Failed to parse JSON from stdout despite --output-format=json")
                 
@@ -216,7 +218,7 @@ def pipe_to_gemini(prompt: str, session_id: Optional[str] = None) -> PipeResult:
                 logger.error("Unexpected error piping to Gemini CLI: %s", e)
                 return PipeResult(is_error=True, requires_reply=True, output=str(e), return_code=-1)
 
-    models_to_try = [None] + config.GEMINI_FALLBACK_MODELS
+    models_to_try = config.GEMINI_FALLBACK_MODELS
     
     for attempt in range(min(config.GEMINI_MAX_RETRIES, len(models_to_try))):
         current_model = models_to_try[attempt]
@@ -235,14 +237,17 @@ def pipe_to_gemini(prompt: str, session_id: Optional[str] = None) -> PipeResult:
             
         res = _run_cmd(cmd)
         
-        # Automatic Fallback: If we tried to --resume and it failed (e.g., session expired on CLI side),
-        # strip the --resume flag and try one more time as a fresh session for this specific model attempt.
+        # Automatic Fallback: If we tried to --resume and it failed due to a session-specific error
+        # (e.g., session expired/invalid), strip the --resume flag and try once more.
+        # Do NOT drop the session for transient API errors (429, quota) — those should go to model fallback.
         if session_id and res.is_error and "--resume" in cmd:
-            logger.warning("Gemini CLI failed with --resume. Retrying as a fresh session...")
-            fallback_cmd = [config.GEMINI_CMD, f"--prompt={prompt}", "--yolo", "--output-format=json"]
-            if current_model:
-                fallback_cmd.append(f"--model={current_model}")
-            res = _run_cmd(fallback_cmd)
+            is_transient = any(s in res.output.lower() for s in ["429", "quota", "rate limit", "capacity", "resource_exhausted"])
+            if not is_transient:
+                logger.warning("Gemini CLI failed with --resume (session issue). Retrying as a fresh session...")
+                fallback_cmd = [config.GEMINI_CMD, f"--prompt={prompt}", "--yolo", "--output-format=json"]
+                if current_model:
+                    fallback_cmd.append(f"--model={current_model}")
+                res = _run_cmd(fallback_cmd)
         
         if not res.is_error:
             return res

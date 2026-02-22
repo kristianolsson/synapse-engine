@@ -126,31 +126,34 @@ class TestProcessEmail:
         mock_config.ALLOWED_SENDERS = ["allowed@example.com"]
         raw = _make_simple_email(from_addr="hacker@evil.com")
         sm = MagicMock(spec=SessionManager)
-        should_reply, text = process_email(raw, sm)
+        should_reply, text, stats = process_email(raw, sm)
         assert should_reply is False
+        assert stats is None
         mock_pipe.assert_not_called()
 
     @patch("services.ingestion.email_listener.pipe_to_gemini")
     @patch("services.ingestion.email_listener.config")
     def test_success_silent(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
-        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
         raw = _make_simple_email(from_addr="user@example.com", body="Buy milk")
         sm = MagicMock(spec=SessionManager)
-        should_reply, text = process_email(raw, sm)
+        should_reply, text, stats = process_email(raw, sm)
         assert should_reply is False
         assert text == ""
+        assert stats is None
 
     @patch("services.ingestion.email_listener.pipe_to_gemini")
     @patch("services.ingestion.email_listener.config")
     def test_error_triggers_reply(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
-        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="")
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="", stats={"models": {}})
         raw = _make_simple_email(from_addr="user@example.com", body="Add todo")
         sm = MagicMock(spec=SessionManager)
-        should_reply, text = process_email(raw, sm)
+        should_reply, text, stats = process_email(raw, sm)
         assert should_reply is True
         assert "Repo is locked" in text
+        assert stats is not None
 
 
 class TestEmailReplyLogic:
@@ -177,7 +180,7 @@ class TestEmailReplyLogic:
         listener.client.search.return_value = []  # No more UNSEEN after processing
 
         # Mock process result (needs reply)
-        mock_process.return_value = (True, "Error details")
+        mock_process.return_value = (True, "Error details", None)
 
         # Run
         listener._fetch_and_process([123])
@@ -208,7 +211,7 @@ class TestEmailReplyLogic:
         listener.client.fetch.return_value = {123: {b"RFC822": raw_bytes}}
         listener.client.search.return_value = []  # No more UNSEEN after processing
 
-        mock_process.return_value = (True, "Details")
+        mock_process.return_value = (True, "Details", None)
 
         listener._fetch_and_process([123])
 

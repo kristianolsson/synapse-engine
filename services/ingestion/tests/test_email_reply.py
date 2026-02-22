@@ -61,6 +61,34 @@ class TestSendReply:
 
     @patch("services.ingestion.email_reply.smtplib.SMTP")
     @patch("services.ingestion.email_reply.config")
+    def test_stats_formatting_with_errors(self, mock_config, mock_smtp_class):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        
+        mock_server = MagicMock()
+        mock_smtp_class.return_value.__enter__ = MagicMock(return_value=mock_server)
+        mock_smtp_class.return_value.__exit__ = MagicMock(return_value=False)
+        
+        stats = {
+            "models": {
+                "gemini-fail": {
+                    "api": {"totalLatencyMs": 500, "totalErrors": 2, "totalRequests": 3},
+                }
+            }
+        }
+        
+        send_reply(
+            to_addr="user@example.com",
+            subject="Bug report",
+            body="Failed.",
+            stats=stats
+        )
+        
+        sent_msg = mock_server.send_message.call_args[0][0]
+        body_content = sent_msg.get_payload(decode=True).decode("utf-8")
+        assert "gemini-fail: 3 requests, 2 errors, 500ms" in body_content
+
+    @patch("services.ingestion.email_reply.smtplib.SMTP")
+    @patch("services.ingestion.email_reply.config")
     def test_threading_headers(self, mock_config, mock_smtp_class):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_config.EMAIL_ADDRESS = "bot@lifeos.com"
