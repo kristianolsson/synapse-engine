@@ -8,6 +8,7 @@ from services.ingestion.pipe import (
     PipeResult,
     build_prompt,
     pipe_to_gemini,
+    _clean_error_message,
 )
 
 
@@ -64,6 +65,38 @@ class TestBuildPrompt:
         assert "Type: telegram" in prompt
         assert "Context: Ingested via TELEGRAM" in prompt
 
+
+# ── _clean_error_message tests ─────────────────────────────────────
+
+class TestCleanErrorMessage:
+    def test_extract_gaxios_json_error(self):
+        raw = """Attempt 1 failed with status 429. Retrying... GaxiosError: [{
+  "error": {
+    "code": 429,
+    "message": "No capacity available for model on server",
+    "status": "RESOURCE_EXHAUSTED"
+  }
+}
+]
+    at Gaxios._request (node:internal)"""
+        clean = _clean_error_message(raw)
+        assert clean == "RESOURCE_EXHAUSTED: No capacity available for model on server"
+
+    def test_extract_top_level_quota_error(self):
+        raw = """Error when talking to Gemini API 
+RetryableQuotaError: No capacity available
+    at classifyGoogleError (file:///)"""
+        clean = _clean_error_message(raw)
+        assert clean == "Quota Error: No capacity available"
+
+    def test_strip_node_warnings(self):
+        raw = """(node:88843) [DEP0040] DeprecationWarning: The `punycode` module...
+(Use `node --trace-deprecation ...`)
+YOLO mode is enabled. All tool calls will be automatically approved.
+Loaded cached credentials.
+fatal: not a git repository"""
+        clean = _clean_error_message(raw)
+        assert clean == "fatal: not a git repository"
 
 # ── pipe_to_gemini tests ────────────────────────────────────────────
 

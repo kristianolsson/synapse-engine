@@ -67,6 +67,12 @@ def _resolve_gemini_cmd() -> str:
 
 GEMINI_CMD = _resolve_gemini_cmd()
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "120"))
+GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "3"))
+GEMINI_FALLBACK_MODELS = [
+    m.strip()
+    for m in os.getenv("GEMINI_FALLBACK_MODELS", "pro,flash,flash-lite").split(",")
+    if m.strip()
+]
 
 # --- Telegram Settings ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
