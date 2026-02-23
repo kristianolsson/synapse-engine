@@ -8,7 +8,7 @@
 ## Libraries & Frameworks
 -   **Email Ingestion:** `imapclient` (IMAP IDLE support)
 -   **Telegram Bot:** `python-telegram-bot` (Long-polling)
--   **Testing:** `pytest`
+-   **Testing:** `pytest`, `pytest-cov`
 
 ## Infrastructure
 -   **Platform:** macOS (local execution)
