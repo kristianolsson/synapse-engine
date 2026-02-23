@@ -1,11 +1,11 @@
 # Implementation Plan - Integrate Conductor and Verify Core Flows
 
 ## Phase 1: Analysis & Configuration
-- [ ] Task: specific - Analyze existing tests in `services/ingestion/tests/` to identify gaps in core flow coverage.
+- [~] Task: specific - Analyze existing tests in `services/ingestion/tests/` to identify gaps in core flow coverage.
     - [ ] Subtask: Run existing tests and capture output.
     - [ ] Subtask: Review test files against `services/ingestion` source code.
-- [ ] Task: specific - Update `requirements.txt` to include `pytest-cov` and install dependencies.
-- [ ] Task: specific - Create or update `pytest.ini` to configure test discovery and coverage reporting.
+- [x] Task: specific - Update `requirements.txt` to include `pytest-cov` and install dependencies.
+- [x] Task: specific - Create or update `pytest.ini` to configure test discovery and coverage reporting.
 - [ ] Task: Conductor - User Manual Verification 'Analysis & Configuration' (Protocol in workflow.md)
 
 ## Phase 2: Core Flow Verification

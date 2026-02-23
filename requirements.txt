@@ -2,3 +2,4 @@ imapclient>=3.0.0
 python-dotenv>=1.0.0
 python-telegram-bot>=21.0
 pytest>=8.0.0
+pytest-cov>=4.0.0
