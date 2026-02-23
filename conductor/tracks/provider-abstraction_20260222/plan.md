@@ -17,7 +17,7 @@ Establish the provider interface and migrate the existing Gemini logic without b
     - [ ] Refactor `services/ingestion/pipe.py` to instantiate `AIProvider` via factory.
     - [ ] Update `pipe_to_gemini` (rename to `pipe_to_provider`?) to delegate to the provider.
     - [ ] Fix broken tests in `test_pipe.py` by mocking the provider instead of `subprocess`.
-- [~] Task: Conductor - User Manual Verification 'Core Abstraction & Gemini Migration' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Core Abstraction & Gemini Migration' (Protocol in workflow.md) [checkpoint: 688aeb5]
 
 ## Phase 2: Validation & Extension Proof
 Verify the abstraction works by adding a dummy provider and ensuring the system is stable.
