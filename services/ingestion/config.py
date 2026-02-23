@@ -90,6 +90,9 @@ ENABLED_CHANNELS = [
     if ch.strip()
 ]
 
+# --- Stats Display ---
+STATS_ENABLED = os.getenv("STATS_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+
 # --- State Maintenance ---
 SESSION_STORAGE_PATH = os.getenv(
     "SESSION_STORAGE_PATH",

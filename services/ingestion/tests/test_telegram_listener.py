@@ -153,14 +153,51 @@ class TestTelegramMessageProcessing:
             stats=stats
         )
         rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = True
         update = _make_update(text="Analyze this")
 
-        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+        await handle_message(update, None, rl, sm)
 
         # Check if reply contains the original output AND the stats
         args = update.message.reply_text.call_args[0][0]
         assert "Done" in args
         assert "gemini-pro (2 req, 0 err)" in args
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.telegram_listener.config")
+    @patch("services.ingestion.telegram_listener.pipe_to_gemini")
+    @patch("services.ingestion.telegram_listener.extract_attachments", new_callable=AsyncMock)
+    async def test_success_with_stats_disabled(self, mock_extract, mock_pipe, mock_config):
+        from services.ingestion.telegram_listener import handle_message
+
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_extract.return_value = []
+        
+        stats = {
+            "models": {
+                "gemini-pro": {"api": {"totalRequests": 2, "totalErrors": 0, "totalLatencyMs": 100}}
+            }
+        }
+        mock_pipe.return_value = MagicMock(
+            is_error=False, 
+            requires_reply=False, 
+            output="Done", 
+            session_id="", 
+            stats=stats
+        )
+        rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = False
+        update = _make_update(text="Analyze this")
+
+        await handle_message(update, None, rl, sm)
+
+        args = update.message.reply_text.call_args[0][0]
+        assert "Done" in args
+        assert "Stats" not in args
 
     @pytest.mark.asyncio
     @patch("services.ingestion.telegram_listener.config")
@@ -190,9 +227,12 @@ class TestTelegramMessageProcessing:
             stats=stats
         )
         rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = True
         update = _make_update(text="Analyze this")
 
-        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+        await handle_message(update, None, rl, sm)
 
         args = update.message.reply_text.call_args[0][0]
         assert "Done" in args
@@ -210,9 +250,12 @@ class TestTelegramMessageProcessing:
         mock_extract.return_value = []
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="", stats=None)
         rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = False
         update = _make_update(text="Add todo")
 
-        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+        await handle_message(update, None, rl, sm)
 
         update.message.reply_text.assert_called_once_with("Repo is locked")
 
@@ -262,13 +305,46 @@ class TestTelegramMessageProcessing:
         mock_extract.return_value = []
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="")
         rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = False
         update = _make_update(text="Hello")
 
-        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+        await handle_message(update, None, rl, sm)
 
         prompt_arg = mock_pipe.call_args[0][0]
         assert "Type: telegram" in prompt_arg
         assert "Sender: 12345" in prompt_arg
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.telegram_listener.config")
+    async def test_stats_on_command(self, mock_config):
+        from services.ingestion.telegram_listener import handle_message
+
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        update = _make_update(text="/stats on")
+
+        await handle_message(update, None, rl, sm)
+
+        sm.set_stats_enabled.assert_called_once_with("12345", True)
+        update.message.reply_text.assert_called_once_with("Stats display turned on.")
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.telegram_listener.config")
+    async def test_stats_off_command(self, mock_config):
+        from services.ingestion.telegram_listener import handle_message
+
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        update = _make_update(text="/stats off")
+
+        await handle_message(update, None, rl, sm)
+
+        sm.set_stats_enabled.assert_called_once_with("12345", False)
+        update.message.reply_text.assert_called_once_with("Stats display turned off.")
 
 
 # ── Attachment tests ────────────────────────────────────────────────
@@ -316,3 +392,4 @@ class TestTelegramAttachments:
         assert result is not None
         assert "photo.jpg" in result
         tg_file.download_to_drive.assert_called_once()
+

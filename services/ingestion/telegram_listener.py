@@ -124,12 +124,22 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
 
     # Extract content
     text = message.text or message.caption or ""
+    user_key = str(user.id)
 
     if text.strip() == "/new":
-        if session_manager.clear_session(str(user.id)):
+        if session_manager.clear_session(user_key):
             await message.reply_text("Session cleared. Starting a fresh context.")
         else:
             await message.reply_text("No active session to clear.")
+        return
+
+    # /stats on|off command
+    stripped = text.strip().lower()
+    if stripped in ("/stats on", "/stats off"):
+        enabled = stripped == "/stats on"
+        session_manager.set_stats_enabled(user_key, enabled)
+        label = "on" if enabled else "off"
+        await message.reply_text(f"Stats display turned {label}.")
         return
 
     image_paths = await extract_attachments(update)
@@ -163,8 +173,9 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     if not reply_text:
         reply_text = "✓"
 
-    # Append stats if available
-    reply_text += format_stats_telegram(result.stats)
+    # Append stats if enabled for this user
+    if session_manager.get_stats_enabled(user_key):
+        reply_text += format_stats_telegram(result.stats)
 
     # Relay error/clarification/response to user
     # Telegram message limit is 4096 chars

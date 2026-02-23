@@ -159,6 +159,14 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         else:
             return True, "No active session to clear.", None
 
+    # /stats on|off command
+    stripped_body = body.strip().lower()
+    if stripped_body in ("/stats on", "/stats off"):
+        enabled = stripped_body == "/stats on"
+        session_manager.set_stats_enabled(sender, enabled)
+        label = "on" if enabled else "off"
+        return True, f"Stats display turned {label}.", None
+
     images = extract_images(msg)
 
     incoming = IncomingMessage(
@@ -176,10 +184,12 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     if result.session_id:
         session_manager.save_session(session_key, result.session_id)
 
+    stats_to_return = result.stats if session_manager.get_stats_enabled(sender) else None
+
     if result.requires_reply:
-        return True, result.output, result.stats
+        return True, result.output, stats_to_return
     else:
-        return False, "", result.stats
+        return False, "", stats_to_return
 
 
 # ── IMAP IDLE Loop ──────────────────────────────────────────────────

@@ -57,3 +57,39 @@ class TestSessionManager:
         # Retrieval should return None and clean it up
         assert self.sm.get_session("user1") is None
         self.tearDown()
+
+
+class TestStatsPreference:
+    def setUp(self):
+        self.fd, self.path = tempfile.mkstemp(suffix=".json")
+        os.close(self.fd)
+        self.sm = SessionManager(filepath=self.path, ttl_minutes=60)
+
+    def tearDown(self):
+        if os.path.exists(self.path):
+            os.remove(self.path)
+
+    @patch("services.ingestion.session_manager.config")
+    def test_defaults_to_config(self, mock_config):
+        self.setUp()
+        mock_config.STATS_ENABLED = False
+        assert self.sm.get_stats_enabled("user1") is False
+
+        mock_config.STATS_ENABLED = True
+        assert self.sm.get_stats_enabled("user1") is True
+        self.tearDown()
+
+    @patch("services.ingestion.session_manager.config")
+    def test_per_user_override(self, mock_config):
+        self.setUp()
+        mock_config.STATS_ENABLED = False
+
+        self.sm.set_stats_enabled("user1", True)
+        assert self.sm.get_stats_enabled("user1") is True
+
+        # Other users still use default
+        assert self.sm.get_stats_enabled("user2") is False
+
+        self.sm.set_stats_enabled("user1", False)
+        assert self.sm.get_stats_enabled("user1") is False
+        self.tearDown()

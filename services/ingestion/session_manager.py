@@ -24,6 +24,7 @@ class SessionManager:
         self.filepath = filepath
         self.ttl_seconds = ttl_minutes * 60
         self._lock = threading.Lock()
+        self._stats_prefs: dict[str, bool] = {}  # per-user stats overrides (in-memory)
 
     def _read_data(self) -> dict:
         """Read the JSON file and clean up expired sessions."""
@@ -93,3 +94,13 @@ class SessionManager:
                 logger.debug("Cleared session for %r", session_key)
                 return True
             return False
+
+    def get_stats_enabled(self, user_key: str) -> bool:
+        """Return whether stats are enabled for a user, falling back to config default."""
+        return self._stats_prefs.get(user_key, config.STATS_ENABLED)
+
+    def set_stats_enabled(self, user_key: str, enabled: bool) -> None:
+        """Set the per-user stats preference (in-memory only)."""
+        self._stats_prefs[user_key] = enabled
+        logger.debug("Stats preference for %r set to %s", user_key, enabled)
+
