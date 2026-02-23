@@ -20,7 +20,7 @@
     - [x] Subtask: Verify correct command construction and error handling.
 - [x] Task: Conductor - User Manual Verification 'Core Flow Verification' (Protocol in workflow.md)
 
-## Phase 3: Integration & Baseline
+## Phase 3: Integration & Baseline [checkpoint: 3172d92]
 - [x] Task: specific - Run full test suite with coverage report.
 - [x] Task: specific - specific - Document any known issues or technical debt discovered during verification in `conductor/technical_debt.md` (create if needed).
-- [ ] Task: Conductor - User Manual Verification 'Integration & Baseline' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Integration & Baseline' (Protocol in workflow.md)
