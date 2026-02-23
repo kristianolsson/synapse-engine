@@ -1,17 +1,14 @@
-"""Tests for the prompt standardization and Gemini CLI pipe."""
+"""Tests for the prompt standardization and AI provider pipe."""
 
-import subprocess
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 from services.ingestion.pipe import (
     IncomingMessage,
     PipeResult,
     build_prompt,
     pipe_to_gemini,
-    _clean_error_message,
-    config, # Import config to patch it
 )
-
+from services.ingestion.providers.base import ProviderResult
 
 # ── build_prompt tests ──────────────────────────────────────────────
 
@@ -67,208 +64,29 @@ class TestBuildPrompt:
         assert "Context: Ingested via TELEGRAM" in prompt
 
 
-# ── _clean_error_message tests ─────────────────────────────────────
+# ── pipe_to_gemini delegation tests ─────────────────────────────────
 
-class TestCleanErrorMessage:
-    def test_extract_gaxios_json_error(self):
-        raw = """Attempt 1 failed with status 429. Retrying... GaxiosError: [{
-  "error": {
-    "code": 429,
-    "message": "No capacity available for model on server",
-    "status": "RESOURCE_EXHAUSTED"
-  }
-}
-]
-    at Gaxios._request (node:internal)"""
-        clean = _clean_error_message(raw)
-        assert clean == "RESOURCE_EXHAUSTED: No capacity available for model on server"
-
-    def test_extract_top_level_quota_error(self):
-        raw = """Error when talking to Gemini API 
-RetryableQuotaError: No capacity available
-    at classifyGoogleError (file:///)"""
-        clean = _clean_error_message(raw)
-        assert clean == "Quota Error: No capacity available"
-
-    def test_strip_node_warnings(self):
-        raw = """(node:88843) [DEP0040] DeprecationWarning: The `punycode` module...
-(Use `node --trace-deprecation ...`)
-YOLO mode is enabled. All tool calls will be automatically approved.
-Loaded cached credentials.
-fatal: not a git repository"""
-        clean = _clean_error_message(raw)
-        assert clean == "fatal: not a git repository"
-
-# ── pipe_to_gemini tests ────────────────────────────────────────────
-
-
-class TestPipeToGemini:
-    def setUp(self):
-        config.GEMINI_CMD = "/usr/local/bin/gemini"
-        config.VAULT_PATH = "/tmp/vault"
-        config.GEMINI_TIMEOUT_SECONDS = 30
-        config.GEMINI_MAX_RETRIES = 3
-        config.GEMINI_FALLBACK_MODELS = ["pro", "flash"]
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_success_json_with_warnings(self, mock_run):
-        """Ignore preamble and parse JSON response."""
-        json_output = """
-(node:1234) DeprecationWarning...
-{
-  "response": "Done!"
-}
-"""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=json_output, stderr=""
+class TestPipeToGeminiDelegation:
+    @patch("services.ingestion.pipe.get_provider")
+    def test_delegation_success(self, mock_get_provider):
+        # Mock provider
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+        
+        # Mock result
+        mock_provider.generate_response.return_value = ProviderResult(
+            text="Done",
+            is_error=False,
+            requires_reply=True,
+            session_id="session-123"
         )
-        result = pipe_to_gemini("test prompt")
+        
+        result = pipe_to_gemini("test prompt", session_id="old-session")
+        
+        mock_provider.generate_response.assert_called_once_with("test prompt", session_id="old-session")
+        
+        assert isinstance(result, PipeResult)
+        assert result.output == "Done"
         assert result.is_error is False
         assert result.requires_reply is True
-        assert result.output == "Done!"
-        assert result.return_code == 0
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_success_silent_with_json(self, mock_run):
-        """JSON with empty response field = silent success."""
-        json_output = '{"response": ""}'
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=json_output, stderr=""
-        )
-        result = pipe_to_gemini("test prompt")
-        assert result.is_error is False
-        assert result.requires_reply is False
-        assert result.output == ""
-        assert result.return_code == 0
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_success_silent(self, mock_run):
-        """Empty stdout → success."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="", stderr=""
-        )
-        result = pipe_to_gemini("test prompt")
-        assert result.is_error is False
-        assert result.requires_reply is False
-        assert result.output == ""
-        assert result.return_code == 0
-        # Verify correct command structure
-        # from services.ingestion import config # patched at module level
-        call_args = mock_run.call_args
-        # We don't verify exact args here as they might change with retry loop
-        assert mock_run.call_count >= 1
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_clarification_output(self, mock_run):
-        """Non-empty stdout → relay to user."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="Which project should this go to?",
-            stderr="",
-        )
-        result = pipe_to_gemini("test prompt")
-        # Non-JSON output is treated as error/clarification requiring reply
-        assert result.is_error is True 
-        assert result.requires_reply is True
-        assert "Which project" in result.output
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_cli_error(self, mock_run):
-        """Non-zero return code → error."""
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stdout="",
-            stderr="fatal: repo locked",
-        )
-        result = pipe_to_gemini("test prompt")
-        assert result.is_error is True
-        assert result.requires_reply is True
-        assert "repo locked" in result.output
-        assert result.return_code == 1
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_resume_session_success(self, mock_run):
-        """Passing a session_id should include --resume in the command."""
-        json_output = '{"response": "SYNAPSE_OK", "session_id": "new-123"}'
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=json_output, stderr=""
-        )
-        result = pipe_to_gemini("test prompt", session_id="old-456")
-        assert result.is_error is False
-        assert result.requires_reply is False
-        assert result.output == ""
-        assert result.session_id == "new-123"
-        
-        args, _ = mock_run.call_args
-        cmd = args[0]
-        assert "--resume" in cmd
-        assert "old-456" in cmd
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_resume_session_fallback(self, mock_run):
-        """If --resume fails, it should strip the flag and try again."""
-        json_output_fail = '{"error": "Session expired"}'
-        json_output_success = '{"response": "SYNAPSE_OK", "session_id": "new-123"}'
-        
-        # 1. Fail with resume
-        # 2. Succeed without resume
-        mock_run.side_effect = [
-            MagicMock(returncode=1, stdout=json_output_fail, stderr=""),
-            MagicMock(returncode=0, stdout=json_output_success, stderr="")
-        ]
-        
-        result = pipe_to_gemini("test prompt", session_id="old-456")
-        assert result.is_error is False
-        assert result.requires_reply is False
-        assert result.session_id == "new-123"
-        assert mock_run.call_count == 2
-        
-        first_call = mock_run.call_args_list[0][0][0]
-        second_call = mock_run.call_args_list[1][0][0]
-        assert "--resume" in first_call
-        assert "--resume" not in second_call
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_timeout(self, mock_run):
-        """Timeout → error with message."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gemini", timeout=120)
-        result = pipe_to_gemini("test prompt")
-        assert result.is_error is True
-        assert result.requires_reply is True
-        assert "timed out" in result.output
-        assert result.return_code == -1
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_cli_not_found(self, mock_run):
-        """Missing CLI binary → helpful error."""
-        mock_run.side_effect = FileNotFoundError()
-        result = pipe_to_gemini("test prompt")
-        assert result.is_error is True
-        assert result.requires_reply is True
-        assert "not found" in result.output
-        assert result.return_code == -1
-
-    @patch("services.ingestion.pipe.subprocess.run")
-    def test_model_fallback(self, mock_run):
-        """Fail on first model, succeed on second."""
-        config.GEMINI_FALLBACK_MODELS = ["model1", "model2"]
-        
-        # 1. Fail with model1
-        # 2. Succeed with model2
-        mock_run.side_effect = [
-            MagicMock(returncode=1, stdout="Quota exceeded", stderr=""),
-            MagicMock(returncode=0, stdout='{"response": "OK"}', stderr="")
-        ]
-        
-        result = pipe_to_gemini("test prompt")
-        assert result.is_error is False
-        assert result.output == "OK"
-        assert mock_run.call_count == 2
-        
-        first_call = mock_run.call_args_list[0][0][0]
-        second_call = mock_run.call_args_list[1][0][0]
-        
-        # Check command args for models
-        assert any("--model=model1" in arg for arg in first_call)
-        assert any("--model=model2" in arg for arg in second_call)
-
+        assert result.session_id == "session-123"

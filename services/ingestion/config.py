@@ -43,6 +43,8 @@ RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "10"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
 # --- Gemini CLI ---
+AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower()
+
 def _resolve_gemini_cmd() -> str:
     """Resolve the gemini CLI path, auto-detecting from the login shell if needed."""
     explicit = os.getenv("GEMINI_CMD", "").strip()
