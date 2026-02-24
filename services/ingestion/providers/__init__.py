@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 from .base import AIProvider
 from .gemini import GeminiProvider
+from .echo import EchoProvider
 
 logger = logging.getLogger(__name__)
 
@@ -27,5 +28,7 @@ def get_provider(provider_name: Optional[str] = None) -> AIProvider:
 
     if provider_name == "gemini":
         return GeminiProvider()
+    if provider_name == "echo":
+        return EchoProvider()
     
     raise ValueError(f"Unknown AI provider: {provider_name}")

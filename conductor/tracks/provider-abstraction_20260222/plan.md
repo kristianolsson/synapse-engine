@@ -22,12 +22,12 @@ Establish the provider interface and migrate the existing Gemini logic without b
 ## Phase 2: Validation & Extension Proof
 Verify the abstraction works by adding a dummy provider and ensuring the system is stable.
 
-- [ ] Task: Implement `EchoProvider` (Test/Dev Provider)
+- [x] Task: Implement `EchoProvider` (Test/Dev Provider)
     - [ ] Create `services/ingestion/providers/echo.py` (returns static text).
     - [ ] Add 'echo' to the provider factory.
-- [ ] Task: Integration Testing
+- [x] Task: Integration Testing
     - [ ] Create a new integration test that switches `AI_PROVIDER=echo` and verifies the full pipeline.
-- [ ] Task: Documentation & Cleanup
+- [x] Task: Documentation & Cleanup
     - [ ] Update `README.md` with new configuration options.
     - [ ] Ensure all new files have proper docstrings and type hints.
-- [ ] Task: Conductor - User Manual Verification 'Validation & Extension Proof' (Protocol in workflow.md)
+- [~] Task: Conductor - User Manual Verification 'Validation & Extension Proof' (Protocol in workflow.md)

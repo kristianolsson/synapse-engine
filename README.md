@@ -45,6 +45,7 @@ The "dumb pipe" infrastructure for the **Synapse** system. This service handles 
 
     **Key Configuration:**
     - `ENABLED_CHANNELS`: Comma-separated list of channels to run (`email`, `telegram`, or `email,telegram`).
+    - `AI_PROVIDER`: The AI backend to use (`gemini` or `echo`). Defaults to `gemini`.
     - `EMAIL_ADDRESS`: The account to ingest from (and reply from).
     - `ALLOWED_SENDERS`: Whitelist of email addresses authorized to send tasks.
     - `REPLY_TO_ADDRESS`: (Optional) Redirect all system replies to this address.
