@@ -24,8 +24,8 @@ To build a reliable, always-on ingestion service that seamlessly bridges externa
     -   Wraps raw content in YAML metadata (Type, Sender, Timestamp, Context).
     -   Sanitizes input for consistent downstream processing.
 -   **Execution Pipe:**
-    -   Direct integration with Gemini CLI.
-    -   Subprocess management for secure command execution.
+    -   Pluggable AI Provider abstraction (e.g., Gemini CLI, Echo).
+    -   Subprocess management for secure command execution (when using CLI providers).
 -   **Operational Reliability:**
     -   Rate limiting to prevent abuse.
     -   Automatic error handling and recovery.
