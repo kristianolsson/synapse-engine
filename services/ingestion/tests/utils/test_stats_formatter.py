@@ -1,6 +1,6 @@
 """Tests for the stats formatting module."""
 
-from services.ingestion.stats_formatter import format_stats_email, format_stats_telegram
+from services.ingestion.utils.stats_formatter import format_stats_email, format_stats_telegram
 
 
 class TestFormatStatsEmail:

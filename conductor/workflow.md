@@ -125,7 +125,7 @@ pip install -r requirements.txt
 ### Daily Development
 ```bash
 # Run tests
-python -m pytest services/ingestion/tests/ -v
+python -m pytest services/ -v
 # Run service manually
 python -m services.ingestion.main
 ```

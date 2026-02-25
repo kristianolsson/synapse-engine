@@ -11,7 +11,7 @@ import sys
 import threading
 
 from . import config
-from .rate_limiter import RateLimiter
+from .core.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def main():
 
     # --- Email ---
     if "email" in channels:
-        from .email_listener import EmailListener
+        from .channels.email.listener import EmailListener
 
         email_listener = EmailListener(rate_limiter=rate_limiter)
         listeners.append(email_listener)
@@ -61,7 +61,7 @@ def main():
             )
             sys.exit(1)
 
-        from .telegram_listener import TelegramListener
+        from .channels.telegram.listener import TelegramListener
 
         telegram_listener = TelegramListener(rate_limiter=rate_limiter)
         listeners.append(telegram_listener)

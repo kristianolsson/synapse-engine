@@ -2,11 +2,11 @@
 
 from unittest.mock import patch, MagicMock
 
-from services.ingestion.email_reply import send_reply
+from services.ingestion.channels.email.reply import send_reply
 
 
 class TestSendReply:
-    @patch("services.ingestion.email_reply.config")
+    @patch("services.ingestion.channels.email.reply.config")
     def test_rejects_non_whitelisted(self, mock_config):
         mock_config.ALLOWED_SENDERS = ["allowed@example.com"]
         result = send_reply(
@@ -16,8 +16,8 @@ class TestSendReply:
         )
         assert result is False
 
-    @patch("services.ingestion.email_reply.smtplib.SMTP")
-    @patch("services.ingestion.email_reply.config")
+    @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
+    @patch("services.ingestion.channels.email.reply.config")
     def test_sends_to_whitelisted(self, mock_config, mock_smtp_class):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_config.EMAIL_ADDRESS = "bot@lifeos.com"
@@ -37,8 +37,8 @@ class TestSendReply:
         assert result is True
         mock_server.send_message.assert_called_once()
 
-    @patch("services.ingestion.email_reply.smtplib.SMTP")
-    @patch("services.ingestion.email_reply.config")
+    @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
+    @patch("services.ingestion.channels.email.reply.config")
     def test_adds_re_prefix(self, mock_config, mock_smtp_class):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_config.EMAIL_ADDRESS = "bot@lifeos.com"
@@ -59,15 +59,15 @@ class TestSendReply:
         sent_msg = mock_server.send_message.call_args[0][0]
         assert sent_msg["Subject"] == "Re: Buy groceries"
 
-    @patch("services.ingestion.email_reply.smtplib.SMTP")
-    @patch("services.ingestion.email_reply.config")
+    @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
+    @patch("services.ingestion.channels.email.reply.config")
     def test_stats_formatting_with_errors(self, mock_config, mock_smtp_class):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
-        
+
         mock_server = MagicMock()
         mock_smtp_class.return_value.__enter__ = MagicMock(return_value=mock_server)
         mock_smtp_class.return_value.__exit__ = MagicMock(return_value=False)
-        
+
         stats = {
             "models": {
                 "gemini-fail": {
@@ -75,20 +75,20 @@ class TestSendReply:
                 }
             }
         }
-        
+
         send_reply(
             to_addr="user@example.com",
             subject="Bug report",
             body="Failed.",
             stats=stats
         )
-        
+
         sent_msg = mock_server.send_message.call_args[0][0]
         body_content = sent_msg.get_payload(decode=True).decode("utf-8")
         assert "gemini-fail: 3 requests, 2 errors, 500ms" in body_content
 
-    @patch("services.ingestion.email_reply.smtplib.SMTP")
-    @patch("services.ingestion.email_reply.config")
+    @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
+    @patch("services.ingestion.channels.email.reply.config")
     def test_threading_headers(self, mock_config, mock_smtp_class):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_config.EMAIL_ADDRESS = "bot@lifeos.com"

@@ -1,25 +1,38 @@
 # Synapse Engine
 
-The "dumb pipe" infrastructure for the **Synapse** system. This service handles external communication (Email, Telegram) and pipes standardized prompts to the Gemini CLI for autonomous management of the **Synapse Vault**.
+The ingestion and dispatch layer for the **Synapse** system. Synapse Engine
+bridges external communication channels (Email, Telegram) with a pluggable AI
+backend — capturing messages, standardizing them into a structured format, and
+routing them to the configured AI provider for autonomous processing of the
+**Synapse Vault**.
 
-## Architecture
+> **Current provider:** Gemini CLI
 
-1.  **Ingestion:** Listens for incoming messages via IMAP IDLE (Email) and/or long-polling (Telegram).
-2.  **Standardization:** Wraps content in a YAML metadata block (`Type`, `Sender`, `Context`).
-3.  **Pipe:** Invokes the `gemini` CLI within the `notes/` vault.
-4.  **Feedback:**
-    -   **Email:** Silent on success. Replies only on error/clarification.
-    -   **Telegram:** Always replies with a concise confirmation or response.
+## How It Works
+
+1. **Listen** — Monitors incoming messages via IMAP IDLE (Email) and long-polling (Telegram).
+2. **Standardize** — Wraps content in a YAML metadata block (`Type`, `Sender`, `Context`).
+3. **Dispatch** — Sends the formatted prompt to the configured AI provider.
+4. **Respond**
+   - **Email:** Silent on success. Replies only on error or clarification.
+   - **Telegram:** Always replies with a concise confirmation or response.
 
 ## Modules
 
--   `services/ingestion/main.py`: Unified entry point — starts enabled channels in separate threads.
--   `services/ingestion/email_listener.py`: IMAP IDLE loop, sender whitelist, image extraction.
--   `services/ingestion/telegram_listener.py`: Telegram bot long-polling, user ID whitelist, attachment download.
--   `services/ingestion/email_reply.py`: SMTP reply handler with threading support.
--   `services/ingestion/pipe.py`: Formatting and subprocess execution of the Gemini CLI.
--   `services/ingestion/rate_limiter.py`: Shared sliding-window rate limiter across channels.
--   `services/ingestion/config.py`: Environment variable loader.
+The service is organized into four layers under `services/ingestion/`:
+
+| Layer | Path | Responsibility |
+|---|---|---|
+| **Entry Point** | `main.py` | Starts enabled channels in threads |
+| **Config** | `config.py` | Loads environment variables |
+| **Channels** | `channels/email/` | IMAP IDLE listener + SMTP reply |
+| | `channels/telegram/` | Telegram bot long-polling |
+| **Core** | `core/pipe.py` | Prompt formatting + AI provider dispatch |
+| | `core/rate_limiter.py` | Sliding-window rate limiter |
+| | `core/session_manager.py` | Per-user session state (TTL-based) |
+| **Providers** | `providers/` | Pluggable AI backends (`gemini`, `echo`) |
+| **Utils** | `utils/stats_formatter.py` | Channel-specific stats formatters |
+
 
 ## Setup
 
@@ -78,10 +91,11 @@ Run as a background service using `launchd`.
 
 **Run Tests:**
 ```bash
-python -m pytest services/ingestion/tests/ -v
+python -m pytest services/ -v
 ```
 
 **Manual Run:**
 ```bash
 python -m services.ingestion.main
 ```
+

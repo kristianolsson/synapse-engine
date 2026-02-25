@@ -12,7 +12,7 @@ import threading
 import time
 from typing import Optional
 
-from . import config
+from .. import config
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class SessionManager:
                 cleaned_data[key] = info
             else:
                 cleaned_count += 1
-        
+
         if cleaned_count > 0:
             logger.debug("Cleaned up %d expired session(s).", cleaned_count)
 
@@ -103,4 +103,3 @@ class SessionManager:
         """Set the per-user stats preference (in-memory only)."""
         self._stats_prefs[user_key] = enabled
         logger.debug("Stats preference for %r set to %s", user_key, enabled)
-

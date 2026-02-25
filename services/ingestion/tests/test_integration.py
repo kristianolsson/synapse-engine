@@ -1,9 +1,10 @@
 
 import pytest
-from services.ingestion.pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from services.ingestion.core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
 
 def test_echo_integration_pipeline(monkeypatch):
     # Setup
+    import services.ingestion.core.pipe as pipe_module
     import services.ingestion.config as config
     monkeypatch.setattr(config, "AI_PROVIDER", "echo")
     

@@ -2,7 +2,7 @@
 
 from unittest.mock import patch, MagicMock
 
-from services.ingestion.pipe import (
+from services.ingestion.core.pipe import (
     IncomingMessage,
     PipeResult,
     build_prompt,
@@ -67,12 +67,12 @@ class TestBuildPrompt:
 # ── pipe_to_gemini delegation tests ─────────────────────────────────
 
 class TestPipeToGeminiDelegation:
-    @patch("services.ingestion.pipe.get_provider")
+    @patch("services.ingestion.core.pipe.get_provider")
     def test_delegation_success(self, mock_get_provider):
         # Mock provider
         mock_provider = MagicMock()
         mock_get_provider.return_value = mock_provider
-        
+
         # Mock result
         mock_provider.generate_response.return_value = ProviderResult(
             text="Done",
@@ -80,11 +80,11 @@ class TestPipeToGeminiDelegation:
             requires_reply=True,
             session_id="session-123"
         )
-        
+
         result = pipe_to_gemini("test prompt", session_id="old-session")
-        
+
         mock_provider.generate_response.assert_called_once_with("test prompt", session_id="old-session")
-        
+
         assert isinstance(result, PipeResult)
         assert result.output == "Done"
         assert result.is_error is False

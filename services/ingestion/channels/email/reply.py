@@ -10,8 +10,8 @@ import logging
 import smtplib
 from email.mime.text import MIMEText
 
-from . import config
-from .stats_formatter import format_stats_email
+from ... import config
+from ...utils.stats_formatter import format_stats_email
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def send_reply(
     # Threading headers for proper Gmail conversation grouping
     if original_message_id:
         msg["In-Reply-To"] = original_message_id
-        
+
         # RFC 2822: References should be the original References + the original Message-ID
         if original_references:
             msg["References"] = f"{original_references} {original_message_id}"

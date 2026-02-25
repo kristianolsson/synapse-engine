@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from services.ingestion.session_manager import SessionManager
+from services.ingestion.core.session_manager import SessionManager
 
 
 class TestSessionManager:
@@ -24,10 +24,10 @@ class TestSessionManager:
     def test_save_and_get_session(self):
         self.setUp()
         self.sm.save_session("user1", "session-abc")
-        
+
         sid = self.sm.get_session("user1")
         assert sid == "session-abc"
-        
+
         # Another user should be None
         assert self.sm.get_session("user2") is None
         self.tearDown()
@@ -35,10 +35,10 @@ class TestSessionManager:
     def test_clear_session(self):
         self.setUp()
         self.sm.save_session("user1", "session-abc")
-        
+
         assert self.sm.clear_session("user1") is True
         assert self.sm.get_session("user1") is None
-        
+
         # Clearing an empty session returns False
         assert self.sm.clear_session("user2") is False
         self.tearDown()
@@ -46,14 +46,14 @@ class TestSessionManager:
     def test_ttl_expiration(self):
         self.setUp()
         self.sm.save_session("user1", "session-abc")
-        
+
         # Manually alter the file to make it artificially old
         with open(self.path, "r") as f:
             data = json.load(f)
         data["user1"]["last_seen"] = time.time() - 4000  # Older than 3600s (60 mins)
         with open(self.path, "w") as f:
             json.dump(data, f)
-            
+
         # Retrieval should return None and clean it up
         assert self.sm.get_session("user1") is None
         self.tearDown()
@@ -69,7 +69,7 @@ class TestStatsPreference:
         if os.path.exists(self.path):
             os.remove(self.path)
 
-    @patch("services.ingestion.session_manager.config")
+    @patch("services.ingestion.core.session_manager.config")
     def test_defaults_to_config(self, mock_config):
         self.setUp()
         mock_config.STATS_ENABLED = False
@@ -79,7 +79,7 @@ class TestStatsPreference:
         assert self.sm.get_stats_enabled("user1") is True
         self.tearDown()
 
-    @patch("services.ingestion.session_manager.config")
+    @patch("services.ingestion.core.session_manager.config")
     def test_per_user_override(self, mock_config):
         self.setUp()
         mock_config.STATS_ENABLED = False

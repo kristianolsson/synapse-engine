@@ -20,11 +20,11 @@ from telegram.ext import (
     filters,
 )
 
-from . import config
-from .pipe import IncomingMessage, build_prompt, pipe_to_gemini
-from .rate_limiter import RateLimiter
-from .session_manager import SessionManager
-from .stats_formatter import format_stats_telegram
+from ... import config
+from ...core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from ...core.rate_limiter import RateLimiter
+from ...core.session_manager import SessionManager
+from ...utils.stats_formatter import format_stats_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # Telegram message limit is 4096 chars
     if len(reply_text) > 4096:
         reply_text = reply_text[:4093] + "..."
-        
+
     await message.reply_text(reply_text)
 
 

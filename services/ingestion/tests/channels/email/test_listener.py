@@ -8,15 +8,15 @@ from unittest.mock import patch, MagicMock
 
 import tempfile
 
-from services.ingestion.email_listener import (
+from services.ingestion.channels.email.listener import (
     EmailListener,
     extract_sender,
     extract_text_body,
     extract_images,
     process_email,
 )
-from services.ingestion.session_manager import SessionManager
-from services.ingestion.rate_limiter import RateLimiter
+from services.ingestion.core.session_manager import SessionManager
+from services.ingestion.core.rate_limiter import RateLimiter
 
 
 # ── RateLimiter tests ───────────────────────────────────────────────
@@ -35,7 +35,7 @@ class TestRateLimiter:
         assert rl.allow() is True
         assert rl.allow() is False
 
-    @patch("services.ingestion.rate_limiter.time")
+    @patch("services.ingestion.core.rate_limiter.time")
     def test_window_expiry(self, mock_time):
         rl = RateLimiter(max_events=1, window_seconds=10)
         mock_time.time.return_value = 100.0
@@ -101,7 +101,7 @@ class TestExtractImages:
         images = extract_images(msg)
         assert images == []
 
-    @patch("services.ingestion.email_listener.config")
+    @patch("services.ingestion.channels.email.listener.config")
     def test_with_image_attachment(self, mock_config, tmp_path):
         mock_config.VAULT_PATH = str(tmp_path)
         msg = MIMEMultipart()
@@ -120,8 +120,8 @@ class TestExtractImages:
 
 
 class TestProcessEmail:
-    @patch("services.ingestion.email_listener.pipe_to_gemini")
-    @patch("services.ingestion.email_listener.config")
+    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.config")
     def test_rejects_unauthorized_sender(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["allowed@example.com"]
         raw = _make_simple_email(from_addr="hacker@evil.com")
@@ -131,8 +131,8 @@ class TestProcessEmail:
         assert stats is None
         mock_pipe.assert_not_called()
 
-    @patch("services.ingestion.email_listener.pipe_to_gemini")
-    @patch("services.ingestion.email_listener.config")
+    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.config")
     def test_success_silent(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
@@ -143,8 +143,8 @@ class TestProcessEmail:
         assert text == ""
         assert stats is None
 
-    @patch("services.ingestion.email_listener.pipe_to_gemini")
-    @patch("services.ingestion.email_listener.config")
+    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.config")
     def test_error_triggers_reply(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="", stats={"models": {}})
@@ -157,9 +157,9 @@ class TestProcessEmail:
 
 
 class TestEmailReplyLogic:
-    @patch("services.ingestion.email_reply.send_reply")
-    @patch("services.ingestion.email_listener.config")
-    @patch("services.ingestion.email_listener.process_email")
+    @patch("services.ingestion.channels.email.reply.send_reply")
+    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.channels.email.listener.process_email")
     def test_reply_to_override(self, mock_process, mock_config, mock_send_reply):
         # Config: Reply to admin, not sender
         mock_config.REPLY_TO_ADDRESS = "admin@example.com"
@@ -167,7 +167,7 @@ class TestEmailReplyLogic:
         mock_config.RATE_LIMIT_MAX = 10
         mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
 
-        from services.ingestion.email_listener import EmailListener
+        from services.ingestion.channels.email.listener import EmailListener
         listener = EmailListener()
         # Mock dependencies
         listener.client = MagicMock()
@@ -191,9 +191,9 @@ class TestEmailReplyLogic:
         assert args["to_addr"] == "admin@example.com"
         assert args["body"] == "Error details"
 
-    @patch("services.ingestion.email_reply.send_reply")
-    @patch("services.ingestion.email_listener.config")
-    @patch("services.ingestion.email_listener.process_email")
+    @patch("services.ingestion.channels.email.reply.send_reply")
+    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.channels.email.listener.process_email")
     def test_reply_to_sender_default(self, mock_process, mock_config, mock_send_reply):
         # Config: No override
         mock_config.REPLY_TO_ADDRESS = ""
@@ -201,7 +201,7 @@ class TestEmailReplyLogic:
         mock_config.RATE_LIMIT_MAX = 10
         mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
 
-        from services.ingestion.email_listener import EmailListener
+        from services.ingestion.channels.email.listener import EmailListener
         listener = EmailListener()
         listener.client = MagicMock()
         listener.rate_limiter = MagicMock()

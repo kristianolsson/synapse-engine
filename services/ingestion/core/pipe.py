@@ -8,8 +8,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import config
-from .providers import get_provider, AIProvider
+from .. import config
+from ..providers import get_provider, AIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +73,11 @@ def pipe_to_gemini(prompt: str, session_id: Optional[str] = None) -> PipeResult:
     Kept as 'pipe_to_gemini' for backward compatibility, but now delegates to the configured provider.
     """
     provider: AIProvider = get_provider()
-    
+
     # We don't support attachments in this signature yet, but Provider supports it.
     # Future work: update this signature to accept attachments.
     result = provider.generate_response(prompt, session_id=session_id)
-    
+
     return PipeResult(
         is_error=result.is_error,
         requires_reply=result.requires_reply,

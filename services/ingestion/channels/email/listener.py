@@ -20,10 +20,10 @@ from email.message import EmailMessage
 
 from imapclient import IMAPClient
 
-from . import config
-from .pipe import IncomingMessage, build_prompt, pipe_to_gemini
-from .rate_limiter import RateLimiter
-from .session_manager import SessionManager
+from ... import config
+from ...core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from ...core.rate_limiter import RateLimiter
+from ...core.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -118,11 +118,11 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     msg = email.message_from_bytes(raw_bytes, policy=email.policy.default)
     sender = extract_sender(msg)
     subject = msg.get("Subject", "(no subject)")
-    
+
     in_reply_to = msg.get("In-Reply-To", "").strip()
     references = msg.get("References", "").strip()
     message_id = msg.get("Message-ID", "").strip()
-    
+
     # Session grouping logic:
     # 1. If 'References' exists, the root thread ID is usually the first ID in the list.
     # 2. If no 'References', fallback to 'In-Reply-To'.
@@ -140,7 +140,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     if sender not in config.ALLOWED_SENDERS:
         logger.warning("Rejected email from unauthorized sender: %s", sender)
         if config.REPLY_TO_ADDRESS:
-            from .email_reply import send_reply
+            from .reply import send_reply
 
             send_reply(
                 to_addr=config.REPLY_TO_ADDRESS,
@@ -255,7 +255,7 @@ class EmailListener:
 
     def _fetch_and_process(self, msg_uids: list[int]):
         """Fetch and process unread messages one at a time.
-        
+
         Re-searches for UNSEEN after each message since archive/move
         can invalidate remaining UIDs.
         """
@@ -273,7 +273,7 @@ class EmailListener:
                 should_reply, reply_text, stats = process_email(raw_bytes, self.session_manager)
 
                 if should_reply and reply_text:
-                    from .email_reply import send_reply
+                    from .reply import send_reply
 
                     raw_msg = email.message_from_bytes(
                         raw_bytes, policy=email.policy.default
@@ -348,6 +348,3 @@ class EmailListener:
                 self.client.logout()
             except Exception:
                 pass
-
-
-
