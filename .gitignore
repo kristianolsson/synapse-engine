@@ -24,3 +24,8 @@ notes
 # Sessions
 sessions.json
 .venv/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
