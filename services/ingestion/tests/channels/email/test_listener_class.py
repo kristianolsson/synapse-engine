@@ -85,16 +85,27 @@ class TestEmailListenerClass(unittest.TestCase):
 
         mock_send_reply.assert_called_once()
 
+    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.channels.email.reply.send_reply")
     @patch("services.ingestion.channels.email.listener.process_email")
-    def test_fetch_and_process_rate_limit(self, mock_process):
+    def test_fetch_and_process_rate_limit_sends_reply(self, mock_process, mock_send_reply, mock_config):
         self.mock_rate_limiter.allow.return_value = False
+        mock_config.REPLY_TO_ADDRESS = "reply@example.com"
         mock_client = MagicMock()
         self.listener.client = mock_client
 
-        self.listener._fetch_and_process([123])
+        uid = 123
+        mock_client.fetch.return_value = {uid: {b"RFC822": b"From: test@example.com\r\nSubject: Test\r\n\r\nHello"}}
 
-        mock_client.fetch.assert_not_called()
+        self.listener._fetch_and_process([uid])
+
+        # Should fetch the message to reply, but NOT process it
+        mock_client.fetch.assert_called_once()
         mock_process.assert_not_called()
+        # Should send a rate limit reply
+        mock_send_reply.assert_called_once()
+        reply_body = mock_send_reply.call_args[1].get("body") or mock_send_reply.call_args[0][2]
+        assert "Rate limit" in reply_body
 
     @patch("services.ingestion.channels.email.listener.IMAPClient")
     def test_run_loop_basics(self, mock_imap_cls):

@@ -264,6 +264,23 @@ class EmailListener:
 
             if not self.rate_limiter.allow():
                 logger.warning("Rate limit reached, skipping remaining messages")
+                # Reply to the current message so the sender knows
+                try:
+                    raw_data = self.client.fetch([uid], ["RFC822"])
+                    raw_bytes = raw_data[uid][b"RFC822"]
+                    raw_msg = email.message_from_bytes(
+                        raw_bytes, policy=email.policy.default
+                    )
+                    from .reply import send_reply
+                    send_reply(
+                        to_addr=config.REPLY_TO_ADDRESS,
+                        subject=raw_msg.get("Subject", ""),
+                        body="⚠️ Rate limit reached. Please try again in a minute.",
+                        original_message_id=raw_msg.get("Message-ID", ""),
+                        original_references=raw_msg.get("References", ""),
+                    )
+                except Exception as e:
+                    logger.error("Failed to send rate limit reply: %s", e)
                 break
 
             try:
@@ -279,7 +296,7 @@ class EmailListener:
                         raw_bytes, policy=email.policy.default
                     )
                     send_reply(
-                        to_addr=config.REPLY_TO_ADDRESS or extract_sender(raw_msg),
+                        to_addr=config.REPLY_TO_ADDRESS,
                         subject=raw_msg.get("Subject", ""),
                         body=reply_text,
                         original_message_id=raw_msg.get("Message-ID", ""),
