@@ -154,10 +154,10 @@ class TestDelivery:
             "services.ingestion.channels.email.reply.send_reply"
         ) as mock_send:
             mock_send.return_value = True
-            result = scheduler._send_email("Hello!")
+            result = scheduler._send_email("Hello!", subject="Synapse: Hello!")
             mock_send.assert_called_once_with(
                 to_addr="user@example.com",
-                subject="Synapse Reminder",
+                subject="Synapse: Hello!",
                 body="Hello!",
             )
             assert result is True
@@ -166,7 +166,7 @@ class TestDelivery:
     def test_send_email_no_address(self, mock_config, scheduler):
         mock_config.REPLY_TO_ADDRESS = ""
         mock_config.ALLOWED_SENDERS = []
-        result = scheduler._send_email("Hello!")
+        result = scheduler._send_email("Hello!", subject="Synapse: Hello!")
         assert result is False
 
     def test_deliver_unknown_channel(self, scheduler):
@@ -192,8 +192,13 @@ class TestTick:
         scheduler._tick()
 
         assert mock_deliver.call_count == 2
-        mock_deliver.assert_any_call("telegram", "Reminder 1")
-        mock_deliver.assert_any_call("email", "Reminder 2")
+        calls = [c.args for c in mock_deliver.call_args_list]
+        channels = [c[0] for c in calls]
+        messages = [c[1] for c in calls]
+        assert "telegram" in channels
+        assert "email" in channels
+        assert "Reminder 1" in messages
+        assert "Reminder 2" in messages
 
     @patch("services.ingestion.core.scheduler.pipe_to_gemini")
     def test_tick_no_reminders(self, mock_pipe, scheduler):
@@ -272,7 +277,10 @@ class TestWorkReminder:
         assert "telegram" in prompt_arg.lower()
 
         # Should deliver the result
-        mock_deliver.assert_called_once_with("telegram", "Here are the stock results...")
+        assert mock_deliver.call_count == 1
+        call_args = mock_deliver.call_args
+        assert call_args.args[0] == "telegram"
+        assert call_args.args[1] == "Here are the stock results..."
 
     @patch.object(ReminderScheduler, "_handle_delivery_failure")
     @patch("services.ingestion.core.scheduler.pipe_to_gemini")

@@ -129,7 +129,7 @@ class ReminderScheduler:
         chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
         return send_telegram_message(chat_id, text)
 
-    def _send_email(self, text: str) -> bool:
+    def _send_email(self, text: str, subject: str) -> bool:
         """Send a message via Email."""
         from ..channels.email.reply import send_reply
 
@@ -142,16 +142,24 @@ class ReminderScheduler:
 
         return send_reply(
             to_addr=to_addr,
-            subject="Synapse Reminder",
+            subject=subject,
             body=text,
         )
 
-    def _deliver(self, channel: str, text: str) -> bool:
+    def _make_subject(self, text: str) -> str:
+        """Generate a concise email subject from the task/message text."""
+        # Strip to first line, then truncate
+        first_line = text.split("\n")[0].strip()
+        if len(first_line) > 60:
+            first_line = first_line[:57] + "..."
+        return f"Synapse: {first_line}"
+
+    def _deliver(self, channel: str, text: str, subject: str = "") -> bool:
         """Deliver a message via the specified channel."""
         if channel == "telegram":
             return self._send_telegram(text)
         elif channel == "email":
-            return self._send_email(text)
+            return self._send_email(text, subject=subject)
         else:
             logger.error("Unknown delivery channel: %s", channel)
             return False
@@ -192,7 +200,7 @@ class ReminderScheduler:
         if not response_text:
             response_text = "✓ Scheduled task completed."
 
-        success = self._deliver(channel, response_text)
+        success = self._deliver(channel, response_text, subject=self._make_subject(task))
         if not success:
             self._handle_delivery_failure(task)
 
@@ -233,7 +241,11 @@ class ReminderScheduler:
         for item in reminders:
             try:
                 if item["type"] == "message":
-                    success = self._deliver(item["channel"], item["message"])
+                    success = self._deliver(
+                        item["channel"],
+                        item["message"],
+                        subject=self._make_subject(item["message"]),
+                    )
                     if not success:
                         self._handle_delivery_failure(item["message"])
                 elif item["type"] == "work":
