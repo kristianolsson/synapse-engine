@@ -74,6 +74,21 @@ def main():
         threads.append(t)
         logger.info("Telegram channel enabled.")
 
+    # --- Reminder Scheduler ---
+    if config.SCHEDULER_ENABLED:
+        from .core.scheduler import ReminderScheduler
+
+        scheduler = ReminderScheduler()
+        listeners.append(scheduler)
+
+        t = threading.Thread(
+            target=scheduler.run,
+            name="reminder-scheduler",
+            daemon=True,
+        )
+        threads.append(t)
+        logger.info("Reminder scheduler enabled (interval=%dm).", config.SCHEDULER_INTERVAL_MINUTES)
+
     # --- Signal handling ---
     def signal_handler(sig, frame):
         logger.info("Shutdown signal received, stopping all channels...")
