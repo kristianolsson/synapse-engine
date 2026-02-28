@@ -16,6 +16,7 @@ build/
 # macOS
 .DS_Store
 com.synapse.ingestion.email.plist
+com.synapse.ingestion.plist
 
 # Logs
 *.log
