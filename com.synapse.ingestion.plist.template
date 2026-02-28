@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>__PROJECT_DIR__/venv/bin/python</string>
+        <string>__PROJECT_DIR__/__VENV_DIR__/bin/python</string>
         <string>-m</string>
         <string>services.ingestion.main</string>
     </array>

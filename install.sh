@@ -26,11 +26,13 @@ if [ -z "$NODE_BIN" ]; then
 fi
 
 # --- Validate venv exists ---
-if [ ! -f "$PROJECT_DIR/venv/bin/python" ]; then
-    echo "❌ venv not found. Run these first:"
-    echo "   python3 -m venv venv"
-    echo "   source venv/bin/activate"
-    echo "   pip install -r requirements.txt"
+VENV_DIR=""
+if [ -f "$PROJECT_DIR/.venv/bin/python" ]; then
+    VENV_DIR=".venv"
+elif [ -f "$PROJECT_DIR/venv/bin/python" ]; then
+    VENV_DIR="venv"
+else
+    echo "❌ venv not found. Please create one (.venv or venv) and install requirements."
     exit 1
 fi
 
@@ -44,6 +46,7 @@ fi
 sed \
     -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
     -e "s|__NODE_BIN__|$NODE_BIN|g" \
+    -e "s|__VENV_DIR__|$VENV_DIR|g" \
     "$TEMPLATE" > "$PLIST_OUT"
 
 echo "✅ Generated $PLIST_OUT"
@@ -52,7 +55,9 @@ echo "   NODE_BIN    = $NODE_BIN"
 
 # --- Install to LaunchAgents ---
 # Unload if already loaded
+echo "Stopping existing service (if running)..."
 launchctl unload "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null || true
+sleep 2 # Add a sleep to ensure the old process has fully exited
 
 mkdir -p "$LAUNCH_AGENTS"
 cp "$PLIST_OUT" "$LAUNCH_AGENTS/$PLIST_NAME"
