@@ -154,11 +154,12 @@ class TestDelivery:
             "services.ingestion.channels.email.reply.send_reply"
         ) as mock_send:
             mock_send.return_value = True
-            result = scheduler._send_email("Hello!", subject="Synapse: Hello!")
+            result = scheduler._send_email("Hello!", subject="Synapse: Hello!", session_id="test-session-123")
             mock_send.assert_called_once_with(
                 to_addr="user@example.com",
                 subject="Synapse: Hello!",
                 body="Hello!",
+                message_id="<test-session-123@synapse.local>",
             )
             assert result is True
 

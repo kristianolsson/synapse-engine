@@ -129,7 +129,7 @@ class ReminderScheduler:
         chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
         return send_telegram_message(chat_id, text)
 
-    def _send_email(self, text: str, subject: str) -> bool:
+    def _send_email(self, text: str, subject: str, session_id: str = None) -> bool:
         """Send a message via Email."""
         from ..channels.email.reply import send_reply
 
@@ -140,10 +140,12 @@ class ReminderScheduler:
             logger.error("No REPLY_TO_ADDRESS or ALLOWED_SENDERS configured, cannot send reminder")
             return False
 
+        message_id = f"<{session_id}@synapse.local>" if session_id else ""
         return send_reply(
             to_addr=to_addr,
             subject=subject,
             body=text,
+            message_id=message_id,
         )
 
     def _make_subject(self, text: str) -> str:
@@ -154,12 +156,12 @@ class ReminderScheduler:
             first_line = first_line[:57] + "..."
         return f"Synapse: {first_line}"
 
-    def _deliver(self, channel: str, text: str, subject: str = "") -> bool:
+    def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None) -> bool:
         """Deliver a message via the specified channel."""
         if channel == "telegram":
             return self._send_telegram(text)
         elif channel == "email":
-            return self._send_email(text, subject=subject)
+            return self._send_email(text, subject=subject, session_id=session_id)
         else:
             logger.error("Unknown delivery channel: %s", channel)
             return False
@@ -200,7 +202,12 @@ class ReminderScheduler:
         if not response_text:
             response_text = "✓ Scheduled task completed."
 
-        success = self._deliver(channel, response_text, subject=self._make_subject(task))
+        success = self._deliver(
+            channel,
+            response_text,
+            subject=self._make_subject(task),
+            session_id=result.session_id,
+        )
         if not success:
             self._handle_delivery_failure(task)
 
@@ -238,13 +245,18 @@ class ReminderScheduler:
 
         logger.info("Processing %d due reminder(s).", len(reminders))
 
+        import uuid
         for item in reminders:
             try:
                 if item["type"] == "message":
+                    # Generate a fresh session ID so if the user replies to this
+                    # message digest, it starts a clean conversation thread.
+                    session_id = str(uuid.uuid4())
                     success = self._deliver(
                         item["channel"],
                         item["message"],
                         subject=self._make_subject(item["message"]),
+                        session_id=session_id,
                     )
                     if not success:
                         self._handle_delivery_failure(item["message"])

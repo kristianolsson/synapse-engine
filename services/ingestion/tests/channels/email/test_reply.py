@@ -54,6 +54,7 @@ class TestSendReply:
             to_addr="user@example.com",
             subject="Buy groceries",
             body="Done.",
+            original_message_id="<123@test.com>",
         )
         # Check the sent message has "Re:" prefix
         sent_msg = mock_server.send_message.call_args[0][0]

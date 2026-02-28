@@ -173,6 +173,7 @@ class TestEmailReplyLogic:
         listener.client = MagicMock()
         listener.rate_limiter = MagicMock()
         listener.rate_limiter.allow.return_value = True
+        listener._archive_folder = "Archive"
 
         # Mock incoming email
         raw_bytes = _make_simple_email(from_addr="user@example.com", subject="Test")
@@ -194,9 +195,9 @@ class TestEmailReplyLogic:
     @patch("services.ingestion.channels.email.reply.send_reply")
     @patch("services.ingestion.channels.email.listener.config")
     @patch("services.ingestion.channels.email.listener.process_email")
-    def test_reply_to_sender_default(self, mock_process, mock_config, mock_send_reply):
-        # Config: No override
-        mock_config.REPLY_TO_ADDRESS = ""
+    def test_reply_strict_to_reply_address(self, mock_process, mock_config, mock_send_reply):
+        # Config: strict reply-to behavior
+        mock_config.REPLY_TO_ADDRESS = "admin@example.com"
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_config.RATE_LIMIT_MAX = 10
         mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
@@ -206,6 +207,7 @@ class TestEmailReplyLogic:
         listener.client = MagicMock()
         listener.rate_limiter = MagicMock()
         listener.rate_limiter.allow.return_value = True
+        listener._archive_folder = "Archive"
 
         raw_bytes = _make_simple_email(from_addr="user@example.com", subject="Test")
         listener.client.fetch.return_value = {123: {b"RFC822": raw_bytes}}
@@ -217,4 +219,4 @@ class TestEmailReplyLogic:
 
         mock_send_reply.assert_called_once()
         args = mock_send_reply.call_args[1]
-        assert args["to_addr"] == "user@example.com"
+        assert args["to_addr"] == "admin@example.com"

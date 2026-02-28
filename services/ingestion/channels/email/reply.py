@@ -22,6 +22,7 @@ def send_reply(
     body: str,
     original_message_id: str = "",
     original_references: str = "",
+    message_id: str = "",
     stats: dict = None,
 ) -> bool:
     """
@@ -33,6 +34,7 @@ def send_reply(
         body: Reply body text (the Gemini CLI output).
         original_message_id: Message-ID of the original email for threading.
         original_references: Existing References string from the original email.
+        message_id: Explicit Message-ID to set for the outgoing email.
         stats: Optional execution statistics to append to the reply.
 
     Returns:
@@ -46,7 +48,11 @@ def send_reply(
         logger.warning("Refusing to reply to non-whitelisted address: %s", to_addr)
         return False
 
-    reply_subject = subject if subject.startswith("Re:") else f"Re: {subject}"
+    # Only add 'Re: ' prefix if this is replying to an existing conversational thread
+    if original_message_id:
+        reply_subject = subject if subject.startswith("Re:") else f"Re: {subject}"
+    else:
+        reply_subject = subject
 
     final_body = body + format_stats_email(stats)
 
@@ -54,6 +60,8 @@ def send_reply(
     msg["From"] = config.EMAIL_ADDRESS
     msg["To"] = to_addr
     msg["Subject"] = reply_subject
+    if message_id:
+        msg["Message-ID"] = message_id
 
     # Threading headers for proper Gmail conversation grouping
     if original_message_id:
