@@ -197,8 +197,13 @@ def cmd_list_events(args, calendars: list[dict], service) -> None:
                 time_str = ""
         else:
             local_dt = _parse_and_localize(event["start_raw"])
+            local_end_dt = _parse_and_localize(event["end_raw"])
             local_date = local_dt.strftime("%Y-%m-%d")
             time_str = local_dt.strftime("%I:%M %p")
+            # Show end date if the event spans multiple days
+            if local_end_dt.strftime("%Y-%m-%d") > local_date:
+                end_fmt = local_end_dt.strftime("%b %d %I:%M %p")
+                time_str = f"{local_dt.strftime('%b %d')} {time_str} - {end_fmt}"
 
         if local_date != current_date:
             current_date = local_date
