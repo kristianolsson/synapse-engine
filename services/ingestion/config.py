@@ -106,4 +106,16 @@ SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", "60"))
 SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").strip().lower() in ("true", "1", "yes")
 SCHEDULER_INTERVAL_MINUTES = int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "60"))
 
-
+# --- Calendar ---
+CALENDAR_CONFIG_PATH = os.getenv(
+    "CALENDAR_CONFIG_PATH",
+    str(Path(__file__).resolve().parent.parent.parent / "calendars.json")
+)
+CALENDAR_TOKEN_PATH = os.getenv(
+    "CALENDAR_TOKEN_PATH",
+    str(Path(__file__).resolve().parent.parent.parent / "token.json")
+)
+CALENDAR_CREDENTIALS_PATH = os.getenv(
+    "CALENDAR_CREDENTIALS_PATH",
+    str(Path(__file__).resolve().parent.parent.parent / "credentials.json")
+)

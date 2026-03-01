@@ -31,6 +31,8 @@ The service is organized into four layers under `services/ingestion/`:
 | | `core/rate_limiter.py` | Sliding-window rate limiter |
 | | `core/session_manager.py` | Per-user session state (TTL-based) |
 | **Providers** | `providers/` | Pluggable AI backends (`gemini`, `echo`) |
+| **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
+| | `tools/setup_calendar.py` | One-time OAuth2 setup |
 | **Utils** | `utils/stats_formatter.py` | Channel-specific stats formatters |
 
 
@@ -70,6 +72,23 @@ The service is organized into four layers under `services/ingestion/`:
     2. Copy the token to `TELEGRAM_BOT_TOKEN` in `.env`.
     3. Get your Telegram user ID (message [@userinfobot](https://t.me/userinfobot)) and add it to `TELEGRAM_ALLOWED_USER_IDS`.
     4. Set `ENABLED_CHANNELS=email,telegram` (or `telegram` for Telegram only).
+
+    **Calendar Setup (Google Calendar):**
+    1. Create a project in [Google Cloud Console](https://console.cloud.google.com/), enable the **Google Calendar API**.
+    2. Create an OAuth 2.0 Client ID (type: Desktop), download the JSON as `credentials.json` into the project root.
+    3. Add your email as a test user under **OAuth consent screen → Test users**.
+    4. Run the setup script:
+       ```bash
+       python -m services.ingestion.tools.setup_calendar
+       ```
+    5. Copy `calendars.json.example` to `calendars.json` and fill in your calendar IDs from the setup output:
+       ```bash
+       cp calendars.json.example calendars.json
+       ```
+    6. Test:
+       ```bash
+       python -m services.ingestion.tools.calendar_cli list-events --days 7
+       ```
 
 ## Deployment (macOS)
 

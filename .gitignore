@@ -5,6 +5,11 @@ notes/
 .env
 venv/
 
+# Calendar (OAuth tokens & config)
+calendars.json
+token.json
+credentials.json
+
 # Python
 __pycache__/
 *.pyc
