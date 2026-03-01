@@ -21,6 +21,7 @@ from typing import Optional
 
 from .. import config
 from ..core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from ..core.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class ReminderScheduler:
         interval_minutes: int = None,
     ):
         self.interval_minutes = interval_minutes or config.SCHEDULER_INTERVAL_MINUTES
+        self.session_manager = SessionManager()
         self._running = False
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -202,6 +204,12 @@ class ReminderScheduler:
         if not response_text:
             response_text = "✓ Scheduled task completed."
 
+        # Save the session context for future replies if this is an email thread.
+        # This allows the user to reply to the summary and continue the conversation.
+        if channel == "email" and result.session_id:
+            session_key = f"<{result.session_id}@synapse.local>"
+            self.session_manager.save_session(session_key, result.session_id)
+
         success = self._deliver(
             channel,
             response_text,
@@ -252,6 +260,12 @@ class ReminderScheduler:
                     # Generate a fresh session ID so if the user replies to this
                     # message digest, it starts a clean conversation thread.
                     session_id = str(uuid.uuid4())
+
+                    # Pre-save the session key for email so replies start in this thread
+                    if item["channel"] == "email":
+                        session_key = f"<{session_id}@synapse.local>"
+                        self.session_manager.save_session(session_key, session_id)
+
                     success = self._deliver(
                         item["channel"],
                         item["message"],
