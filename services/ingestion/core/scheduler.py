@@ -268,7 +268,7 @@ class ReminderScheduler:
 
                     success = self._deliver(
                         item["channel"],
-                        item["message"],
+                        f"Reminder: {item['message']}" if item["channel"] == "telegram" else item["message"],
                         subject=self._make_subject(item["message"]),
                         session_id=session_id,
                     )

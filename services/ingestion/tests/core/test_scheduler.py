@@ -198,7 +198,9 @@ class TestTick:
         messages = [c[1] for c in calls]
         assert "telegram" in channels
         assert "email" in channels
-        assert "Reminder 1" in messages
+        # Telegram messages get prefixed with "Reminder: "
+        assert "Reminder: Reminder 1" in messages
+        # Email messages are unchanged
         assert "Reminder 2" in messages
 
     @patch("services.ingestion.core.scheduler.pipe_to_gemini")
