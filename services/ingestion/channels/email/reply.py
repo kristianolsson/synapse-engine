@@ -57,7 +57,7 @@ def send_reply(
     final_body = body + format_stats_email(stats)
 
     msg = MIMEText(final_body, "plain", "utf-8")
-    msg["From"] = config.EMAIL_ADDRESS
+    msg["From"] = f"Synapse <{config.EMAIL_ADDRESS}>"
     msg["To"] = to_addr
     msg["Subject"] = reply_subject
     if message_id:
