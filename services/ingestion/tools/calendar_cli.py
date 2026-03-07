@@ -233,9 +233,15 @@ def cmd_add_event(args, calendars: list[dict], service) -> None:
 
     event_body = {
         "summary": args.title,
-        "start": {"dateTime": args.start, "timeZone": "America/Los_Angeles"},
-        "end": {"dateTime": args.end, "timeZone": "America/Los_Angeles"},
     }
+    if len(args.start) == 10:
+        event_body["start"] = {"date": args.start}
+    else:
+        event_body["start"] = {"dateTime": args.start, "timeZone": "America/Los_Angeles"}
+    if len(args.end) == 10:
+        event_body["end"] = {"date": args.end}
+    else:
+        event_body["end"] = {"dateTime": args.end, "timeZone": "America/Los_Angeles"}
 
     if args.description:
         event_body["description"] = args.description
@@ -278,9 +284,15 @@ def cmd_edit_event(args, calendars: list[dict], service) -> None:
     if args.title:
         existing["summary"] = args.title
     if args.start:
-        existing["start"] = {"dateTime": args.start, "timeZone": "America/Los_Angeles"}
+        if len(args.start) == 10:
+            existing["start"] = {"date": args.start}
+        else:
+            existing["start"] = {"dateTime": args.start, "timeZone": "America/Los_Angeles"}
     if args.end:
-        existing["end"] = {"dateTime": args.end, "timeZone": "America/Los_Angeles"}
+        if len(args.end) == 10:
+            existing["end"] = {"date": args.end}
+        else:
+            existing["end"] = {"dateTime": args.end, "timeZone": "America/Los_Angeles"}
     if args.description:
         existing["description"] = args.description
     if args.guests:
