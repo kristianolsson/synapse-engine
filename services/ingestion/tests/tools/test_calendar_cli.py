@@ -104,7 +104,7 @@ class TestLoadCalendars:
     def test_load_missing_config(self, tmp_path, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         missing_path = tmp_path / "nonexistent.json"
-        with pytest.raises(SystemExit):
+        with pytest.raises(FileNotFoundError):
             cal_cli.load_calendars(missing_path)
 
     def test_load_invalid_json(self, tmp_path, mock_google_modules):
@@ -118,36 +118,28 @@ class TestLoadCalendars:
         cal_cli = mock_google_modules["module"]
         bad_file = tmp_path / "object.json"
         bad_file.write_text('{"id": "primary"}')
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError):
             cal_cli.load_calendars(bad_file)
 
 
 class TestListCalendars:
     """Tests for the list-calendars command."""
 
-    def test_list_calendars_output(self, sample_calendars, mock_google_modules, capsys):
+    def test_list_calendars_output(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
-        cal_cli.cmd_list_calendars(sample_calendars)
-        captured = capsys.readouterr()
-        assert "Kristian" in captured.out
-        assert "primary" in captured.out
-        assert "Sarah" in captured.out
-        assert "readonly" in captured.out
-        assert "Kids Sports" in captured.out
+        result = cal_cli.cmd_list_calendars(sample_calendars)
+        assert "Kristian" in result
+        assert "primary" in result
+        assert "Sarah" in result
+        assert "readonly" in result
+        assert "Kids Sports" in result
 
 
 class TestListEvents:
     """Tests for the list-events command."""
 
-    def _make_args(self, days=7, date="", calendar=""):
-        args = mock.MagicMock()
-        args.days = days
-        args.date = date
-        args.calendar = calendar
-        return args
-
     def test_list_events_aggregates_all_calendars(
-        self, sample_calendars, mock_google_modules, capsys
+        self, sample_calendars, mock_google_modules
     ):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
@@ -184,20 +176,19 @@ class TestListEvents:
         # Make the mock return different results per call
         service.events().list().execute.side_effect = [events_cal1, events_cal2, events_cal3]
 
-        cal_cli.cmd_list_events(self._make_args(), sample_calendars, service)
-        captured = capsys.readouterr()
+        result = cal_cli.cmd_list_events(calendars=sample_calendars, service=service)
 
         # All events should appear
-        assert "Team standup" in captured.out
-        assert "School dropoff" in captured.out
-        assert "Soccer practice" in captured.out
+        assert "Team standup" in result
+        assert "School dropoff" in result
+        assert "Soccer practice" in result
 
         # Calendar labels should appear
-        assert "Kristian" in captured.out
-        assert "Sarah" in captured.out
-        assert "Kids Sports" in captured.out
+        assert "Kristian" in result
+        assert "Sarah" in result
+        assert "Kids Sports" in result
 
-    def test_list_events_empty(self, sample_calendars, mock_google_modules, capsys):
+    def test_list_events_empty(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
 
@@ -208,12 +199,11 @@ class TestListEvents:
             {"items": []},
         ]
 
-        cal_cli.cmd_list_events(self._make_args(), sample_calendars, service)
-        captured = capsys.readouterr()
-        assert "No events found" in captured.out
+        result = cal_cli.cmd_list_events(calendars=sample_calendars, service=service)
+        assert "No events found" in result
 
     def test_list_events_api_error_graceful(
-        self, sample_calendars, mock_google_modules, capsys
+        self, sample_calendars, mock_google_modules
     ):
         """When one calendar's API call fails, other calendars still return results."""
         cal_cli = mock_google_modules["module"]
@@ -232,27 +222,32 @@ class TestListEvents:
             {"items": []},
         ]
 
-        cal_cli.cmd_list_events(self._make_args(), sample_calendars, service)
-        captured = capsys.readouterr()
+        result = cal_cli.cmd_list_events(calendars=sample_calendars, service=service)
 
         # Should still show the successful calendar's events
-        assert "Meeting" in captured.out
+        assert "Meeting" in result
+
+    def test_list_events_invalid_date(self, sample_calendars, mock_google_modules):
+        """Invalid date format should raise ValueError."""
+        cal_cli = mock_google_modules["module"]
+        service = mock_google_modules["service"]
+
+        with pytest.raises(ValueError, match="Invalid date format"):
+            cal_cli.cmd_list_events(date="not-a-date", calendars=sample_calendars, service=service)
+
+    def test_list_events_unknown_calendar(self, sample_calendars, mock_google_modules):
+        """Unknown calendar label should raise ValueError."""
+        cal_cli = mock_google_modules["module"]
+        service = mock_google_modules["service"]
+
+        with pytest.raises(ValueError, match="No calendar matching"):
+            cal_cli.cmd_list_events(calendar="Nonexistent", calendars=sample_calendars, service=service)
 
 
 class TestAddEvent:
     """Tests for the add-event command."""
 
-    def _make_args(self, title="Test", start="2026-03-01T10:00:00", end="2026-03-01T11:00:00",
-                   description="", guests=""):
-        args = mock.MagicMock()
-        args.title = title
-        args.start = start
-        args.end = end
-        args.description = description
-        args.guests = guests
-        return args
-
-    def test_add_event_primary_calendar(self, sample_calendars, mock_google_modules, capsys):
+    def test_add_event_primary_calendar(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
 
@@ -261,19 +256,21 @@ class TestAddEvent:
             "htmlLink": "https://calendar.google.com/event/123",
         }
 
-        args = self._make_args(title="Dentist appointment")
-        cal_cli.cmd_add_event(args, sample_calendars, service)
-        captured = capsys.readouterr()
+        result = cal_cli.cmd_add_event(
+            title="Dentist appointment",
+            start="2026-03-01T10:00:00", end="2026-03-01T11:00:00",
+            calendars=sample_calendars, service=service,
+        )
 
-        assert "Event created" in captured.out
-        assert "Dentist appointment" in captured.out
+        assert "Event created" in result
+        assert "Dentist appointment" in result
 
         # Verify it targeted the primary calendar
         service.events().insert.assert_called()
         call_kwargs = service.events().insert.call_args
         assert call_kwargs[1]["calendarId"] == "primary"
 
-    def test_add_event_with_guests(self, sample_calendars, mock_google_modules, capsys):
+    def test_add_event_with_guests(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
 
@@ -282,11 +279,13 @@ class TestAddEvent:
             "htmlLink": "https://calendar.google.com/event/456",
         }
 
-        args = self._make_args(title="Dinner", guests="wife@gmail.com,friend@gmail.com")
-        cal_cli.cmd_add_event(args, sample_calendars, service)
-        captured = capsys.readouterr()
+        result = cal_cli.cmd_add_event(
+            title="Dinner", start="2026-03-01T10:00:00", end="2026-03-01T11:00:00",
+            guests="wife@gmail.com,friend@gmail.com",
+            calendars=sample_calendars, service=service,
+        )
 
-        assert "Guests" in captured.out
+        assert "Guests" in result
         # Verify attendees were sent
         call_kwargs = service.events().insert.call_args
         event_body = call_kwargs[1]["body"]
@@ -295,7 +294,7 @@ class TestAddEvent:
         # Send updates should be "all" when guests are present
         assert call_kwargs[1]["sendUpdates"] == "all"
 
-    def test_add_event_with_description(self, sample_calendars, mock_google_modules, capsys):
+    def test_add_event_with_description(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
 
@@ -305,8 +304,11 @@ class TestAddEvent:
         }
 
         desc = "Forwarded email content here..."
-        args = self._make_args(title="Meeting", description=desc)
-        cal_cli.cmd_add_event(args, sample_calendars, service)
+        cal_cli.cmd_add_event(
+            title="Meeting", start="2026-03-01T10:00:00", end="2026-03-01T11:00:00",
+            description=desc,
+            calendars=sample_calendars, service=service,
+        )
 
         call_kwargs = service.events().insert.call_args
         event_body = call_kwargs[1]["body"]
@@ -321,9 +323,11 @@ class TestAddEvent:
             {"id": "cal1@gmail.com", "label": "Cal1", "access": "readonly"},
         ]
 
-        args = self._make_args(title="Test")
-        with pytest.raises(SystemExit):
-            cal_cli.cmd_add_event(args, readonly_only, service)
+        with pytest.raises(ValueError):
+            cal_cli.cmd_add_event(
+                title="Test", start="2026-03-01T10:00:00", end="2026-03-01T11:00:00",
+                calendars=readonly_only, service=service,
+            )
 
     def test_add_event_api_error(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
@@ -331,26 +335,17 @@ class TestAddEvent:
 
         service.events().insert().execute.side_effect = Exception("API Error")
 
-        args = self._make_args(title="Test")
-        with pytest.raises(SystemExit):
-            cal_cli.cmd_add_event(args, sample_calendars, service)
+        with pytest.raises(RuntimeError):
+            cal_cli.cmd_add_event(
+                title="Test", start="2026-03-01T10:00:00", end="2026-03-01T11:00:00",
+                calendars=sample_calendars, service=service,
+            )
 
 
 class TestEditEvent:
     """Tests for the edit-event command."""
 
-    def _make_args(self, event_id="abc123", title="", start="", end="",
-                   description="", guests=""):
-        args = mock.MagicMock()
-        args.event_id = event_id
-        args.title = title
-        args.start = start
-        args.end = end
-        args.description = description
-        args.guests = guests
-        return args
-
-    def test_edit_event_title(self, sample_calendars, mock_google_modules, capsys):
+    def test_edit_event_title(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
 
@@ -366,11 +361,12 @@ class TestEditEvent:
             "htmlLink": "https://calendar.google.com/event/123",
         }
 
-        args = self._make_args(title="New Title")
-        cal_cli.cmd_edit_event(args, sample_calendars, service)
-        captured = capsys.readouterr()
-        assert "Event updated" in captured.out
-        assert "New Title" in captured.out
+        result = cal_cli.cmd_edit_event(
+            event_id="abc123", title="New Title",
+            calendars=sample_calendars, service=service,
+        )
+        assert "Event updated" in result
+        assert "New Title" in result
 
     def test_edit_event_not_found(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
@@ -378,38 +374,38 @@ class TestEditEvent:
 
         service.events().get().execute.side_effect = Exception("Not found")
 
-        args = self._make_args(event_id="nonexistent")
-        with pytest.raises(SystemExit):
-            cal_cli.cmd_edit_event(args, sample_calendars, service)
+        with pytest.raises(RuntimeError):
+            cal_cli.cmd_edit_event(
+                event_id="nonexistent",
+                calendars=sample_calendars, service=service,
+            )
 
     def test_edit_event_no_primary(self, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
 
         readonly_only = [{"id": "cal1", "label": "Cal1", "access": "readonly"}]
-        args = self._make_args(title="Test")
-        with pytest.raises(SystemExit):
-            cal_cli.cmd_edit_event(args, readonly_only, service)
+        with pytest.raises(ValueError):
+            cal_cli.cmd_edit_event(
+                event_id="abc123", title="Test",
+                calendars=readonly_only, service=service,
+            )
 
 
 class TestDeleteEvent:
     """Tests for the delete-event command."""
 
-    def _make_args(self, event_id="abc123"):
-        args = mock.MagicMock()
-        args.event_id = event_id
-        return args
-
-    def test_delete_event_success(self, sample_calendars, mock_google_modules, capsys):
+    def test_delete_event_success(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
 
         service.events().delete().execute.return_value = None
 
-        args = self._make_args()
-        cal_cli.cmd_delete_event(args, sample_calendars, service)
-        captured = capsys.readouterr()
-        assert "Event deleted" in captured.out
+        result = cal_cli.cmd_delete_event(
+            event_id="abc123",
+            calendars=sample_calendars, service=service,
+        )
+        assert "Event deleted" in result
 
     def test_delete_event_api_error(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
@@ -417,18 +413,22 @@ class TestDeleteEvent:
 
         service.events().delete().execute.side_effect = Exception("API Error")
 
-        args = self._make_args()
-        with pytest.raises(SystemExit):
-            cal_cli.cmd_delete_event(args, sample_calendars, service)
+        with pytest.raises(RuntimeError):
+            cal_cli.cmd_delete_event(
+                event_id="abc123",
+                calendars=sample_calendars, service=service,
+            )
 
     def test_delete_event_no_primary(self, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
 
         readonly_only = [{"id": "cal1", "label": "Cal1", "access": "readonly"}]
-        args = self._make_args()
-        with pytest.raises(SystemExit):
-            cal_cli.cmd_delete_event(args, readonly_only, service)
+        with pytest.raises(ValueError):
+            cal_cli.cmd_delete_event(
+                event_id="abc123",
+                calendars=readonly_only, service=service,
+            )
 
 
 class TestMainEntrypoint:

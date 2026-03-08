@@ -32,6 +32,7 @@ The service is organized into four layers under `services/ingestion/`:
 | | `core/session_manager.py` | Per-user session state (TTL-based) |
 | **Providers** | `providers/` | Pluggable AI backends (`gemini`, `echo`) |
 | **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
+| | `tools/calendar_mcp.py` | MCP server exposing calendar tools |
 | | `tools/setup_calendar.py` | One-time OAuth2 setup |
 | **Utils** | `utils/stats_formatter.py` | Channel-specific stats formatters |
 
@@ -88,6 +89,18 @@ The service is organized into four layers under `services/ingestion/`:
     6. Test:
        ```bash
        python -m services.ingestion.tools.calendar_cli list-events --days 7
+       ```
+    7. (Optional) To use via MCP instead of the CLI, register the server in
+       your Gemini CLI project's `.gemini/settings.json`:
+       ```json
+       {
+         "mcpServers": {
+           "calendar": {
+             "command": "/path/to/venv/bin/python3",
+             "args": ["/path/to/services/ingestion/tools/calendar_mcp.py"]
+           }
+         }
+       }
        ```
 
 ## Deployment (macOS)

@@ -17,6 +17,7 @@ import argparse
 import json
 import sys
 from datetime import datetime, timedelta, timezone
+from io import StringIO
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -49,24 +50,34 @@ def _parse_and_localize(dt_str: str) -> datetime:
 
 
 def load_calendars(config_path: Path) -> list[dict]:
-    """Load calendar configuration from calendars.json."""
+    """Load calendar configuration from calendars.json.
+
+    Raises:
+        FileNotFoundError: If the config file doesn't exist.
+        ValueError: If the config is not a JSON array.
+    """
     if not config_path.exists():
-        print(f"Error: Calendar config not found at {config_path}", file=sys.stderr)
-        print("Run setup_calendar.py first, or create calendars.json.", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(
+            f"Calendar config not found at {config_path}. "
+            "Run setup_calendar.py first, or create calendars.json."
+        )
 
     with open(config_path) as f:
         calendars = json.load(f)
 
     if not isinstance(calendars, list):
-        print("Error: calendars.json must be a JSON array.", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError("calendars.json must be a JSON array.")
 
     return calendars
 
 
 def get_credentials(token_path: Path, credentials_path: Path) -> Credentials:
-    """Load or refresh OAuth2 credentials."""
+    """Load or refresh OAuth2 credentials.
+
+    Raises:
+        FileNotFoundError: If credentials.json is missing and no valid token exists.
+        RuntimeError: If credentials cannot be obtained.
+    """
     creds = None
 
     if token_path.exists():
@@ -77,13 +88,11 @@ def get_credentials(token_path: Path, credentials_path: Path) -> Credentials:
             creds.refresh(Request())
         else:
             if not credentials_path.exists():
-                print(
-                    f"Error: OAuth credentials not found at {credentials_path}\n"
+                raise FileNotFoundError(
+                    f"OAuth credentials not found at {credentials_path}\n"
                     "Download credentials.json from Google Cloud Console,\n"
-                    "then run setup_calendar.py to authenticate.",
-                    file=sys.stderr,
+                    "then run setup_calendar.py to authenticate."
                 )
-                sys.exit(1)
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(credentials_path), SCOPES
             )
@@ -102,36 +111,64 @@ def build_service(token_path: Path, credentials_path: Path):
     return build("calendar", "v3", credentials=creds)
 
 
-def cmd_list_events(args, calendars: list[dict], service) -> None:
-    """List events across all configured calendars."""
+def _get_primary_calendar(calendars: list[dict]) -> dict:
+    """Find and return the primary calendar.
+
+    Raises:
+        ValueError: If no calendar with access 'primary' is found.
+    """
+    for cal in calendars:
+        if cal.get("access") == "primary":
+            return cal
+    raise ValueError("No calendar with access 'primary' found in config.")
+
+
+def cmd_list_events(days: int = 7, date: str = "", calendar: str = "",
+                    calendars: list[dict] = None, service=None) -> str:
+    """List events across all configured calendars.
+
+    Args:
+        days: Number of days ahead to query (default 7).
+        date: Specific date to query (YYYY-MM-DD). Overrides days if set.
+        calendar: Filter to a specific calendar by label.
+        calendars: Calendar config list.
+        service: Google Calendar API service client.
+
+    Returns:
+        Formatted string of events grouped by date.
+
+    Raises:
+        ValueError: If date format is invalid or calendar label not found.
+    """
+    out = StringIO()
+
     # Determine time range
-    if args.date:
+    if date:
         try:
-            target = datetime.strptime(args.date, "%Y-%m-%d")
+            target = datetime.strptime(date, "%Y-%m-%d")
         except ValueError:
-            print(f"Error: Invalid date format '{args.date}'. Use YYYY-MM-DD.", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError(f"Invalid date format '{date}'. Use YYYY-MM-DD.")
         time_min = target.replace(tzinfo=LOCAL_TZ).isoformat()
         time_max = (target + timedelta(days=1)).replace(tzinfo=LOCAL_TZ).isoformat()
-        range_desc = args.date
+        range_desc = date
     else:
         now = datetime.now(timezone.utc)
         time_min = now.isoformat()
-        time_max = (now + timedelta(days=args.days)).isoformat()
-        range_desc = f"the next {args.days} day(s)"
+        time_max = (now + timedelta(days=days)).isoformat()
+        range_desc = f"the next {days} day(s)"
 
     # Filter calendars if --calendar specified
-    if args.calendar:
-        filter_label = args.calendar.lower()
-        filtered = [c for c in calendars if c.get("label", c["id"]).lower() == filter_label]
+    cal_list = list(calendars) if calendars else []
+    if calendar:
+        filter_label = calendar.lower()
+        filtered = [c for c in cal_list if c.get("label", c["id"]).lower() == filter_label]
         if not filtered:
-            print(f"Error: No calendar matching '{args.calendar}'. Use list-calendars to see available.", file=sys.stderr)
-            sys.exit(1)
-        calendars = filtered
+            raise ValueError(f"No calendar matching '{calendar}'. Use list-calendars to see available.")
+        cal_list = filtered
 
     all_events = []
 
-    for cal in calendars:
+    for cal in cal_list:
         cal_id = cal["id"]
         label = cal.get("label", cal_id)
         try:
@@ -161,7 +198,7 @@ def cmd_list_events(args, calendars: list[dict], service) -> None:
                     "description": event.get("description", ""),
                 })
         except Exception as e:
-            print(f"Warning: Could not fetch events from '{label}': {e}", file=sys.stderr)
+            out.write(f"Warning: Could not fetch events from '{label}': {e}\n")
 
     # Sort: normalize all datetimes to local tz for correct ordering
     def sort_key(e):
@@ -172,10 +209,10 @@ def cmd_list_events(args, calendars: list[dict], service) -> None:
     all_events.sort(key=sort_key)
 
     if not all_events:
-        print(f"No events found for {range_desc}.")
-        return
+        out.write(f"No events found for {range_desc}.")
+        return out.getvalue()
 
-    # Group by local date and print
+    # Group by local date and format
     current_date = None
     for event in all_events:
         if event["is_all_day"]:
@@ -209,138 +246,198 @@ def cmd_list_events(args, calendars: list[dict], service) -> None:
             current_date = local_date
             try:
                 dt = datetime.strptime(local_date, "%Y-%m-%d")
-                print(f"\n## {dt.strftime('%A, %B %d, %Y')}")
+                out.write(f"\n## {dt.strftime('%A, %B %d, %Y')}\n")
             except ValueError:
-                print(f"\n## {local_date}")
+                out.write(f"\n## {local_date}\n")
 
         location = f" — {event['location']}" if event["location"] else ""
         event_id = f" (id: {event['event_id']})" if event["event_id"] and event["calendar_access"] == "primary" else ""
-        print(f"- {time_str} | {event['summary']} [{event['calendar']}]{location}{event_id}")
+        out.write(f"- {time_str} | {event['summary']} [{event['calendar']}]{location}{event_id}\n")
+
+    return out.getvalue()
 
 
-def _get_primary_calendar(calendars: list[dict]) -> dict:
-    """Find and return the primary calendar, or exit."""
-    for cal in calendars:
-        if cal.get("access") == "primary":
-            return cal
-    print("Error: No calendar with access 'primary' found in config.", file=sys.stderr)
-    sys.exit(1)
+def cmd_add_event(title: str, start: str, end: str, description: str = "",
+                  guests: str = "", calendars: list[dict] = None,
+                  service=None) -> str:
+    """Create an event on the primary calendar.
 
+    Args:
+        title: Event title.
+        start: Start time (ISO 8601 or YYYY-MM-DD for all-day).
+        end: End time (ISO 8601 or YYYY-MM-DD for all-day).
+        description: Optional event description.
+        guests: Optional comma-separated guest emails.
+        calendars: Calendar config list.
+        service: Google Calendar API service client.
 
-def cmd_add_event(args, calendars: list[dict], service) -> None:
-    """Create an event on the primary calendar."""
-    primary = _get_primary_calendar(calendars)
+    Returns:
+        Formatted confirmation string.
+
+    Raises:
+        ValueError: If no primary calendar is configured.
+        RuntimeError: If the API call fails.
+    """
+    primary = _get_primary_calendar(calendars or [])
+    out = StringIO()
 
     event_body = {
-        "summary": args.title,
+        "summary": title,
     }
-    if len(args.start) == 10:
-        event_body["start"] = {"date": args.start}
+    if len(start) == 10:
+        event_body["start"] = {"date": start}
     else:
-        event_body["start"] = {"dateTime": args.start, "timeZone": "America/Los_Angeles"}
-    if len(args.end) == 10:
-        event_body["end"] = {"date": args.end}
+        event_body["start"] = {"dateTime": start, "timeZone": "America/Los_Angeles"}
+    if len(end) == 10:
+        event_body["end"] = {"date": end}
     else:
-        event_body["end"] = {"dateTime": args.end, "timeZone": "America/Los_Angeles"}
+        event_body["end"] = {"dateTime": end, "timeZone": "America/Los_Angeles"}
 
-    if args.description:
-        event_body["description"] = args.description
+    if description:
+        event_body["description"] = description
 
-    if args.guests:
-        guest_emails = [g.strip() for g in args.guests.split(",") if g.strip()]
+    guest_emails = []
+    if guests:
+        guest_emails = [g.strip() for g in guests.split(",") if g.strip()]
         event_body["attendees"] = [{"email": e} for e in guest_emails]
 
     try:
         created = service.events().insert(
             calendarId=primary["id"],
             body=event_body,
-            sendUpdates="all" if args.guests else "none",
+            sendUpdates="all" if guest_emails else "none",
         ).execute()
 
-        print(f"Event created: {created.get('summary', args.title)}")
-        print(f"When: {args.start} to {args.end}")
-        if args.guests:
-            print(f"Guests: {args.guests}")
-        print(f"Link: {created.get('htmlLink', 'N/A')}")
+        out.write(f"Event created: {created.get('summary', title)}\n")
+        out.write(f"When: {start} to {end}\n")
+        if guest_emails:
+            out.write(f"Guests: {guests}\n")
+        out.write(f"Link: {created.get('htmlLink', 'N/A')}\n")
     except Exception as e:
-        print(f"Error creating event: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"Error creating event: {e}")
+
+    return out.getvalue()
 
 
-def cmd_edit_event(args, calendars: list[dict], service) -> None:
-    """Edit an existing event on the primary calendar."""
-    primary = _get_primary_calendar(calendars)
+def cmd_edit_event(event_id: str, title: str = "", start: str = "",
+                   end: str = "", description: str = "", guests: str = "",
+                   calendars: list[dict] = None, service=None) -> str:
+    """Edit an existing event on the primary calendar.
+
+    Args:
+        event_id: The event ID to edit.
+        title: New event title (empty = no change).
+        start: New start time (empty = no change).
+        end: New end time (empty = no change).
+        description: New description (empty = no change).
+        guests: New comma-separated guest emails (empty = no change).
+        calendars: Calendar config list.
+        service: Google Calendar API service client.
+
+    Returns:
+        Formatted confirmation string.
+
+    Raises:
+        ValueError: If no primary calendar is configured.
+        RuntimeError: If the event is not found or update fails.
+    """
+    primary = _get_primary_calendar(calendars or [])
+    out = StringIO()
 
     # Fetch the existing event first
     try:
         existing = service.events().get(
-            calendarId=primary["id"], eventId=args.event_id
+            calendarId=primary["id"], eventId=event_id
         ).execute()
     except Exception as e:
-        print(f"Error: Could not find event '{args.event_id}': {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"Could not find event '{event_id}': {e}")
 
     # Apply updates — only override fields that were explicitly provided
-    if args.title:
-        existing["summary"] = args.title
-    if args.start:
-        if len(args.start) == 10:
-            existing["start"] = {"date": args.start}
+    if title:
+        existing["summary"] = title
+    if start:
+        if len(start) == 10:
+            existing["start"] = {"date": start}
         else:
-            existing["start"] = {"dateTime": args.start, "timeZone": "America/Los_Angeles"}
-    if args.end:
-        if len(args.end) == 10:
-            existing["end"] = {"date": args.end}
+            existing["start"] = {"dateTime": start, "timeZone": "America/Los_Angeles"}
+    if end:
+        if len(end) == 10:
+            existing["end"] = {"date": end}
         else:
-            existing["end"] = {"dateTime": args.end, "timeZone": "America/Los_Angeles"}
-    if args.description:
-        existing["description"] = args.description
-    if args.guests:
-        guest_emails = [g.strip() for g in args.guests.split(",") if g.strip()]
+            existing["end"] = {"dateTime": end, "timeZone": "America/Los_Angeles"}
+    if description:
+        existing["description"] = description
+
+    guest_emails = []
+    if guests:
+        guest_emails = [g.strip() for g in guests.split(",") if g.strip()]
         existing["attendees"] = [{"email": e} for e in guest_emails]
 
     try:
         updated = service.events().update(
             calendarId=primary["id"],
-            eventId=args.event_id,
+            eventId=event_id,
             body=existing,
-            sendUpdates="all" if args.guests else "none",
+            sendUpdates="all" if guest_emails else "none",
         ).execute()
 
-        print(f"Event updated: {updated.get('summary', '')}")
-        start = updated.get("start", {}).get("dateTime", updated.get("start", {}).get("date", ""))
-        end = updated.get("end", {}).get("dateTime", updated.get("end", {}).get("date", ""))
-        print(f"When: {start} to {end}")
-        print(f"Link: {updated.get('htmlLink', 'N/A')}")
+        out.write(f"Event updated: {updated.get('summary', '')}\n")
+        evt_start = updated.get("start", {}).get("dateTime", updated.get("start", {}).get("date", ""))
+        evt_end = updated.get("end", {}).get("dateTime", updated.get("end", {}).get("date", ""))
+        out.write(f"When: {evt_start} to {evt_end}\n")
+        out.write(f"Link: {updated.get('htmlLink', 'N/A')}\n")
     except Exception as e:
-        print(f"Error updating event: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"Error updating event: {e}")
+
+    return out.getvalue()
 
 
-def cmd_delete_event(args, calendars: list[dict], service) -> None:
-    """Delete an event from the primary calendar."""
-    primary = _get_primary_calendar(calendars)
+def cmd_delete_event(event_id: str, calendars: list[dict] = None,
+                     service=None) -> str:
+    """Delete an event from the primary calendar.
+
+    Args:
+        event_id: The event ID to delete.
+        calendars: Calendar config list.
+        service: Google Calendar API service client.
+
+    Returns:
+        Confirmation string.
+
+    Raises:
+        ValueError: If no primary calendar is configured.
+        RuntimeError: If the API call fails.
+    """
+    primary = _get_primary_calendar(calendars or [])
 
     try:
         service.events().delete(
             calendarId=primary["id"],
-            eventId=args.event_id,
+            eventId=event_id,
             sendUpdates="all",
         ).execute()
-        print(f"Event deleted: {args.event_id}")
+        return f"Event deleted: {event_id}"
     except Exception as e:
-        print(f"Error deleting event: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"Error deleting event: {e}")
 
 
-def cmd_list_calendars(calendars: list[dict]) -> None:
-    """Show configured calendars."""
-    print("Configured calendars:\n")
+def cmd_list_calendars(calendars: list[dict]) -> str:
+    """Show configured calendars.
+
+    Args:
+        calendars: Calendar config list.
+
+    Returns:
+        Formatted listing of configured calendars.
+    """
+    out = StringIO()
+    out.write("Configured calendars:\n\n")
     for cal in calendars:
         label = cal.get("label", cal["id"])
         access = cal.get("access", "unknown")
         icon = "✏️" if access == "primary" else "👁️"
-        print(f"  {icon} {label} ({access}) — {cal['id']}")
+        out.write(f"  {icon} {label} ({access}) — {cal['id']}\n")
+    return out.getvalue()
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -393,23 +490,50 @@ def main(argv: Optional[list[str]] = None) -> None:
     sub.add_parser("list-calendars", help="Show configured calendars")
 
     args = parser.parse_args(argv)
-    calendars = load_calendars(args.config)
+
+    try:
+        calendars = load_calendars(args.config)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if args.command == "list-calendars":
-        cmd_list_calendars(calendars)
+        print(cmd_list_calendars(calendars))
         return
 
     # Commands that need the API
     service = build_service(args.token, args.credentials)
 
-    if args.command == "list-events":
-        cmd_list_events(args, calendars, service)
-    elif args.command == "add-event":
-        cmd_add_event(args, calendars, service)
-    elif args.command == "edit-event":
-        cmd_edit_event(args, calendars, service)
-    elif args.command == "delete-event":
-        cmd_delete_event(args, calendars, service)
+    try:
+        if args.command == "list-events":
+            result = cmd_list_events(
+                days=args.days, date=args.date, calendar=args.calendar,
+                calendars=calendars, service=service,
+            )
+        elif args.command == "add-event":
+            result = cmd_add_event(
+                title=args.title, start=args.start, end=args.end,
+                description=args.description, guests=args.guests,
+                calendars=calendars, service=service,
+            )
+        elif args.command == "edit-event":
+            result = cmd_edit_event(
+                event_id=args.event_id, title=args.title, start=args.start,
+                end=args.end, description=args.description, guests=args.guests,
+                calendars=calendars, service=service,
+            )
+        elif args.command == "delete-event":
+            result = cmd_delete_event(
+                event_id=args.event_id,
+                calendars=calendars, service=service,
+            )
+        else:
+            return
+
+        print(result)
+    except (ValueError, RuntimeError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
