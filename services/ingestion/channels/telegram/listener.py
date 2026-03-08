@@ -172,13 +172,16 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         image_paths=image_paths,
     )
 
+    parent_session = None
     if reply_to_id:
         parent_session = session_manager.get_message_session(reply_to_id)
         if parent_session:
             session_id = parent_session
             logger.info("Resuming session %s from reply to message_id=%d", session_id, reply_to_id)
         else:
-            session_id = session_manager.get_session(user_key)
+            # Reply to an untracked bot message, start a brand new session
+            session_id = None
+            logger.info("Starting new session for reply to untracked message_id=%d", reply_to_id)
     else:
         session_id = session_manager.get_session(user_key)
 
@@ -207,6 +210,10 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # Save the new message ID tied to this session so the user can keep replying
     if result.session_id and sent_message:
         session_manager.save_message_session(sent_message.message_id, result.session_id)
+
+    # If we just lazily generated a session for an untracked parent, save it to the parent too
+    if reply_to_id and not parent_session and result.session_id:
+        session_manager.save_message_session(reply_to_id, result.session_id)
 
 
 # ── Telegram Listener ──────────────────────────────────────────────

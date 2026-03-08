@@ -268,20 +268,11 @@ class ReminderScheduler:
         for item in reminders:
             try:
                 if item["type"] == "message":
-                    # Generate a fresh session ID so if the user replies to this
-                    # message digest, it starts a clean conversation thread.
-                    session_id = str(uuid.uuid4())
-
-                    # Pre-save the session key for email so replies start in this thread
-                    if item["channel"] == "email":
-                        session_key = f"<{session_id}@synapse.local>"
-                        self.session_manager.save_session(session_key, session_id)
-
                     success = self._deliver(
                         item["channel"],
                         f"Reminder: {item['message']}" if item["channel"] == "telegram" else item["message"],
                         subject=self._make_subject(item["message"]),
-                        session_id=session_id,
+                        session_id=None,
                     )
                     if not success:
                         self._handle_delivery_failure(item["message"])
