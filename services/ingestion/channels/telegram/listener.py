@@ -180,7 +180,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id)
 
-    if result.session_id:
+    if result.session_id and not reply_to_id:
         session_manager.save_session(str(user.id), result.session_id)
 
     reply_text = result.output
