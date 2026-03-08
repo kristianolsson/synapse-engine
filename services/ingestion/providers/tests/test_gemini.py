@@ -67,5 +67,6 @@ class TestGeminiProvider:
         result = self.provider.generate_response("test")
         
         assert result.is_error is False
-        assert result.text == "OK"
+        assert "⚠️ Processed using fallback model" in result.text
+        assert "OK" in result.text
         assert mock_run.call_count == 2

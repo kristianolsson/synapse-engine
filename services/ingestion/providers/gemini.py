@@ -188,6 +188,8 @@ class GeminiProvider(AIProvider):
                     res = _run_cmd(fallback_cmd)
             
             if not res.is_error:
+                if attempt > 0 and res.requires_reply and res.text:
+                    res.text = f"⚠️ Processed using fallback model ({current_model or 'default'}) due to quota limits.\n\n{res.text}"
                 return res
                 
             # Log error and prepare for next retry if applicable
