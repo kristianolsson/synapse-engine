@@ -40,7 +40,7 @@ The service is organized into four layers under `services/ingestion/`:
 ## Setup
 
 1.  **Prerequisites:**
-    -   Python 3.9+
+    -   Python 3.10+
     -   Gemini CLI installed and in PATH.
     -   A dedicated Gmail account for ingestion (with App Password).
     -   (Optional) A Telegram bot token from [@BotFather](https://t.me/BotFather).
