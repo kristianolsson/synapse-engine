@@ -200,3 +200,32 @@ class GeminiProvider(AIProvider):
                 return res
 
         return res
+
+    def cleanup_session(self, session_id: str) -> None:
+        """
+        Deletes a Gemini CLI session to prevent cluttering the project's session history.
+        """
+        if not session_id:
+            return
+            
+        vault_path = config.VAULT_PATH
+        cmd = [config.GEMINI_CMD, "--delete-session", session_id]
+
+        env = os.environ.copy()
+        gemini_dir = os.path.dirname(config.GEMINI_CMD)
+        if gemini_dir:
+            env["PATH"] = gemini_dir + ":" + env.get("PATH", "")
+
+        logger.debug("Cleaning up Gemini session %s...", session_id)
+        try:
+            # We use Popen instead of run here so we don't necessarily block the caller,
+            # though it executes very quickly anyway.
+            subprocess.Popen(
+                cmd,
+                cwd=vault_path,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception as e:
+            logger.error("Failed to execute session cleanup for %s: %s", session_id, e)
