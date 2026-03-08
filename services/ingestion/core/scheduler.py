@@ -156,7 +156,7 @@ class ReminderScheduler:
         first_line = text.split("\n")[0].strip()
         if len(first_line) > 60:
             first_line = first_line[:57] + "..."
-        return f"Synapse: {first_line}"
+        return f"Reminder: {first_line}"
 
     def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None) -> bool:
         """Deliver a message via the specified channel. Returns True on success."""

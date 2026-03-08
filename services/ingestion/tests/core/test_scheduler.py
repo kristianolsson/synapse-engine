@@ -154,10 +154,10 @@ class TestDelivery:
             "services.ingestion.channels.email.reply.send_reply"
         ) as mock_send:
             mock_send.return_value = True
-            result = scheduler._send_email("Hello!", subject="Synapse: Hello!", session_id="test-session-123")
+            result = scheduler._send_email("Hello!", subject="Reminder: Hello!", session_id="test-session-123")
             mock_send.assert_called_once_with(
                 to_addr="user@example.com",
-                subject="Synapse: Hello!",
+                subject="Reminder: Hello!",
                 body="Hello!",
                 message_id="<test-session-123@synapse.local>",
             )
@@ -167,7 +167,7 @@ class TestDelivery:
     def test_send_email_no_address(self, mock_config, scheduler):
         mock_config.REPLY_TO_ADDRESS = ""
         mock_config.ALLOWED_SENDERS = []
-        result = scheduler._send_email("Hello!", subject="Synapse: Hello!")
+        result = scheduler._send_email("Hello!", subject="Reminder: Hello!")
         assert result is False
 
     def test_deliver_unknown_channel(self, scheduler):
