@@ -143,7 +143,7 @@ class TestDelivery:
     def test_send_telegram_no_user_ids(self, mock_config, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = []
         result = scheduler._send_telegram("Hello!")
-        assert result is None
+        assert result is False
 
     @patch("services.ingestion.core.scheduler.config")
     def test_send_email(self, mock_config, scheduler):

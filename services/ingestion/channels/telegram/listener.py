@@ -153,6 +153,17 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         logger.info("Empty message from user %d, ignoring", user.id)
         return
 
+    # Extract parent text so Gemini has context if this is a reply to an empty session
+    try:
+        reply_to_id = message.reply_to_message.message_id if message.reply_to_message else None
+        reply_to_text = message.reply_to_message.text or message.reply_to_message.caption if message.reply_to_message else None
+    except AttributeError:
+        reply_to_id = None
+        reply_to_text = None
+
+    if reply_to_text:
+        text = f"Context: You previously sent the user this message: \"{reply_to_text}\"\nThe user replied to that message with: \"{text}\""
+
     incoming = IncomingMessage(
         source_type="telegram",
         sender=str(user.id),
@@ -160,11 +171,6 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         body=text,
         image_paths=image_paths,
     )
-
-    try:
-        reply_to_id = message.reply_to_message.message_id if message.reply_to_message else None
-    except AttributeError:
-        reply_to_id = None
 
     if reply_to_id:
         parent_session = session_manager.get_message_session(reply_to_id)

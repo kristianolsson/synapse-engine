@@ -385,6 +385,7 @@ class TestTelegramAttachments:
         update = _make_update(text="Following up on that")
         update.message.reply_to_message = MagicMock()
         update.message.reply_to_message.message_id = 999
+        update.message.reply_to_message.text = "Original reminder"
         
         mock_sent_msg = MagicMock()
         mock_sent_msg.message_id = 1000
@@ -397,11 +398,14 @@ class TestTelegramAttachments:
         sm.get_message_session.assert_called_once_with(999)
         sm.get_session.assert_not_called()  # Did not fall back to default
         
-        # Verify pipe_to_gemini was called with the linked session
+        # Verify pipe_to_gemini was called with the linked session and injected context
         args, kwargs = mock_pipe.call_args
-        # session_id is either kwargs["session_id"] or args[1] 
+        actual_prompt = args[0]
         actual_session_id = kwargs.get("session_id") if "session_id" in kwargs else args[1]
+        
         assert actual_session_id == "linked-session"
+        assert "Context: You previously sent the user this message: \"Original reminder\"" in actual_prompt
+        assert "The user replied to that message with: \"Following up on that\"" in actual_prompt
         
         # Verify the NEW message ID (1000) was saved to the NEW session ID returned by pipe
         sm.save_message_session.assert_called_once_with(1000, "new-session")

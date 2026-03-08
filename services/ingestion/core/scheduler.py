@@ -244,14 +244,6 @@ class ReminderScheduler:
         # Use a fresh session (no resume) — scheduler prompts are stateless
         result = pipe_to_gemini(prompt)
 
-        # The scheduler executes a stateless prompt simply to evaluate `reminders.md`.
-        # The provider might generate a persistent session for this interaction.
-        # Since we don't care about this transient conversation, we delete it immediately
-        # to prevent log buildup in the CLI state.
-        if result.session_id:
-            from ..core.pipe import cleanup_session
-            cleanup_session(result.session_id)
-
         if result.is_error:
             logger.error("Scheduler prompt failed: %s", result.output)
             return

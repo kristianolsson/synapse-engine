@@ -86,10 +86,3 @@ def pipe_to_gemini(prompt: str, session_id: Optional[str] = None) -> PipeResult:
         session_id=result.session_id or "",
         stats=result.stats
     )
-
-def cleanup_session(session_id: str) -> None:
-    """
-    Instruct the active AI provider to delete a session.
-    """
-    provider: AIProvider = get_provider()
-    provider.cleanup_session(session_id)
