@@ -12,10 +12,12 @@ import telegram
 
 from ... import config
 
+from typing import Optional
+
 logger = logging.getLogger(__name__)
 
 
-async def send_telegram_message_async(chat_id: int, text: str) -> bool:
+async def send_telegram_message_async(chat_id: int, text: str) -> Optional[int]:
     """
     Send a message to a Telegram chat using the bot API.
 
@@ -24,26 +26,26 @@ async def send_telegram_message_async(chat_id: int, text: str) -> bool:
         text: Message text to send.
 
     Returns:
-        True if sent successfully, False otherwise.
+        The message_id if sent successfully, None otherwise.
     """
     if not config.TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN not set, cannot send Telegram message")
-        return False
+        return None
 
     try:
         bot = telegram.Bot(token=config.TELEGRAM_BOT_TOKEN)
         # Telegram message limit is 4096 chars
         if len(text) > 4096:
             text = text[:4093] + "..."
-        await bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
-        logger.info("Telegram message sent to chat_id=%d", chat_id)
-        return True
+        message = await bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
+        logger.info("Telegram message sent to chat_id=%d (msg_id=%d)", chat_id, message.message_id)
+        return message.message_id
     except Exception as e:
         logger.error("Failed to send Telegram message to chat_id=%d: %s", chat_id, e)
-        return False
+        return None
 
 
-def send_telegram_message(chat_id: int, text: str) -> bool:
+def send_telegram_message(chat_id: int, text: str) -> Optional[int]:
     """
     Synchronous wrapper for send_telegram_message_async.
 

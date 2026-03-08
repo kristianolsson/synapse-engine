@@ -161,8 +161,22 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         image_paths=image_paths,
     )
 
+    try:
+        reply_to_id = message.reply_to_message.message_id if message.reply_to_message else None
+    except AttributeError:
+        reply_to_id = None
+
+    if reply_to_id:
+        parent_session = session_manager.get_message_session(reply_to_id)
+        if parent_session:
+            session_id = parent_session
+            logger.info("Resuming session %s from reply to message_id=%d", session_id, reply_to_id)
+        else:
+            session_id = session_manager.get_session(user_key)
+    else:
+        session_id = session_manager.get_session(user_key)
+
     prompt = build_prompt(incoming)
-    session_id = session_manager.get_session(str(user.id))
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id)
 
@@ -182,7 +196,11 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     if len(reply_text) > 4096:
         reply_text = reply_text[:4093] + "..."
 
-    await message.reply_text(reply_text, parse_mode='HTML')
+    sent_message = await message.reply_text(reply_text, parse_mode='HTML')
+    
+    # Save the new message ID tied to this session so the user can keep replying
+    if result.session_id and sent_message:
+        session_manager.save_message_session(sent_message.message_id, result.session_id)
 
 
 # ── Telegram Listener ──────────────────────────────────────────────

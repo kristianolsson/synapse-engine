@@ -120,13 +120,13 @@ class ReminderScheduler:
 
         return valid
 
-    def _send_telegram(self, text: str) -> bool:
-        """Send a message via Telegram."""
+    def _send_telegram(self, text: str) -> Optional[int]:
+        """Send a message via Telegram. Returns the message_id on success."""
         from ..channels.telegram.sender import send_telegram_message
 
         if not config.TELEGRAM_ALLOWED_USER_IDS:
             logger.error("No TELEGRAM_ALLOWED_USER_IDS configured, cannot send reminder")
-            return False
+            return None
 
         chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
         return send_telegram_message(chat_id, text)
@@ -159,9 +159,12 @@ class ReminderScheduler:
         return f"Synapse: {first_line}"
 
     def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None) -> bool:
-        """Deliver a message via the specified channel."""
+        """Deliver a message via the specified channel. Returns True on success."""
         if channel == "telegram":
-            return self._send_telegram(text)
+            msg_id = self._send_telegram(text)
+            if msg_id and session_id:
+                self.session_manager.save_message_session(msg_id, session_id)
+            return bool(msg_id)
         elif channel == "email":
             return self._send_email(text, subject=subject, session_id=session_id)
         else:

@@ -360,3 +360,48 @@ class TestTelegramAttachments:
         assert result is not None
         assert "photo.jpg" in result
         tg_file.download_to_drive.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    async def test_reply_to_bot_message_resumes_session(self, mock_extract, mock_pipe, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_extract.return_value = []
+        
+        # Setup pipe to return a new session ID
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=False, output="Context output", session_id="new-session", stats=None
+        )
+        
+        # Setup session manager to have a stored message -> session mapping
+        sm = MagicMock(spec=SessionManager)
+        sm.get_message_session.side_effect = lambda msg_id: "linked-session" if msg_id == 999 else None
+        sm.get_session.return_value = "default-session"
+        
+        rl = RateLimiter(10, 60)
+        
+        # User replies to a specific bot message (ID 999)
+        update = _make_update(text="Following up on that")
+        update.message.reply_to_message = MagicMock()
+        update.message.reply_to_message.message_id = 999
+        
+        mock_sent_msg = MagicMock()
+        mock_sent_msg.message_id = 1000
+        update.message.reply_text.return_value = mock_sent_msg
+        
+        from services.ingestion.channels.telegram.listener import handle_message
+        await handle_message(update, None, rl, sm)
+        
+        # Verify the session manager linked the session properly
+        sm.get_message_session.assert_called_once_with(999)
+        sm.get_session.assert_not_called()  # Did not fall back to default
+        
+        # Verify pipe_to_gemini was called with the linked session
+        args, kwargs = mock_pipe.call_args
+        # session_id is either kwargs["session_id"] or args[1] 
+        actual_session_id = kwargs.get("session_id") if "session_id" in kwargs else args[1]
+        assert actual_session_id == "linked-session"
+        
+        # Verify the NEW message ID (1000) was saved to the NEW session ID returned by pipe
+        sm.save_message_session.assert_called_once_with(1000, "new-session")

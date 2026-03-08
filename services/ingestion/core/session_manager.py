@@ -95,6 +95,14 @@ class SessionManager:
                 return True
             return False
 
+    def get_message_session(self, message_id: int) -> Optional[str]:
+        """Get the session ID associated with a specific Telegram message ID."""
+        return self.get_session(f"msg_{message_id}")
+
+    def save_message_session(self, message_id: int, session_id: str) -> None:
+        """Save a session ID tied to a specific Telegram message ID."""
+        self.save_session(f"msg_{message_id}", session_id)
+
     def get_stats_enabled(self, user_key: str) -> bool:
         """Return whether stats are enabled for a user, falling back to config default."""
         return self._stats_prefs.get(user_key, config.STATS_ENABLED)
