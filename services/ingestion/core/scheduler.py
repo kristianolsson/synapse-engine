@@ -150,13 +150,13 @@ class ReminderScheduler:
             message_id=message_id,
         )
 
-    def _make_subject(self, text: str) -> str:
+    def _make_subject(self, text: str, prefix: str = "Reminder") -> str:
         """Generate a concise email subject from the task/message text."""
         # Strip to first line, then truncate
         first_line = text.split("\n")[0].strip()
         if len(first_line) > 60:
             first_line = first_line[:57] + "..."
-        return f"Reminder: {first_line}"
+        return f"{prefix}: {first_line}"
 
     def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None) -> bool:
         """Deliver a message via the specified channel. Returns True on success."""
@@ -216,7 +216,7 @@ class ReminderScheduler:
         success = self._deliver(
             channel,
             response_text,
-            subject=self._make_subject(task),
+            subject=self._make_subject(task, prefix="Synapse"),
             session_id=result.session_id,
         )
         if not success:
