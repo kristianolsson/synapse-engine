@@ -22,7 +22,7 @@ class TestSendTelegramMessage:
         result = send_telegram_message(12345, "Hello!")
 
         assert result is True
-        mock_bot.send_message.assert_called_once_with(chat_id=12345, text="Hello!")
+        mock_bot.send_message.assert_called_once_with(chat_id=12345, text="Hello!", parse_mode='HTML')
 
     @patch("services.ingestion.channels.telegram.sender.config")
     def test_send_message_no_token(self, mock_config):

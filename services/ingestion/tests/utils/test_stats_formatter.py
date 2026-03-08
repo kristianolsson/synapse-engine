@@ -20,7 +20,7 @@ class TestFormatStatsEmail:
         }
         result = format_stats_email(stats)
         assert "gemini-2.5-pro: 2 requests, 0 errors, 5000ms" in result
-        assert result.startswith("\n\n---")
+        assert "<br><br><hr>" in result
 
     def test_multi_model(self):
         stats = {

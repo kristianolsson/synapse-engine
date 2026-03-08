@@ -87,6 +87,7 @@ class TestSendReply:
         sent_msg = mock_server.send_message.call_args[0][0]
         body_content = sent_msg.get_payload(decode=True).decode("utf-8")
         assert "gemini-fail: 3 requests, 2 errors, 500ms" in body_content
+        assert "<b>Stats:</b>" in body_content
 
     @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
     @patch("services.ingestion.channels.email.reply.config")
@@ -120,3 +121,26 @@ class TestSendReply:
         sent_msg_with_refs = mock_server.send_message.call_args[0][0]
         assert sent_msg_with_refs["In-Reply-To"] == "<abc123@gmail.com>"
         assert sent_msg_with_refs["References"] == "<root-id@gmail.com> <prev-id@gmail.com> <abc123@gmail.com>"
+
+    @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
+    @patch("services.ingestion.channels.email.reply.config")
+    def test_sends_html_with_br_newlines(self, mock_config, mock_smtp_class):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_config.EMAIL_ADDRESS = "bot@lifeos.com"
+        mock_config.EMAIL_APP_PASSWORD = "secret"
+        mock_config.SMTP_HOST = "smtp.gmail.com"
+        mock_config.SMTP_PORT = 587
+
+        mock_server = MagicMock()
+        mock_smtp_class.return_value.__enter__ = MagicMock(return_value=mock_server)
+        mock_smtp_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        send_reply(
+            to_addr="user@example.com",
+            subject="Test",
+            body="Line one\nLine two\nLine three",
+        )
+        sent_msg = mock_server.send_message.call_args[0][0]
+        assert sent_msg.get_content_type() == "text/html"
+        body_content = sent_msg.get_payload(decode=True).decode("utf-8")
+        assert "Line one<br>Line two<br>Line three" in body_content

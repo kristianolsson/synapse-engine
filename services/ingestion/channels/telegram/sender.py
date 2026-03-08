@@ -35,7 +35,7 @@ async def send_telegram_message_async(chat_id: int, text: str) -> bool:
         # Telegram message limit is 4096 chars
         if len(text) > 4096:
             text = text[:4093] + "..."
-        await bot.send_message(chat_id=chat_id, text=text)
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
         logger.info("Telegram message sent to chat_id=%d", chat_id)
         return True
     except Exception as e:

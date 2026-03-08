@@ -119,7 +119,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # Rate limiting (shared across channels)
     if not rate_limiter.allow():
         logger.warning("Rate limit reached, ignoring message from user %d", user.id)
-        await message.reply_text("⚠️ Rate limit reached. Try again in a minute.")
+        await message.reply_text("⚠️ Rate limit reached. Try again in a minute.", parse_mode='HTML')
         return
 
     # Extract content
@@ -182,7 +182,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     if len(reply_text) > 4096:
         reply_text = reply_text[:4093] + "..."
 
-    await message.reply_text(reply_text)
+    await message.reply_text(reply_text, parse_mode='HTML')
 
 
 # ── Telegram Listener ──────────────────────────────────────────────

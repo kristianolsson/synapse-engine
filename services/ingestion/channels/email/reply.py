@@ -54,9 +54,9 @@ def send_reply(
     else:
         reply_subject = subject
 
-    final_body = body + format_stats_email(stats)
+    final_body = body.replace('\n', '<br>') + format_stats_email(stats)
 
-    msg = MIMEText(final_body, "plain", "utf-8")
+    msg = MIMEText(final_body, "html", "utf-8")
     msg["From"] = f"Synapse <{config.EMAIL_ADDRESS}>"
     msg["To"] = to_addr
     msg["Subject"] = reply_subject

@@ -119,7 +119,7 @@ class TestTelegramMessageProcessing:
 
         await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
-        update.message.reply_text.assert_called_once_with("✓")
+        update.message.reply_text.assert_called_once_with("✓", parse_mode='HTML')
 
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")
@@ -239,7 +239,7 @@ class TestTelegramMessageProcessing:
 
         await handle_message(update, None, rl, sm)
 
-        update.message.reply_text.assert_called_once_with("Repo is locked")
+        update.message.reply_text.assert_called_once_with("Repo is locked", parse_mode='HTML')
 
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")

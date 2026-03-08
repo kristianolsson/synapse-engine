@@ -183,8 +183,10 @@ class TestListEvents:
         assert "School dropoff" in result
         assert "Soccer practice" in result
 
-        # Calendar labels should appear
-        assert "Kristian" in result
+        # Primary calendar label should NOT appear, others should
+        assert "[Kristian]" not in result
+        assert "[Sarah]" in result
+        assert "[Kids Sports]" in result
         assert "Sarah" in result
         assert "Kids Sports" in result
 

@@ -12,19 +12,18 @@ logger = logging.getLogger(__name__)
 
 def format_stats_email(stats: Optional[dict]) -> str:
     """
-    Format execution stats as a markdown block for email footers.
+    Format execution stats as an HTML block for email footers.
 
     Example output:
-        ---
-        **Stats:**
-        - gemini-2.5-pro: 2 requests, 0 errors, 5053ms
-        - google_web_search: 1 call, 1 ok, 0 fail
+        <br><br><hr><b>Stats:</b>
+        <br>- gemini-2.5-pro: 2 requests, 0 errors, 5053ms
+        <br>- google_web_search: 1 call, 1 ok, 0 fail
     """
     if not stats:
         return ""
 
     try:
-        lines = ["\n\n---\n**Stats:**"]
+        lines = ["<br><br><hr><b>Stats:</b>"]
 
         # Per-model stats
         for name, data in stats.get("models", {}).items():
@@ -42,7 +41,7 @@ def format_stats_email(stats: Optional[dict]) -> str:
             fail = tool_data.get("fail", 0)
             lines.append(f"- {tool_name}: {count} call{'s' if count != 1 else ''}, {ok} ok, {fail} fail")
 
-        return "\n".join(lines) + "\n"
+        return "<br>".join(lines)
     except Exception as e:
         logger.warning("Failed to format stats for email: %s", e)
         return ""
