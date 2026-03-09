@@ -582,6 +582,54 @@ class TestTaskButtons:
         assert new_kb[0][0].text == "✅ Buy groceries"
         assert new_kb[0][0].callback_data == f"done_{task_hash}"
 
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+    async def test_callback_query_rollback_on_error(self, mock_pipe, mock_config):
+        """If Gemini fails, the optimistic UI update should be rolled back."""
+        from services.ingestion.channels.telegram.task_buttons import _hash_task
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        task_hash = _hash_task("Buy groceries")
+        mock_pipe.return_value = MagicMock(
+            is_error=True, output="Network Error", session_id="err-session", stats=None
+        )
+
+        sm = MagicMock(spec=SessionManager)
+
+        update = MagicMock()
+        update.callback_query.data = f"done_{task_hash}"
+        update.callback_query.from_user.id = 12345
+        update.callback_query.message.message_id = 999
+        update.callback_query.message.text = "Your tasks:\n☐ Buy groceries"
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        original_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Buy groceries", callback_data=f"done_{task_hash}")],
+        ])
+        update.callback_query.message.reply_markup = original_markup
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.message.edit_text = AsyncMock()
+        update.callback_query.message.reply_text = AsyncMock()
+
+        await handle_callback_query(update, None, sm)
+
+        # Should be edited twice: once for optimistic update, once for rollback
+        assert update.callback_query.message.edit_text.call_count == 2
+        
+        # First edit: Optimistic check
+        first_args, first_kwargs = update.callback_query.message.edit_text.call_args_list[0]
+        assert "✅ Buy groceries" in first_args[0]
+        assert first_kwargs["reply_markup"].inline_keyboard[0][0].text == "↩️ Buy groceries"
+        
+        # Second edit: Rollback to original
+        second_args, second_kwargs = update.callback_query.message.edit_text.call_args_list[1]
+        assert "☐ Buy groceries" in second_args[0]
+        # Restored the original markup
+        assert second_kwargs["reply_markup"] == original_markup
+        
+        # Should also notify the user
+        update.callback_query.message.reply_text.assert_called_once()
+        assert "Rolling back" in update.callback_query.message.reply_text.call_args[0][0]
+
     async def test_callback_query_unknown_hash(self, mock_config):
         """When hash can't be matched, show error toast and don't pipe to Gemini."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]

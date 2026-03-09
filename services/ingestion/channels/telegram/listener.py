@@ -276,28 +276,11 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
     else:
         prompt = f"Mark the following task as NOT completed (undo): {task_text}"
         await query.answer("Undoing completion...")
-        
-    incoming = IncomingMessage(
-        source_type="telegram",
-        sender=user_key,
-        subject="",
-        body=prompt,
-    )
-    full_prompt = build_prompt(incoming)
-
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, pipe_to_gemini, full_prompt, session_id)
-
-    if result.session_id:
-        session_manager.save_session(user_key, result.session_id)
-
-    if result.is_error:
-        logger.error("Task completion failed for '%s': %s", task_text, result.output)
-        await query.message.reply_text(f"⚠️ Failed to complete task: {task_text}")
-        return
-
-    # Update the pressed button state instead of removing it
+    # --- OPTIMISTIC UI UPDATE ---
     old_markup = query.message.reply_markup
+    new_markup = None
+    updated_text = message_text
+
     if old_markup:
         updated_buttons = []
         for row in old_markup.inline_keyboard:
@@ -317,9 +300,7 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
             if new_row:
                 updated_buttons.append(new_row)
         
-        new_markup = None
         if updated_buttons:
-            from telegram import InlineKeyboardMarkup
             new_markup = InlineKeyboardMarkup(updated_buttons)
 
         # Update the message text: swap ☐ ↔ ✅ for the requested task
@@ -335,7 +316,38 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
                 reply_markup=new_markup,
             )
         except Exception as e:
-            logger.warning("Could not edit message after task completion: %s", e)
+            logger.warning("Could not apply optimistic UI update: %s", e)
+
+    # --- EXECUTE TASK REQUEST ---
+    incoming = IncomingMessage(
+        source_type="telegram",
+        sender=user_key,
+        subject="",
+        body=prompt,
+    )
+    full_prompt = build_prompt(incoming)
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, pipe_to_gemini, full_prompt, session_id)
+
+    if result.session_id:
+        session_manager.save_session(user_key, result.session_id)
+
+    if result.is_error:
+        logger.error("Task completion request failed for '%s': %s", task_text, result.output)
+        await query.message.reply_text(f"⚠️ Failed to complete task. Rolling back UI: {task_text}")
+        
+        # --- ROLLBACK UI UPDATE ---
+        if old_markup:
+            try:
+                await query.message.edit_text(
+                    message_text,
+                    parse_mode='HTML',
+                    reply_markup=old_markup,
+                )
+            except Exception as e:
+                logger.warning("Could not rollback message after failed task completion: %s", e)
+        return
 
 
 # ── Telegram Listener ──────────────────────────────────────────────
