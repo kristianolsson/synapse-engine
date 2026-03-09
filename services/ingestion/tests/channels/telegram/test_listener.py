@@ -525,9 +525,62 @@ class TestTaskButtons:
         edit_args, edit_kwargs = update.callback_query.message.edit_text.call_args
         edited_text = edit_args[0]
         assert "✅ Buy groceries" in edited_text
-        # The other button should remain in the new markup
+        
+        # Verify the button state was toggled completely
         assert edit_kwargs["reply_markup"] is not None
-        assert len(edit_kwargs["reply_markup"].inline_keyboard) == 1
+        new_kb = edit_kwargs["reply_markup"].inline_keyboard
+        assert len(new_kb) == 2
+        # First button (clicked) changed to undo
+        assert new_kb[0][0].text == "↩️ Buy groceries"
+        assert new_kb[0][0].callback_data == f"undo_{task_hash}"
+        # Second button remained the same
+        assert new_kb[1][0].text == "✅ Fix the fence"
+        assert new_kb[1][0].callback_data == f"done_{_hash_task('Fix the fence')}"
+
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+    async def test_callback_query_undo_task(self, mock_pipe, mock_config):
+        from services.ingestion.channels.telegram.task_buttons import _hash_task
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        task_hash = _hash_task("Buy groceries")
+        mock_pipe.return_value = MagicMock(
+            is_error=False, output="Done!", session_id="completion-session", stats=None
+        )
+
+        sm = MagicMock(spec=SessionManager)
+        sm.get_message_session.return_value = "existing-session"
+
+        update = MagicMock()
+        update.callback_query.data = f"undo_{task_hash}"
+        update.callback_query.from_user.id = 12345
+        update.callback_query.message.message_id = 999
+        # Message text was previously marked complete
+        update.callback_query.message.text = "Your tasks:\n✅ Buy groceries\n☐ Fix the fence"
+
+        # Mock inline keyboard with two buttons
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        update.callback_query.message.reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ Buy groceries", callback_data=f"undo_{task_hash}")],
+            [InlineKeyboardButton("✅ Fix the fence", callback_data=f"done_{_hash_task('Fix the fence')}")],
+        ])
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.message.edit_text = AsyncMock()
+
+        await handle_callback_query(update, None, sm)
+
+        # Verify pipe was called with undo prompt
+        args, _ = mock_pipe.call_args
+        assert "Mark the following task as NOT completed (undo): Buy groceries" in args[0]
+
+        # Verify edited text reverted from ✅ to ☐
+        edit_args, edit_kwargs = update.callback_query.message.edit_text.call_args
+        edited_text = edit_args[0]
+        assert "☐ Buy groceries" in edited_text
+
+        # Verify button reverted state
+        new_kb = edit_kwargs["reply_markup"].inline_keyboard
+        assert new_kb[0][0].text == "✅ Buy groceries"
+        assert new_kb[0][0].callback_data == f"done_{task_hash}"
 
     async def test_callback_query_unknown_hash(self, mock_config):
         """When hash can't be matched, show error toast and don't pipe to Gemini."""

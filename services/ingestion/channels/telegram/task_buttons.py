@@ -12,7 +12,9 @@ from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Match lines starting with optional [number] then ☐ followed by task text
-TASK_PATTERN = re.compile(r"^(?:\[\d+\]\s*)?☐\s+(.+)$", re.MULTILINE)
+TASK_PATTERN_OPEN = re.compile(r"^(?:\[\d+\]\s*)?☐\s+(.+)$", re.MULTILINE)
+# Match tasks whether they are open or completed (for recovery)
+TASK_PATTERN_ALL = re.compile(r"^(?:\[\d+\]\s*)?[☐✅]\s+(.+)$", re.MULTILINE)
 
 # Max tasks per row in inline keyboard
 BUTTONS_PER_ROW = 5
@@ -30,7 +32,7 @@ def parse_tasks(text: str) -> list[dict]:
     Returns a list of dicts: [{"text": "full task text", "hash": "ab12cd34"}]
     """
     tasks = []
-    for match in TASK_PATTERN.finditer(text):
+    for match in TASK_PATTERN_OPEN.finditer(text):
         task_text = match.group(1).strip()
         if task_text:
             tasks.append({"text": task_text, "hash": _hash_task(task_text)})
@@ -61,7 +63,7 @@ def format_message_with_tasks(text: str) -> tuple[str, list[dict]]:
         counter += 1
         return result
 
-    modified_text = TASK_PATTERN.sub(replacer, text)
+    modified_text = TASK_PATTERN_OPEN.sub(replacer, text)
     return modified_text, tasks
 
 
@@ -99,11 +101,13 @@ def recover_task_from_callback(message_text: str, task_hash: str) -> Optional[st
     """
     Re-parse tasks from the original message and match by hash
     to recover the full task text.
+    
+    Supports recovering tasks that have already been marked complete (✅).
 
     Returns the full task text if found, None otherwise.
     """
-    tasks = parse_tasks(message_text)
-    for task in tasks:
-        if task["hash"] == task_hash:
-            return task["text"]
+    for match in TASK_PATTERN_ALL.finditer(message_text):
+        task_text = match.group(1).strip()
+        if task_text and _hash_task(task_text) == task_hash:
+            return task_text
     return None

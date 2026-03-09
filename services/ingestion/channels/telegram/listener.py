@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -225,16 +225,22 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
 
 async def handle_callback_query(update: Update, context, session_manager: SessionManager) -> None:
     """
-    Handle inline keyboard button presses for task completion.
+    Handle inline keyboard button presses for task completion and undo.
 
     Recovers the task text from the original message, pipes a completion
-    request to Gemini, and removes the pressed button.
+    request to Gemini, and updates the pressed button state.
     """
     query = update.callback_query
-    if not query or not query.data or not query.data.startswith("done_"):
+    if not query or not query.data:
+        return
+        
+    is_done = query.data.startswith("done_")
+    is_undo = query.data.startswith("undo_")
+    
+    if not is_done and not is_undo:
         return
 
-    task_hash = query.data[5:]  # Strip "done_" prefix
+    task_hash = query.data[5:]  # Strip "done_" or "undo_" (both are 5 chars)
     user = query.from_user
 
     # Security: check user is allowed
@@ -264,7 +270,13 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
     if not session_id:
         session_id = session_manager.get_session(user_key)
 
-    prompt = f"Mark the following task as completed: {task_text}"
+    if is_done:
+        prompt = f"Mark the following task as completed: {task_text}"
+        await query.answer("Completing task...")
+    else:
+        prompt = f"Mark the following task as NOT completed (undo): {task_text}"
+        await query.answer("Undoing completion...")
+        
     incoming = IncomingMessage(
         source_type="telegram",
         sender=user_key,
@@ -284,22 +296,38 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         await query.message.reply_text(f"⚠️ Failed to complete task: {task_text}")
         return
 
-    # Remove the pressed button from the keyboard, keep the rest
+    # Update the pressed button state instead of removing it
     old_markup = query.message.reply_markup
     if old_markup:
-        remaining_buttons = []
+        updated_buttons = []
         for row in old_markup.inline_keyboard:
-            new_row = [btn for btn in row if btn.callback_data != query.data]
+            new_row = []
+            for btn in row:
+                if btn.callback_data == query.data:
+                    # Toggle state
+                    if is_done:
+                        new_text = btn.text.replace("✅", "↩️")
+                        new_cb = f"undo_{task_hash}"
+                    else:
+                        new_text = btn.text.replace("↩️", "✅")
+                        new_cb = f"done_{task_hash}"
+                    new_row.append(InlineKeyboardButton(new_text, callback_data=new_cb))
+                else:
+                    new_row.append(btn)
             if new_row:
-                remaining_buttons.append(new_row)
+                updated_buttons.append(new_row)
         
         new_markup = None
-        if remaining_buttons:
+        if updated_buttons:
             from telegram import InlineKeyboardMarkup
-            new_markup = InlineKeyboardMarkup(remaining_buttons)
+            new_markup = InlineKeyboardMarkup(updated_buttons)
 
-        # Update the message text: swap ☐ → ✅ for the completed task
-        updated_text = message_text.replace(f"☐ {task_text}", f"✅ {task_text}")
+        # Update the message text: swap ☐ ↔ ✅ for the requested task
+        if is_done:
+            updated_text = message_text.replace(f"☐ {task_text}", f"✅ {task_text}")
+        else:
+            updated_text = message_text.replace(f"✅ {task_text}", f"☐ {task_text}")
+            
         try:
             await query.message.edit_text(
                 updated_text,
