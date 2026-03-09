@@ -10,6 +10,7 @@ from services.ingestion.core.rate_limiter import RateLimiter
 from services.ingestion.core.session_manager import SessionManager
 from services.ingestion.channels.telegram.listener import (
     handle_message,
+    handle_callback_query,
     download_attachment,
 )
 
@@ -119,7 +120,7 @@ class TestTelegramMessageProcessing:
 
         await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
-        update.message.reply_text.assert_called_once_with("✓", parse_mode='HTML')
+        update.message.reply_text.assert_called_once_with("✓", parse_mode='HTML', reply_markup=None)
 
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")
@@ -239,7 +240,7 @@ class TestTelegramMessageProcessing:
 
         await handle_message(update, None, rl, sm)
 
-        update.message.reply_text.assert_called_once_with("Repo is locked", parse_mode='HTML')
+        update.message.reply_text.assert_called_once_with("Repo is locked", parse_mode='HTML', reply_markup=None)
 
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")
@@ -409,3 +410,156 @@ class TestTelegramAttachments:
         
         # Verify the NEW message ID (1000) was saved to the NEW session ID returned by pipe
         sm.save_message_session.assert_called_once_with(1000, "new-session")
+
+
+@pytest.mark.asyncio
+@patch("services.ingestion.channels.telegram.listener.config")
+class TestTaskButtons:
+    """Tests for inline keyboard attachment and callback query handling."""
+
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments")
+    async def test_response_with_tasks_gets_keyboard(self, mock_extract, mock_pipe, mock_config):
+        """When Gemini returns ☐ items, reply should include inline buttons."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.TELEGRAM_MAX_FILE_SIZE_MB = 10
+        mock_extract.return_value = []
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=False,
+            output="Your tasks:\n☐ Buy groceries\n☐ Fix the fence",
+            session_id="test-session", stats=None
+        )
+
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = False
+        rl = RateLimiter(10, 60)
+
+        update = _make_update(text="what are my todos?")
+        update.message.reply_to_message = None
+        mock_sent = MagicMock()
+        mock_sent.message_id = 500
+        update.message.reply_text.return_value = mock_sent
+
+        await handle_message(update, None, rl, sm)
+
+        # Verify reply_text was called with a reply_markup
+        call_kwargs = update.message.reply_text.call_args[1]
+        assert call_kwargs.get("reply_markup") is not None
+        keyboard = call_kwargs["reply_markup"]
+        assert len(keyboard.inline_keyboard) == 2
+        assert keyboard.inline_keyboard[0][0].callback_data.startswith("done_")
+
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments")
+    async def test_response_without_tasks_gets_no_keyboard(self, mock_extract, mock_pipe, mock_config):
+        """When Gemini returns no ☐ items, reply should have no keyboard."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.TELEGRAM_MAX_FILE_SIZE_MB = 10
+        mock_extract.return_value = []
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=False,
+            output="All tasks are done!",
+            session_id="test-session", stats=None
+        )
+
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = False
+        rl = RateLimiter(10, 60)
+
+        update = _make_update(text="what are my todos?")
+        update.message.reply_to_message = None
+        mock_sent = MagicMock()
+        mock_sent.message_id = 501
+        update.message.reply_text.return_value = mock_sent
+
+        await handle_message(update, None, rl, sm)
+
+        call_kwargs = update.message.reply_text.call_args[1]
+        assert call_kwargs.get("reply_markup") is None
+
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+    async def test_callback_query_completes_task(self, mock_pipe, mock_config):
+        """Tapping a ✅ button pipes completion to Gemini and removes the button."""
+        from services.ingestion.channels.telegram.task_buttons import _hash_task
+
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        task_hash = _hash_task("Buy groceries")
+        mock_pipe.return_value = MagicMock(
+            is_error=False, output="Done!", session_id="completion-session", stats=None
+        )
+
+        sm = MagicMock(spec=SessionManager)
+        sm.get_message_session.return_value = "existing-session"
+        sm.get_session.return_value = "fallback-session"
+
+        update = MagicMock()
+        update.callback_query.data = f"done_{task_hash}"
+        update.callback_query.from_user.id = 12345
+        update.callback_query.message.message_id = 999
+        update.callback_query.message.text = "Your tasks:\n☐ Buy groceries\n☐ Fix the fence"
+
+        # Mock inline keyboard with two buttons
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        update.callback_query.message.reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Buy groceries", callback_data=f"done_{task_hash}")],
+            [InlineKeyboardButton("✅ Fix the fence", callback_data=f"done_{_hash_task('Fix the fence')}")],
+        ])
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.message.edit_text = AsyncMock()
+        update.callback_query.message.reply_text = AsyncMock()
+
+        await handle_callback_query(update, None, sm)
+
+        # Verify pipe was called with completion prompt
+        args, _ = mock_pipe.call_args
+        assert "Mark the following task as completed: Buy groceries" in args[0]
+
+        # Verify edit_text was called to update the message
+        update.callback_query.message.edit_text.assert_called_once()
+        edit_args, edit_kwargs = update.callback_query.message.edit_text.call_args
+        edited_text = edit_args[0]
+        assert "✅ Buy groceries" in edited_text
+        # The other button should remain in the new markup
+        assert edit_kwargs["reply_markup"] is not None
+        assert len(edit_kwargs["reply_markup"].inline_keyboard) == 1
+
+    async def test_callback_query_unknown_hash(self, mock_config):
+        """When hash can't be matched, show error toast and don't pipe to Gemini."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        sm = MagicMock(spec=SessionManager)
+
+        update = MagicMock()
+        update.callback_query.data = "done_deadbeef"
+        update.callback_query.from_user.id = 12345
+        update.callback_query.message.text = "No tasks here"
+        update.callback_query.answer = AsyncMock()
+
+        await handle_callback_query(update, None, sm)
+
+        # Should show error toast
+        update.callback_query.answer.assert_called_once()
+        call_args = update.callback_query.answer.call_args
+        assert "Could not identify" in call_args[0][0]
+
+    async def test_callback_query_unauthorized_user(self, mock_config):
+        """Unauthorized users should be rejected."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [99999]
+
+        sm = MagicMock(spec=SessionManager)
+
+        update = MagicMock()
+        update.callback_query.data = "done_abc12345"
+        update.callback_query.from_user.id = 12345
+        update.callback_query.answer = AsyncMock()
+
+        await handle_callback_query(update, None, sm)
+
+        update.callback_query.answer.assert_called_once()
+        call_args = update.callback_query.answer.call_args
+        assert "Unauthorized" in call_args[0][0]

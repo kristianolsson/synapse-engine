@@ -17,13 +17,14 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-async def send_telegram_message_async(chat_id: int, text: str) -> Optional[int]:
+async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None) -> Optional[int]:
     """
     Send a message to a Telegram chat using the bot API.
 
     Args:
         chat_id: Telegram chat/user ID to send the message to.
         text: Message text to send.
+        reply_markup: Optional InlineKeyboardMarkup for interactive buttons.
 
     Returns:
         The message_id if sent successfully, None otherwise.
@@ -37,7 +38,7 @@ async def send_telegram_message_async(chat_id: int, text: str) -> Optional[int]:
         # Telegram message limit is 4096 chars
         if len(text) > 4096:
             text = text[:4093] + "..."
-        message = await bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
+        message = await bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML', reply_markup=reply_markup)
         logger.info("Telegram message sent to chat_id=%d (msg_id=%d)", chat_id, message.message_id)
         return message.message_id
     except Exception as e:
@@ -45,7 +46,7 @@ async def send_telegram_message_async(chat_id: int, text: str) -> Optional[int]:
         return None
 
 
-def send_telegram_message(chat_id: int, text: str) -> Optional[int]:
+def send_telegram_message(chat_id: int, text: str, reply_markup=None) -> Optional[int]:
     """
     Synchronous wrapper for send_telegram_message_async.
 
@@ -63,7 +64,7 @@ def send_telegram_message(chat_id: int, text: str) -> Optional[int]:
         # We're inside an existing event loop — use a new thread
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, send_telegram_message_async(chat_id, text))
+            future = pool.submit(asyncio.run, send_telegram_message_async(chat_id, text, reply_markup))
             return future.result()
     else:
-        return asyncio.run(send_telegram_message_async(chat_id, text))
+        return asyncio.run(send_telegram_message_async(chat_id, text, reply_markup))

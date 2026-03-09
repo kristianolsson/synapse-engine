@@ -120,7 +120,7 @@ class ReminderScheduler:
 
         return valid
 
-    def _send_telegram(self, text: str) -> Optional[int]:
+    def _send_telegram(self, text: str, reply_markup=None) -> Optional[int]:
         """Send a message via Telegram. Returns the message_id on success."""
         from ..channels.telegram.sender import send_telegram_message
 
@@ -129,7 +129,7 @@ class ReminderScheduler:
             return None
 
         chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
-        return send_telegram_message(chat_id, text)
+        return send_telegram_message(chat_id, text, reply_markup=reply_markup)
 
     def _send_email(self, text: str, subject: str, session_id: str = None) -> bool:
         """Send a message via Email."""
@@ -158,10 +158,10 @@ class ReminderScheduler:
             first_line = first_line[:57] + "..."
         return f"{prefix}: {first_line}"
 
-    def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None) -> bool:
+    def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None, reply_markup=None) -> bool:
         """Deliver a message via the specified channel. Returns True on success."""
         if channel == "telegram":
-            msg_id = self._send_telegram(text)
+            msg_id = self._send_telegram(text, reply_markup=reply_markup)
             if msg_id and session_id:
                 self.session_manager.save_message_session(msg_id, session_id)
             return bool(msg_id)
@@ -213,11 +213,19 @@ class ReminderScheduler:
             session_key = f"<{result.session_id}@synapse.local>"
             self.session_manager.save_session(session_key, result.session_id)
 
+        # Parse tasks from the response and build inline keyboard if applicable
+        keyboard = None
+        if channel == "telegram":
+            from ..channels.telegram.task_buttons import parse_tasks, build_task_keyboard
+            tasks = parse_tasks(response_text)
+            keyboard = build_task_keyboard(tasks)
+
         success = self._deliver(
             channel,
             response_text,
             subject=self._make_subject(task, prefix="Synapse"),
             session_id=result.session_id,
+            reply_markup=keyboard,
         )
         if not success:
             self._handle_delivery_failure(task)

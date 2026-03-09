@@ -32,18 +32,12 @@ class TestSchedulerSessions:
             mock_deliver.return_value = True
             scheduler._tick()
             
-            # Should have called save_session once
-            assert mock_save.call_count == 1
-            call_args = mock_save.call_args[0]
-            # key should be <UUID>@synapse.local
-            # value should be UUID
-            session_key = call_args[0]
-            session_id = call_args[1]
-            assert session_key == f"<{session_id}@synapse.local>"
+            # Should NOT have called save_session for the scheduler prompt
+            assert mock_save.call_count == 0
             
-            # Should have delivered with the same session_id
+            # Should have delivered with session_id=None
             mock_deliver.assert_called_once()
-            assert mock_deliver.call_args[1]["session_id"] == session_id
+            assert mock_deliver.call_args[1].get("session_id") is None
 
     @patch("services.ingestion.core.scheduler.pipe_to_gemini")
     @patch("services.ingestion.core.session_manager.SessionManager.save_session")

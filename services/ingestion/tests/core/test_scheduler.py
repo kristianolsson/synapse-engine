@@ -136,7 +136,7 @@ class TestDelivery:
         ) as mock_send:
             mock_send.return_value = True
             result = scheduler._send_telegram("Hello!")
-            mock_send.assert_called_once_with(12345, "Hello!")
+            mock_send.assert_called_once_with(12345, "Hello!", reply_markup=None)
             assert result is True
 
     @patch("services.ingestion.core.scheduler.config")

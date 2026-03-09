@@ -16,6 +16,7 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     MessageHandler,
     filters,
 )
@@ -25,6 +26,7 @@ from ...core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
+from .task_buttons import parse_tasks, build_task_keyboard, recover_task_from_callback
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +207,11 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     if len(reply_text) > 4096:
         reply_text = reply_text[:4093] + "..."
 
-    sent_message = await message.reply_text(reply_text, parse_mode='HTML')
+    # Check if response contains actionable tasks — attach inline keyboard
+    tasks = parse_tasks(reply_text)
+    keyboard = build_task_keyboard(tasks)
+
+    sent_message = await message.reply_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
     
     # Save the new message ID tied to this session so the user can keep replying
     if result.session_id and sent_message:
@@ -214,6 +220,91 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # If we just lazily generated a session for an untracked parent, save it to the parent too
     if reply_to_id and not parent_session and result.session_id:
         session_manager.save_message_session(reply_to_id, result.session_id)
+
+
+async def handle_callback_query(update: Update, context, session_manager: SessionManager) -> None:
+    """
+    Handle inline keyboard button presses for task completion.
+
+    Recovers the task text from the original message, pipes a completion
+    request to Gemini, and removes the pressed button.
+    """
+    query = update.callback_query
+    if not query or not query.data or not query.data.startswith("done_"):
+        return
+
+    task_hash = query.data[5:]  # Strip "done_" prefix
+    user = query.from_user
+
+    # Security: check user is allowed
+    if user.id not in config.TELEGRAM_ALLOWED_USER_IDS:
+        await query.answer("⚠️ Unauthorized.", show_alert=True)
+        return
+
+    # Recover task text from the original message
+    message_text = query.message.text or ""
+    task_text = recover_task_from_callback(message_text, task_hash)
+
+    if not task_text:
+        await query.answer("⚠️ Could not identify this task. Please complete it manually.", show_alert=True)
+        return
+
+    # Acknowledge the button press immediately
+    await query.answer("Completing task...")
+
+    # Pipe completion request using original message's session if available
+    user_key = str(user.id)
+    message_id = query.message.message_id if query.message else None
+    session_id = None
+    
+    if message_id:
+        session_id = session_manager.get_message_session(message_id)
+        
+    if not session_id:
+        session_id = session_manager.get_session(user_key)
+
+    prompt = f"Mark the following task as completed: {task_text}"
+    incoming = IncomingMessage(
+        source_type="telegram",
+        sender=user_key,
+        subject="",
+        body=prompt,
+    )
+    full_prompt = build_prompt(incoming)
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, pipe_to_gemini, full_prompt, session_id)
+
+    if result.session_id:
+        session_manager.save_session(user_key, result.session_id)
+
+    if result.is_error:
+        logger.error("Task completion failed for '%s': %s", task_text, result.output)
+        await query.message.reply_text(f"⚠️ Failed to complete task: {task_text}")
+        return
+
+    # Remove the pressed button from the keyboard, keep the rest
+    old_markup = query.message.reply_markup
+    if old_markup:
+        remaining_buttons = [
+            row for row in old_markup.inline_keyboard
+            if not any(btn.callback_data == query.data for btn in row)
+        ]
+        new_markup = None
+        if remaining_buttons:
+            from telegram import InlineKeyboardMarkup
+            new_markup = InlineKeyboardMarkup(remaining_buttons)
+
+        # Update the message text: swap ☐ → ✅ for the completed task
+        updated_text = message_text.replace(f"☐ {task_text}", f"✅ {task_text}")
+        try:
+            await query.message.edit_text(
+                updated_text,
+                parse_mode='HTML',
+                reply_markup=new_markup,
+            )
+        except Exception as e:
+            logger.warning("Could not edit message after task completion: %s", e)
 
 
 # ── Telegram Listener ──────────────────────────────────────────────
@@ -259,6 +350,9 @@ class TelegramListener:
         async def _handler(update: Update, context) -> None:
             await handle_message(update, context, rl, sm)
 
+        async def _callback_handler(update: Update, context) -> None:
+            await handle_callback_query(update, context, sm)
+
         # Handle text messages, photos, documents, and voice notes (for unsupported reply)
         self._app.add_handler(
             MessageHandler(
@@ -266,6 +360,9 @@ class TelegramListener:
                 _handler,
             )
         )
+
+        # Handle inline keyboard button presses for task completion
+        self._app.add_handler(CallbackQueryHandler(_callback_handler))
 
         logger.info("Telegram bot polling started.")
         self._app.run_polling(

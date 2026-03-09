@@ -28,8 +28,8 @@ class TestTelegramListenerClass(unittest.TestCase):
         mock_builder.token.assert_called_with("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
         mock_builder.build.assert_called_once()
 
-        # Check if handler was added
-        mock_app.add_handler.assert_called_once()
+        # Check if handlers were added (MessageHandler and CallbackQueryHandler)
+        self.assertEqual(mock_app.add_handler.call_count, 2)
 
         # Check if polling started
         mock_app.run_polling.assert_called_once()
