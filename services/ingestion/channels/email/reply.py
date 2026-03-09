@@ -66,8 +66,8 @@ def send_reply(
         task_hash = _hash_task(task_text)
         task_text_encoded = urllib.parse.quote(task_text)
         mailto_url = f"mailto:{config.EMAIL_ADDRESS}?subject=DONE:{task_hash}&body={task_text_encoded}"
-        btn_html = f'&nbsp;&nbsp;<a href="{mailto_url}" style="text-decoration:none;background-color:#f0f0f0;padding:2px 8px;border-radius:4px;border:1px solid #ccc;color:#333;font-size:0.9em;font-family:sans-serif;">✅ Complete</a>'
-        return f"☐ {task_text}{btn_html}"
+        checkbox_html = f'<a href="{mailto_url}" style="text-decoration:none;color:inherit;font-size:1.1em;" title="Mark as complete">☐</a>'
+        return f"{checkbox_html} {task_text}"
 
     body_with_links = TASK_PATTERN_OPEN.sub(replacer, body)
     final_body = body_with_links.replace('\n', '<br>') + format_stats_email(stats)
