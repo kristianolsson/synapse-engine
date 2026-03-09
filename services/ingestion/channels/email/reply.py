@@ -12,6 +12,7 @@ from email.mime.text import MIMEText
 
 from ... import config
 from ...utils.stats_formatter import format_stats_email
+from ...utils.task_formatter import TASK_PATTERN_OPEN, _hash_task
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +55,22 @@ def send_reply(
     else:
         reply_subject = subject
 
-    final_body = body.replace('\n', '<br>') + format_stats_email(stats)
+    # Format any tasks into mailto links before HTML line break conversion
+    import urllib.parse
+    
+    def replacer(match):
+        task_text = match.group(1).strip()
+        if not task_text:
+            return match.group(0)
+            
+        task_hash = _hash_task(task_text)
+        task_text_encoded = urllib.parse.quote(task_text)
+        mailto_url = f"mailto:{config.EMAIL_ADDRESS}?subject=DONE:{task_hash}&body={task_text_encoded}"
+        btn_html = f'&nbsp;&nbsp;<a href="{mailto_url}" style="text-decoration:none;background-color:#f0f0f0;padding:2px 8px;border-radius:4px;border:1px solid #ccc;color:#333;font-size:0.9em;font-family:sans-serif;">✅ Complete</a>'
+        return f"☐ {task_text}{btn_html}"
 
+    body_with_links = TASK_PATTERN_OPEN.sub(replacer, body)
+    final_body = body_with_links.replace('\n', '<br>') + format_stats_email(stats)
     msg = MIMEText(final_body, "html", "utf-8")
     msg["From"] = f"Synapse <{config.EMAIL_ADDRESS}>"
     msg["To"] = to_addr

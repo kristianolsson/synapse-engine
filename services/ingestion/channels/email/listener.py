@@ -153,6 +153,56 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
 
     body = extract_text_body(msg)
 
+    # --- ONE-TAP COMPLETION (MAILTO LINKS) ---
+    if subject.startswith("DONE:") or subject.startswith("UNDO:"):
+        is_done = subject.startswith("DONE:")
+        task_hash = subject.split(":", 1)[1].strip()
+        
+        # In a mailto link, we encoded the exact task text into the email body.
+        # However, users might also reply normally and edit the subject. 
+        # So we first attempt to recover the task text using the hash.
+        from ...utils.task_formatter import recover_task_from_callback
+        task_text = recover_task_from_callback(body, task_hash)
+        
+        if not task_text:
+            # Assume it's a drafted mailto where the body is just the task text
+            lines = [line.strip() for line in body.splitlines() if line.strip()]
+            if lines:
+                task_text = lines[0]
+                
+        if not task_text:
+            return True, "⚠️ Could not identify this task from the email payload. Please complete it manually.", None
+            
+        if is_done:
+            prompt = f"Mark the following task as completed: {task_text}"
+        else:
+            prompt = f"Mark the following task as NOT completed (undo): {task_text}"
+            
+        logger.info("Intercepted email mailto command: %s", prompt)
+        
+        # Process as a direct command sent from the user.
+        incoming = IncomingMessage(
+            source_type="email",
+            sender=sender,
+            subject="(Task Completion)",
+            body=prompt,
+        )
+        full_prompt = build_prompt(incoming)
+        session_id = session_manager.get_session(session_key)
+        result = pipe_to_gemini(full_prompt, session_id=session_id)
+        
+        if result.session_id:
+            session_manager.save_session(session_key, result.session_id)
+            
+        stats_to_return = result.stats if session_manager.get_stats_enabled(sender) else None
+
+        if result.is_error:
+            logger.error("Task completion failed for '%s': %s", task_text, result.output)
+            return True, f"⚠️ Failed to complete task: {task_text}\n\nError: {result.output}", stats_to_return
+            
+        # Success - no need to reply to a button click
+        return False, "", stats_to_return
+
     if body.strip() == "/new":
         if session_manager.clear_session(session_key):
             return True, "Session cleared. Starting a fresh context.", None

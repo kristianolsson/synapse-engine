@@ -155,6 +155,44 @@ class TestProcessEmail:
         assert "Repo is locked" in text
         assert stats is not None
 
+    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_process_done_subject_from_body(self, mock_config, mock_pipe):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
+        
+        # Simulating mailto payload where task text is in the body
+        raw = _make_simple_email(from_addr="user@example.com", subject="DONE:abc12345", body="Buy groceries")
+        sm = MagicMock(spec=SessionManager)
+        
+        should_reply, text, stats = process_email(raw, sm)
+        
+        assert should_reply is False
+        assert mock_pipe.call_count == 1
+        args = mock_pipe.call_args[0]
+        assert "Mark the following task as completed: Buy groceries" in args[0]
+        
+    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_process_undo_subject_from_history(self, mock_config, mock_pipe):
+        from services.ingestion.utils.task_formatter import _hash_task
+        task_hash = _hash_task("Fix the fence")
+        
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
+        
+        # Simulating normal reply where user kept subject but body has quoted history
+        body_with_history = "I changed my mind.\n\n> [1] ✅ Fix the fence"
+        raw = _make_simple_email(from_addr="user@example.com", subject=f"UNDO:{task_hash}", body=body_with_history)
+        sm = MagicMock(spec=SessionManager)
+        
+        should_reply, text, stats = process_email(raw, sm)
+        
+        assert should_reply is False
+        assert mock_pipe.call_count == 1
+        args = mock_pipe.call_args[0]
+        assert "Mark the following task as NOT completed (undo): Fix the fence" in args[0]
+
 
 class TestEmailReplyLogic:
     @patch("services.ingestion.channels.email.reply.send_reply")
