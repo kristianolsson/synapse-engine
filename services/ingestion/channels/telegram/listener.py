@@ -287,10 +287,12 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
     # Remove the pressed button from the keyboard, keep the rest
     old_markup = query.message.reply_markup
     if old_markup:
-        remaining_buttons = [
-            row for row in old_markup.inline_keyboard
-            if not any(btn.callback_data == query.data for btn in row)
-        ]
+        remaining_buttons = []
+        for row in old_markup.inline_keyboard:
+            new_row = [btn for btn in row if btn.callback_data != query.data]
+            if new_row:
+                remaining_buttons.append(new_row)
+        
         new_markup = None
         if remaining_buttons:
             from telegram import InlineKeyboardMarkup
