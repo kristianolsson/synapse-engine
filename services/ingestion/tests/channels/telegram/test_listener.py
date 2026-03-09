@@ -448,7 +448,8 @@ class TestTaskButtons:
         call_kwargs = update.message.reply_text.call_args[1]
         assert call_kwargs.get("reply_markup") is not None
         keyboard = call_kwargs["reply_markup"]
-        assert len(keyboard.inline_keyboard) == 2
+        assert len(keyboard.inline_keyboard) == 1
+        assert len(keyboard.inline_keyboard[0]) == 2
         assert keyboard.inline_keyboard[0][0].callback_data.startswith("done_")
 
     @patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")

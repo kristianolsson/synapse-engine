@@ -11,11 +11,11 @@ from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Match lines starting with ☐ (Unicode ballot box) followed by task text
-TASK_PATTERN = re.compile(r"^☐\s+(.+)$", re.MULTILINE)
+# Match lines starting with optional [number] then ☐ followed by task text
+TASK_PATTERN = re.compile(r"^(?:\[\d+\]\s*)?☐\s+(.+)$", re.MULTILINE)
 
-# Max label length for inline keyboard buttons
-MAX_BUTTON_LABEL = 40
+# Max tasks per row in inline keyboard
+BUTTONS_PER_ROW = 5
 
 
 def _hash_task(text: str) -> str:
@@ -37,9 +37,37 @@ def parse_tasks(text: str) -> list[dict]:
     return tasks
 
 
+def format_message_with_tasks(text: str) -> tuple[str, list[dict]]:
+    """
+    Parse tasks and rewrite the message text to inject [1], [2] numbers before tasks.
+    Returns the modified text and the list of parsed tasks with their numbers.
+    """
+    tasks = []
+    counter = 1
+    
+    def replacer(match):
+        nonlocal counter
+        task_text = match.group(1).strip()
+        if not task_text:
+            return match.group(0)
+            
+        task_hash = _hash_task(task_text)
+        tasks.append({
+            "text": task_text,
+            "hash": task_hash,
+            "number": counter
+        })
+        result = f"[{counter}] ☐ {task_text}"
+        counter += 1
+        return result
+
+    modified_text = TASK_PATTERN.sub(replacer, text)
+    return modified_text, tasks
+
+
 def build_task_keyboard(tasks: list[dict]) -> Optional[InlineKeyboardMarkup]:
     """
-    Build an InlineKeyboardMarkup with one ✅ button per task.
+    Build an InlineKeyboardMarkup with a compact numbered grid.
 
     Returns None if no tasks provided.
     """
@@ -47,13 +75,22 @@ def build_task_keyboard(tasks: list[dict]) -> Optional[InlineKeyboardMarkup]:
         return None
 
     buttons = []
+    current_row = []
     for task in tasks:
-        label = task["text"]
-        if len(label) > MAX_BUTTON_LABEL:
-            label = label[:MAX_BUTTON_LABEL - 1] + "…"
-        buttons.append([
-            InlineKeyboardButton(f"✅ {label}", callback_data=f"done_{task['hash']}")
-        ])
+        # Use number if available, otherwise just ✅
+        num = task.get("number", "")
+        label = f"✅ {num}".strip()
+        
+        current_row.append(
+            InlineKeyboardButton(label, callback_data=f"done_{task['hash']}")
+        )
+        
+        if len(current_row) == BUTTONS_PER_ROW:
+            buttons.append(current_row)
+            current_row = []
+            
+    if current_row:
+        buttons.append(current_row)
 
     return InlineKeyboardMarkup(buttons)
 

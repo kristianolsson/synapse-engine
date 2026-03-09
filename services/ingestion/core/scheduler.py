@@ -213,11 +213,11 @@ class ReminderScheduler:
             session_key = f"<{result.session_id}@synapse.local>"
             self.session_manager.save_session(session_key, result.session_id)
 
-        # Parse tasks from the response and build inline keyboard if applicable
+        # Parse tasks from the response, add numbers to text, and build inline keyboard
         keyboard = None
         if channel == "telegram":
-            from ..channels.telegram.task_buttons import parse_tasks, build_task_keyboard
-            tasks = parse_tasks(response_text)
+            from ..channels.telegram.task_buttons import format_message_with_tasks, build_task_keyboard
+            response_text, tasks = format_message_with_tasks(response_text)
             keyboard = build_task_keyboard(tasks)
 
         success = self._deliver(

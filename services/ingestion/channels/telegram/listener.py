@@ -208,7 +208,8 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         reply_text = reply_text[:4093] + "..."
 
     # Check if response contains actionable tasks — attach inline keyboard
-    tasks = parse_tasks(reply_text)
+    from .task_buttons import format_message_with_tasks, build_task_keyboard
+    reply_text, tasks = format_message_with_tasks(reply_text)
     keyboard = build_task_keyboard(tasks)
 
     sent_message = await message.reply_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
