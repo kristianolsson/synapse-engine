@@ -122,6 +122,12 @@ class TestParseResponse:
         assert len(result) == 1
         assert result[0]["channel"] == "telegram"
 
+    def test_cli_fallback_warning_stripped(self, scheduler):
+        response = '⚠️ Processed using fallback model (flash) due to quota limits.\n\n[\n  {"type": "message", "channel": "telegram", "message": "Test"}\n]'
+        result = scheduler._parse_response(response)
+        assert len(result) == 1
+        assert result[0]["message"] == "Test"
+
 
 class TestDelivery:
     """Tests for _deliver, _send_telegram, _send_email."""

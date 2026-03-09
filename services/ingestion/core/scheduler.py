@@ -86,12 +86,19 @@ class ReminderScheduler:
 
         text = output.strip()
 
-        # Strip markdown code fences if present (```json ... ```)
-        if text.startswith("```"):
-            lines = text.split("\n")
-            # Remove first and last lines (fences)
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            text = "\n".join(lines).strip()
+        # Isolate the JSON block if wrapped in markdown fences or preceded by CLI warnings
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            parts = text.split("```")
+            if len(parts) >= 3:
+                text = parts[1].strip()
+        else:
+            # Extract array to handle leading text (e.g. CLI fallback warnings)
+            start = text.find('[')
+            end = text.rfind(']')
+            if start != -1 and end != -1 and end >= start:
+                text = text[start:end+1]
 
         try:
             data = json.loads(text)
