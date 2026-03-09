@@ -256,8 +256,6 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         await query.answer("⚠️ Could not identify this task. Please complete it manually.", show_alert=True)
         return
 
-    # Acknowledge the button press immediately
-    await query.answer("Completing task...")
 
     # Pipe completion request using original message's session if available
     user_key = str(user.id)
@@ -318,36 +316,49 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         except Exception as e:
             logger.warning("Could not apply optimistic UI update: %s", e)
 
-    # --- EXECUTE TASK REQUEST ---
-    incoming = IncomingMessage(
-        source_type="telegram",
-        sender=user_key,
-        subject="",
-        body=prompt,
-    )
-    full_prompt = build_prompt(incoming)
+    # --- EXECUTE TASK REQUEST IN BACKGROUND ---
+    # We fire and forget this so PTB's event loop immediately frees up for the 
+    # next callback query (like rapid 'undo' clicks).
+    async def _background_task():
+        try:
+            incoming = IncomingMessage(
+                source_type="telegram",
+                sender=user_key,
+                subject="",
+                body=prompt,
+            )
+            full_prompt = build_prompt(incoming)
 
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, pipe_to_gemini, full_prompt, session_id)
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, pipe_to_gemini, full_prompt, session_id)
 
-    if result.session_id:
-        session_manager.save_session(user_key, result.session_id)
+            if result.session_id:
+                session_manager.save_session(user_key, result.session_id)
 
-    if result.is_error:
-        logger.error("Task completion request failed for '%s': %s", task_text, result.output)
-        await query.message.reply_text(f"⚠️ Failed to complete task. Rolling back UI: {task_text}")
-        
-        # --- ROLLBACK UI UPDATE ---
-        if old_markup:
-            try:
-                await query.message.edit_text(
-                    message_text,
-                    parse_mode='HTML',
-                    reply_markup=old_markup,
-                )
-            except Exception as e:
-                logger.warning("Could not rollback message after failed task completion: %s", e)
-        return
+            if result.is_error:
+                logger.error("Task completion request failed for '%s': %s", task_text, result.output)
+                await query.message.reply_text(f"⚠️ Failed to complete task. Rolling back UI: {task_text}")
+                
+                # --- ROLLBACK UI UPDATE ---
+                if old_markup:
+                    try:
+                        await query.message.edit_text(
+                            message_text,
+                            parse_mode='HTML',
+                            reply_markup=old_markup,
+                        )
+                    except Exception as e:
+                        logger.warning("Could not rollback message after failed task completion: %s", e)
+        except Exception as e:
+            logger.error("Error in background task completion: %s", e)
+
+    # Spawn task but keep a reference to avoid garbage collection
+    task = asyncio.create_task(_background_task())
+    if context is not None:
+        if not hasattr(context, "background_tasks"):
+            context.background_tasks = set()
+        context.background_tasks.add(task)
+        task.add_done_callback(context.background_tasks.discard)
 
 
 # ── Telegram Listener ──────────────────────────────────────────────

@@ -1,6 +1,7 @@
 """Tests for the Telegram listener module."""
 
 import os
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
 import pytest
@@ -514,8 +515,11 @@ class TestTaskButtons:
         update.callback_query.message.edit_text = AsyncMock()
         update.callback_query.message.reply_text = AsyncMock()
 
-        await handle_callback_query(update, None, sm)
-
+        context = MagicMock()
+        context.background_tasks = set()
+        await handle_callback_query(update, context, sm)
+        if context.background_tasks:
+            await asyncio.gather(*context.background_tasks)
         # Verify pipe was called with completion prompt
         args, _ = mock_pipe.call_args
         assert "Mark the following task as completed: Buy groceries" in args[0]
@@ -566,8 +570,11 @@ class TestTaskButtons:
         update.callback_query.answer = AsyncMock()
         update.callback_query.message.edit_text = AsyncMock()
 
-        await handle_callback_query(update, None, sm)
-
+        context = MagicMock()
+        context.background_tasks = set()
+        await handle_callback_query(update, context, sm)
+        if context.background_tasks:
+            await asyncio.gather(*context.background_tasks)
         # Verify pipe was called with undo prompt
         args, _ = mock_pipe.call_args
         assert "Mark the following task as NOT completed (undo): Buy groceries" in args[0]
@@ -610,8 +617,11 @@ class TestTaskButtons:
         update.callback_query.message.edit_text = AsyncMock()
         update.callback_query.message.reply_text = AsyncMock()
 
-        await handle_callback_query(update, None, sm)
-
+        context = MagicMock()
+        context.background_tasks = set()
+        await handle_callback_query(update, context, sm)
+        if context.background_tasks:
+            await asyncio.gather(*context.background_tasks)
         # Should be edited twice: once for optimistic update, once for rollback
         assert update.callback_query.message.edit_text.call_count == 2
         
