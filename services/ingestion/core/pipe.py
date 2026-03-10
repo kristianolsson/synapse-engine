@@ -67,7 +67,7 @@ class PipeResult:
     stats: Optional[dict] = None
 
 
-def pipe_to_gemini(prompt: str, session_id: Optional[str] = None, model: Optional[str] = None) -> PipeResult:
+def pipe_to_gemini(prompt: str, session_id: Optional[str] = None, model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False) -> PipeResult:
     """
     Execute the AI provider with the given prompt.
     Kept as 'pipe_to_gemini' for backward compatibility, but now delegates to the configured provider.
@@ -76,7 +76,7 @@ def pipe_to_gemini(prompt: str, session_id: Optional[str] = None, model: Optiona
 
     # We don't support attachments in this signature yet, but Provider supports it.
     # Future work: update this signature to accept attachments.
-    result = provider.generate_response(prompt, session_id=session_id, attachments=[], model=model)
+    result = provider.generate_response(prompt, session_id=session_id, attachments=[], model=model, auto_retry=auto_retry, cleanup_on_error=cleanup_on_error)
 
     return PipeResult(
         is_error=result.is_error,

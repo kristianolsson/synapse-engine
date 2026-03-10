@@ -83,7 +83,7 @@ class TestPipeToGeminiDelegation:
 
         result = pipe_to_gemini("test prompt", session_id="old-session")
 
-        mock_provider.generate_response.assert_called_once_with("test prompt", session_id="old-session")
+        mock_provider.generate_response.assert_called_once_with("test prompt", session_id="old-session", attachments=[], model=None, auto_retry=True, cleanup_on_error=False)
 
         assert isinstance(result, PipeResult)
         assert result.output == "Done"

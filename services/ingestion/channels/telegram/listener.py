@@ -189,7 +189,17 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
 
     prompt = build_prompt(incoming)
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id)
+    result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id, None, False)
+
+    if result.is_error and any(s in result.output.lower() for s in ["429", "quota", "rate limit", "capacity", "resource_exhausted"]):
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Retry (Same Session)", callback_data="quota:retry"),
+                InlineKeyboardButton("Fallback (New Session)", callback_data="quota:fallback")
+            ]
+        ])
+        await message.reply_text(f"⚠️ <b>Quota Exhausted</b>\n\n{result.output}", parse_mode='HTML', reply_markup=keyboard)
+        return
 
     if result.session_id and not reply_to_id:
         session_manager.save_session(str(user.id), result.session_id)
@@ -236,8 +246,9 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         
     is_done = query.data.startswith("done_")
     is_undo = query.data.startswith("undo_")
+    is_quota = query.data.startswith("quota:")
     
-    if not is_done and not is_undo:
+    if not is_done and not is_undo and not is_quota:
         return
 
     task_hash = query.data[5:]  # Strip "done_" or "undo_" (both are 5 chars)
@@ -248,6 +259,88 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         await query.answer("⚠️ Unauthorized.", show_alert=True)
         return
 
+    # --- HANDLE QUOTA BUTTONS ---
+    if is_quota:
+        action = query.data.split(":")[1]
+        await query.answer(f"Executing {action}...")
+        
+        original_msg = query.message.reply_to_message
+        if not original_msg:
+            await query.message.edit_text("⚠️ Could not find original message context.")
+            return
+            
+        await query.message.edit_text("⏳ Processing...")
+        
+        class FakeUpdate:
+            message = original_msg
+            def get_bot(self): return query.get_bot()
+            
+        image_paths = await extract_attachments(FakeUpdate())
+        text = original_msg.text or original_msg.caption or ""
+        
+        try:
+            reply_to_id = original_msg.reply_to_message.message_id if original_msg.reply_to_message else None
+            reply_to_text = original_msg.reply_to_message.text or original_msg.reply_to_message.caption if original_msg.reply_to_message else None
+        except AttributeError:
+            reply_to_id = None
+            reply_to_text = None
+
+        if reply_to_text:
+            text = f"Context: You previously sent the user this message: \"{reply_to_text}\"\nThe user replied to that message with: \"{text}\""
+            
+        incoming = IncomingMessage(
+            source_type="telegram",
+            sender=str(user.id),
+            subject="",
+            body=text,
+            image_paths=image_paths,
+        )
+        prompt = build_prompt(incoming)
+        
+        user_key = str(user.id)
+        parent_session = None
+        if reply_to_id:
+            parent_session = session_manager.get_message_session(reply_to_id)
+            session_id = parent_session
+        else:
+            session_id = session_manager.get_session(user_key)
+            
+        model = None
+        if action == "fallback":
+            model = "flash"
+            if session_id:
+                from ...core.pipe import cleanup_session
+                cleanup_session(session_id)
+            session_id = None
+            
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id, model, False)
+        
+        if result.session_id and not reply_to_id:
+            session_manager.save_session(user_key, result.session_id)
+            
+        reply_text = result.output
+        if not reply_text:
+            reply_text = "✓"
+            
+        if session_manager.get_stats_enabled(user_key):
+            reply_text += format_stats_telegram(result.stats)
+            
+        if len(reply_text) > 4096:
+            reply_text = reply_text[:4093] + "..."
+            
+        reply_text, tasks = format_message_with_tasks(reply_text)
+        keyboard = build_task_keyboard(tasks)
+        
+        await query.message.edit_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
+        
+        if result.session_id:
+            session_manager.save_message_session(query.message.message_id, result.session_id)
+        if reply_to_id and not parent_session and result.session_id:
+            session_manager.save_message_session(reply_to_id, result.session_id)
+            
+        return
+
     # Recover task text from the original message
     message_text = query.message.text or ""
     task_text = recover_task_from_callback(message_text, task_hash)
@@ -255,7 +348,6 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
     if not task_text:
         await query.answer("⚠️ Could not identify this task. Please complete it manually.", show_alert=True)
         return
-
 
     # Pipe completion request using original message's session if available
     user_key = str(user.id)

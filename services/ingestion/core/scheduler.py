@@ -269,7 +269,8 @@ class ReminderScheduler:
         # Use a fresh session (no resume) — scheduler prompts are stateless
         # We explicitly request the 'auto' model for this background check as it is 
         # much cheaper and faster at reading JSON arrays than the default 'pro' model.
-        result = pipe_to_gemini(prompt, model="auto")
+        # We also want to immediately clean up the session if a quota error occurs so we don't leave orphaned sessions.
+        result = pipe_to_gemini(prompt, model="auto", cleanup_on_error=True)
 
         # The scheduler executes a stateless prompt simply to evaluate `reminders.md`.
         # The provider might generate a persistent session for this interaction.

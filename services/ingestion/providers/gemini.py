@@ -70,7 +70,7 @@ class GeminiProvider(AIProvider):
     Implementation of Gemini provider using the Gemini CLI.
     """
     
-    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None) -> ProviderResult:
+    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False) -> ProviderResult:
         """
         Execute the Gemini CLI with the given prompt inside the vault directory.
         """
@@ -164,6 +164,9 @@ class GeminiProvider(AIProvider):
             # If the user explicitly requested a model, don't try it twice immediately
             if m not in models_to_try:
                 models_to_try.append(m)
+                
+        if not auto_retry:
+            models_to_try = models_to_try[:1]
         
         for attempt in range(min(config.GEMINI_MAX_RETRIES, len(models_to_try))):
             current_model = models_to_try[attempt]
@@ -207,6 +210,11 @@ class GeminiProvider(AIProvider):
             if attempt == min(config.GEMINI_MAX_RETRIES, len(models_to_try)) - 1:
                 res.text = error_str
                 return res
+
+            # If cleanup is requested, destroy the session before the fallback retry is triggered.
+            if cleanup_on_error and res.session_id:
+                logger.info("Cleaning up failed session %s before retry", res.session_id)
+                self.cleanup_session(res.session_id)
 
         return res
 
