@@ -246,9 +246,19 @@ class ReminderScheduler:
         logger.warning("Delivery failed, sending fallback to log task: %s", task)
         fallback_prompt = FALLBACK_PROMPT_TEMPLATE.format(task=task)
         try:
-            pipe_to_gemini(fallback_prompt)
+            result = pipe_to_gemini(fallback_prompt)
+            if result.is_error:
+                logger.error("Fallback logging returned an error: %s", result.output)
+                self._send_email(
+                    text=f"Failed to execute and log reminder. The original task was:\n\n{task}\n\nError:\n{result.output}",
+                    subject="[Synapse Alert] Failed to execute and log reminder"
+                )
         except Exception as e:
             logger.error("Fallback logging also failed: %s", e)
+            self._send_email(
+                text=f"Failed to execute and log reminder. The original task was:\n\n{task}\n\nException:\n{e}",
+                subject="[Synapse Alert] Failed to execute and log reminder"
+            )
 
     def _tick(self) -> None:
         """Execute one scheduler cycle: prompt AI and process results."""
@@ -257,7 +267,9 @@ class ReminderScheduler:
         prompt = self._build_scheduler_prompt()
 
         # Use a fresh session (no resume) — scheduler prompts are stateless
-        result = pipe_to_gemini(prompt)
+        # We explicitly request the 'auto' model for this background check as it is 
+        # much cheaper and faster at reading JSON arrays than the default 'pro' model.
+        result = pipe_to_gemini(prompt, model="auto")
 
         # The scheduler executes a stateless prompt simply to evaluate `reminders.md`.
         # The provider might generate a persistent session for this interaction.
@@ -269,6 +281,10 @@ class ReminderScheduler:
 
         if result.is_error:
             logger.error("Scheduler prompt failed: %s", result.output)
+            self._send_email(
+                text=f"The background scheduler failed to check reminders.md due to an API error:\n\n{result.output}",
+                subject="[Synapse Alert] Scheduler Background Check Failed"
+            )
             return
 
         reminders = self._parse_response(result.output)

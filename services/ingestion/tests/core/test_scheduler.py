@@ -218,14 +218,20 @@ class TestTick:
         scheduler._tick()
         # No errors, no delivery attempts
 
+    @patch.object(ReminderScheduler, "_send_email")
     @patch("services.ingestion.core.scheduler.pipe_to_gemini")
-    def test_tick_prompt_error(self, mock_pipe, scheduler):
+    def test_tick_prompt_error(self, mock_pipe, mock_email, scheduler):
         mock_pipe.return_value = MagicMock(
             is_error=True,
             output="API error",
         )
         # Should not raise
         scheduler._tick()
+        
+        mock_email.assert_called_once()
+        kwargs = mock_email.call_args[1]
+        assert "API error" in kwargs["text"]
+        assert "Background Check Failed" in kwargs["subject"]
 
     @patch.object(ReminderScheduler, "_handle_work_reminder")
     @patch("services.ingestion.core.scheduler.pipe_to_gemini")
@@ -321,8 +327,28 @@ class TestDeliveryFailure:
         assert "master_todos" in prompt_arg
         assert "Call the dentist" in prompt_arg
 
+    @patch.object(ReminderScheduler, "_send_email")
     @patch("services.ingestion.core.scheduler.pipe_to_gemini")
-    def test_fallback_handles_exception(self, mock_pipe, scheduler):
+    def test_fallback_handles_exception(self, mock_pipe, mock_email, scheduler):
         mock_pipe.side_effect = Exception("Total failure")
         # Should not raise
         scheduler._handle_delivery_failure("Call the dentist")
+        
+        mock_email.assert_called_once()
+        kwargs = mock_email.call_args[1]
+        assert "Call the dentist" in kwargs["text"]
+        assert "Total failure" in kwargs["text"]
+        assert "execute and log" in kwargs["subject"]
+
+    @patch.object(ReminderScheduler, "_send_email")
+    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    def test_fallback_returns_error_sends_email(self, mock_pipe, mock_email, scheduler):
+        mock_pipe.return_value = MagicMock(is_error=True, output="API error")
+        
+        scheduler._handle_delivery_failure("Call the dentist")
+        
+        mock_email.assert_called_once()
+        kwargs = mock_email.call_args[1]
+        assert "Call the dentist" in kwargs["text"]
+        assert "API error" in kwargs["text"]
+        assert "execute and log" in kwargs["subject"]

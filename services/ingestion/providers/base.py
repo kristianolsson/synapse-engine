@@ -17,7 +17,7 @@ class AIProvider(ABC):
     """Abstract base class for AI providers."""
 
     @abstractmethod
-    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = []) -> ProviderResult:
+    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None) -> ProviderResult:
         """
         Generate a response from the AI provider.
 
@@ -25,6 +25,7 @@ class AIProvider(ABC):
             prompt: The prompt to send.
             session_id: Optional session ID to resume.
             attachments: List of file paths to attach.
+            model: Optional explicit model override for this request.
 
         Returns:
             ProviderResult object containing the response text and metadata.

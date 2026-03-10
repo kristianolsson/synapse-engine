@@ -70,7 +70,7 @@ class GeminiProvider(AIProvider):
     Implementation of Gemini provider using the Gemini CLI.
     """
     
-    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = []) -> ProviderResult:
+    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None) -> ProviderResult:
         """
         Execute the Gemini CLI with the given prompt inside the vault directory.
         """
@@ -156,7 +156,14 @@ class GeminiProvider(AIProvider):
                     logger.error("Unexpected error piping to Gemini CLI: %s", e)
                     return ProviderResult(is_error=True, requires_reply=True, text=str(e), return_code=-1)
 
-        models_to_try = config.GEMINI_FALLBACK_MODELS
+        # Build the list of models to try
+        models_to_try = []
+        if model:
+            models_to_try.append(model)
+        for m in config.GEMINI_FALLBACK_MODELS:
+            # If the user explicitly requested a model, don't try it twice immediately
+            if m not in models_to_try:
+                models_to_try.append(m)
         
         for attempt in range(min(config.GEMINI_MAX_RETRIES, len(models_to_try))):
             current_model = models_to_try[attempt]
