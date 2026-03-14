@@ -26,6 +26,7 @@ from ...core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
+from ...utils.html_utils import sanitize_telegram_html
 from .task_buttons import parse_tasks, build_task_keyboard, recover_task_from_callback
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,9 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     reply_text, tasks = format_message_with_tasks(reply_text)
     keyboard = build_task_keyboard(tasks)
 
+    # Sanitize HTML for Telegram
+    reply_text = sanitize_telegram_html(reply_text)
+
     sent_message = await message.reply_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
     
     # Save the new message ID tied to this session so the user can keep replying
@@ -332,6 +336,9 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         reply_text, tasks = format_message_with_tasks(reply_text)
         keyboard = build_task_keyboard(tasks)
         
+        # Sanitize HTML for Telegram
+        reply_text = sanitize_telegram_html(reply_text)
+
         await query.message.edit_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
         
         if result.session_id:
