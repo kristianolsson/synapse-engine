@@ -160,6 +160,10 @@ class GeminiProvider(AIProvider):
         models_to_try = []
         if model:
             models_to_try.append(model)
+        else:
+            # If no specific model requested, try the default (None) first
+            models_to_try.append(None)
+            
         for m in config.GEMINI_FALLBACK_MODELS:
             # If the user explicitly requested a model, don't try it twice immediately
             if m not in models_to_try:
