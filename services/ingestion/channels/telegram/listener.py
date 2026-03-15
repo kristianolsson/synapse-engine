@@ -190,16 +190,16 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
 
     prompt = build_prompt(incoming)
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id, None, False)
+    result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id, None, True)
 
-    if result.is_error and any(s in result.output.lower() for s in ["429", "quota", "rate limit", "capacity", "resource_exhausted"]):
+    if result.is_error and any(s in result.output.lower() for s in ["429", "quota", "rate limit", "capacity", "resource_exhausted", "timeout", "timed out"]):
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("Retry (Same Session)", callback_data="quota:retry"),
                 InlineKeyboardButton("Fallback (New Session)", callback_data="quota:fallback")
             ]
         ])
-        await message.reply_text(f"⚠️ <b>Quota Exhausted</b>\n\n{result.output}", parse_mode='HTML', reply_markup=keyboard)
+        await message.reply_text(f"⚠️ <b>Request Failed</b>\n\n{result.output}", parse_mode='HTML', reply_markup=keyboard)
         return
 
     if result.session_id and not reply_to_id:
