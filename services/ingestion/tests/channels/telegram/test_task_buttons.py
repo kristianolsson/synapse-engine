@@ -64,6 +64,15 @@ class TestFormatMessageWithTasks:
         assert tasks[0]["text"] == "Open task"
         assert tasks[1]["text"] == "Another task"
 
+    def test_parses_markdown_lists(self):
+        """Verify that standard markdown lists (e.g. 1. or -) are matched and parsed correctly."""
+        text = "1. ☐ Numbered list\n- ☐ Bullet list\n* ☐ Asterisk list"
+        tasks = parse_tasks(text)
+        assert len(tasks) == 3
+        assert tasks[0]["text"] == "Numbered list"
+        assert tasks[1]["text"] == "Bullet list"
+        assert tasks[2]["text"] == "Asterisk list"
+
     def test_completed_tasks_not_matched(self):
         """Completed tasks (✅) should not be parsed."""
         text = "[1] ☐ Open task\n[2] ✅ Done task"

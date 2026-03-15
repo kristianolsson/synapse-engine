@@ -9,10 +9,10 @@ import hashlib
 import re
 from typing import Optional
 
-# Match lines starting with optional [number] then ☐ followed by task text
-TASK_PATTERN_OPEN = re.compile(r"^(?:>*\s*)?(?:\[\d+\]\s*)?☐\s+(.+)$", re.MULTILINE)
+# Match lines starting with optional [number] or markdown list bullet/number, then ☐ followed by task text
+TASK_PATTERN_OPEN = re.compile(r"^(?:>*\s*)?(?:(?:\[\d+\]|\d+\.|-|\*)\s*)?☐\s+(.+)$", re.MULTILINE)
 # Match tasks whether they are open or completed (for recovery)
-TASK_PATTERN_ALL = re.compile(r"^(?:>*\s*)?(?:\[\d+\]\s*)?[☐✅]\s+(.+)$", re.MULTILINE)
+TASK_PATTERN_ALL = re.compile(r"^(?:>*\s*)?(?:(?:\[\d+\]|\d+\.|-|\*)\s*)?[☐✅]\s+(.+)$", re.MULTILINE)
 
 
 def _hash_task(text: str) -> str:
