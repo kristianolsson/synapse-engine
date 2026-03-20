@@ -15,9 +15,20 @@ TASK_PATTERN_OPEN = re.compile(r"^(?:>*\s*)?(?:(?:\[\d+\]|\d+\.|-|\*)\s*)?☐\s+
 TASK_PATTERN_ALL = re.compile(r"^(?:>*\s*)?(?:(?:\[\d+\]|\d+\.|-|\*)\s*)?[☐✅]\s+(.+)$", re.MULTILINE)
 
 
+def _clean_for_hash(text: str) -> str:
+    """Normalize text by stripping HTML tags and common markdown before hashing."""
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    # Remove markdown like *, _, `
+    text = re.sub(r'[*_`]', '', text)
+    # Collapse whitespace
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
 def _hash_task(text: str) -> str:
     """Generate a short hash for callback_data (first 8 chars of SHA-256)."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+    clean_text = _clean_for_hash(text)
+    return hashlib.sha256(clean_text.encode("utf-8")).hexdigest()[:8]
 
 
 def parse_tasks(text: str) -> list[dict]:
