@@ -32,14 +32,14 @@ SCHEDULER_PROMPT_TEMPLATE = (
     "Type: synapse-engine-scheduler\n"
     "---\n\n"
     "The current date and time is: {current_time}\n\n"
-    "Check reminders.md for any reminders that are due within this hour "
+    "Check reminders/reminders.md for any reminders that are due within this hour "
     "({hour_start} to {hour_end}). "
     "Return ONLY a JSON array. Do not include any other text."
 )
 
 FALLBACK_PROMPT_TEMPLATE = (
     "Delivery of a scheduled reminder failed. "
-    "Please log the following task to master_todos.md under the appropriate section "
+    "Please log the following task to tasks/master_todos.md under the appropriate section "
     "so it is not lost:\n\n"
     "Task: {task}"
 )
