@@ -50,7 +50,9 @@ class TestSessionManager:
         # Manually alter the file to make it artificially old
         with open(self.path, "r") as f:
             data = json.load(f)
-        data["user1"]["last_seen"] = time.time() - 4000  # Older than 3600s (60 mins)
+        # Key is prefixed with the provider name (e.g. "gemini:user1")
+        prefixed_key = self.sm._provider_key("user1")
+        data[prefixed_key]["last_seen"] = time.time() - 4000  # Older than 3600s (60 mins)
         with open(self.path, "w") as f:
             json.dump(data, f)
 

@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 from .base import AIProvider
 from .gemini import GeminiProvider
+from .claude import ClaudeProvider
 from .echo import EchoProvider
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ def get_provider(provider_name: Optional[str] = None) -> AIProvider:
 
     if provider_name == "gemini":
         return GeminiProvider()
+    if provider_name == "claude":
+        return ClaudeProvider()
     if provider_name == "echo":
         return EchoProvider()
     

@@ -76,6 +76,38 @@ GEMINI_FALLBACK_MODELS = [
     if m.strip()
 ]
 
+# --- Claude CLI ---
+def _resolve_claude_cmd() -> str:
+    """Resolve the claude CLI path, auto-detecting from the login shell if needed."""
+    explicit = os.getenv("CLAUDE_CMD", "").strip()
+    if explicit:
+        return explicit
+    import subprocess, shutil
+    found = shutil.which("claude")
+    if found:
+        return found
+    try:
+        result = subprocess.run(
+            ["bash", "-lc", "which claude"],
+            capture_output=True, text=True, timeout=5,
+        )
+        path = result.stdout.strip()
+        if path and result.returncode == 0:
+            return path
+    except Exception:
+        pass
+    return "claude"
+
+CLAUDE_CMD = _resolve_claude_cmd()
+CLAUDE_TIMEOUT_SECONDS = int(os.getenv("CLAUDE_TIMEOUT_SECONDS", "300"))
+CLAUDE_MAX_RETRIES = int(os.getenv("CLAUDE_MAX_RETRIES", "3"))
+CLAUDE_FALLBACK_MODELS = [
+    m.strip()
+    for m in os.getenv("CLAUDE_FALLBACK_MODELS", "sonnet,haiku").split(",")
+    if m.strip()
+]
+CLAUDE_MAX_BUDGET_USD = os.getenv("CLAUDE_MAX_BUDGET_USD", "").strip() or None
+
 # --- Telegram Settings ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_ALLOWED_USER_IDS = [

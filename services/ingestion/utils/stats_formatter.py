@@ -25,7 +25,7 @@ def format_stats_email(stats: Optional[dict]) -> str:
     try:
         lines = ["<br><br><hr><b>Stats:</b>"]
 
-        # Per-model stats
+        # Gemini format: per-model stats
         for name, data in stats.get("models", {}).items():
             api = data.get("api", {})
             reqs = api.get("totalRequests", 0)
@@ -33,7 +33,20 @@ def format_stats_email(stats: Optional[dict]) -> str:
             latency = api.get("totalLatencyMs", 0)
             lines.append(f"- {name}: {reqs} request{'s' if reqs != 1 else ''}, {errs} error{'s' if errs != 1 else ''}, {latency}ms")
 
-        # Per-tool stats
+        # Claude format: per-model usage
+        for name, data in stats.get("modelUsage", {}).items():
+            tokens_in = data.get("inputTokens", 0)
+            tokens_out = data.get("outputTokens", 0)
+            cost = data.get("costUSD", 0)
+            lines.append(f"- {name}: {tokens_in} in / {tokens_out} out, ${cost:.4f}")
+
+        # Claude: total cost and duration
+        if stats.get("total_cost_usd") is not None:
+            lines.append(f"- Total cost: ${stats['total_cost_usd']:.4f}")
+        if stats.get("duration_ms") is not None:
+            lines.append(f"- Duration: {stats['duration_ms']}ms")
+
+        # Gemini format: per-tool stats
         by_name = stats.get("tools", {}).get("byName", {})
         for tool_name, tool_data in by_name.items():
             count = tool_data.get("count", 0)
@@ -60,14 +73,21 @@ def format_stats_telegram(stats: Optional[dict]) -> str:
     try:
         parts = []
 
-        # Per-model stats
+        # Gemini format: per-model stats
         for name, data in stats.get("models", {}).items():
             api = data.get("api", {})
             reqs = api.get("totalRequests", 0)
             errs = api.get("totalErrors", 0)
             parts.append(f"{name} ({reqs} req, {errs} err)")
 
-        # Per-tool stats
+        # Claude format: per-model usage
+        for name, data in stats.get("modelUsage", {}).items():
+            tokens_in = data.get("inputTokens", 0)
+            tokens_out = data.get("outputTokens", 0)
+            cost = data.get("costUSD", 0)
+            parts.append(f"{name} ({tokens_in}in/{tokens_out}out, ${cost:.4f})")
+
+        # Gemini format: per-tool stats
         by_name = stats.get("tools", {}).get("byName", {})
         for tool_name, tool_data in by_name.items():
             count = tool_data.get("count", 0)

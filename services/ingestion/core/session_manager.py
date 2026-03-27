@@ -25,6 +25,11 @@ class SessionManager:
         self.ttl_seconds = ttl_minutes * 60
         self._lock = threading.Lock()
         self._stats_prefs: dict[str, bool] = {}  # per-user stats overrides (in-memory)
+        self._provider = config.AI_PROVIDER  # namespace sessions by provider
+
+    def _provider_key(self, session_key: str) -> str:
+        """Prefix a session key with the active provider to isolate session IDs across providers."""
+        return f"{self._provider}:{session_key}"
 
     def _read_data(self) -> dict:
         """Read the JSON file and clean up expired sessions."""
@@ -64,10 +69,11 @@ class SessionManager:
 
     def get_session(self, session_key: str) -> Optional[str]:
         """Get the active session ID for a user/thread, if it exists and hasn't expired."""
+        pkey = self._provider_key(session_key)
         with self._lock:
             data = self._read_data()
-            if session_key in data:
-                return data[session_key].get("session_id")
+            if pkey in data:
+                return data[pkey].get("session_id")
             return None
 
     def save_session(self, session_key: str, session_id: str) -> None:
@@ -75,21 +81,23 @@ class SessionManager:
         if not session_id:
             return
 
+        pkey = self._provider_key(session_key)
         with self._lock:
             data = self._read_data()
-            data[session_key] = {
+            data[pkey] = {
                 "session_id": session_id,
                 "last_seen": time.time()
             }
             self._write_data(data)
-            logger.debug("Saved session_id %r for %r", session_id, session_key)
+            logger.debug("Saved session_id %r for %r (provider=%s)", session_id, session_key, self._provider)
 
     def clear_session(self, session_key: str) -> bool:
         """Explicitly delete a user's session. Returns True if one was deleted."""
+        pkey = self._provider_key(session_key)
         with self._lock:
             data = self._read_data()
-            if session_key in data:
-                del data[session_key]
+            if pkey in data:
+                del data[pkey]
                 self._write_data(data)
                 logger.debug("Cleared session for %r", session_key)
                 return True
