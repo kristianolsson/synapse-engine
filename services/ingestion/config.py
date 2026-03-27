@@ -42,8 +42,18 @@ VAULT_PATH = os.getenv("VAULT_PATH", str(Path(__file__).resolve().parent.parent.
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "10"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
-# --- Gemini CLI ---
+# --- AI Provider ---
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower()
+_ai_provider = AI_PROVIDER  # mutable runtime value
+
+def get_ai_provider() -> str:
+    """Get the current AI provider (may differ from .env after /provider command)."""
+    return _ai_provider
+
+def set_ai_provider(provider: str) -> None:
+    """Switch the active AI provider at runtime."""
+    global _ai_provider
+    _ai_provider = provider.strip().lower()
 
 def _resolve_gemini_cmd() -> str:
     """Resolve the gemini CLI path, auto-detecting from the login shell if needed."""

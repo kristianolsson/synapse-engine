@@ -145,6 +145,21 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         await message.reply_text(f"Stats display turned {label}.")
         return
 
+    # /provider command
+    if stripped.startswith("/provider"):
+        parts = stripped.split()
+        if len(parts) == 2:
+            requested = parts[1]
+            if requested in ("gemini", "claude", "echo"):
+                config.set_ai_provider(requested)
+                await message.reply_text(f"Switched to {requested} provider.")
+            else:
+                await message.reply_text(f"Unknown provider: {requested}. Options: gemini, claude")
+        else:
+            current = config.get_ai_provider()
+            await message.reply_text(f"Current provider: {current}. Usage: /provider <gemini|claude>")
+        return
+
     image_paths = await extract_attachments(update)
 
     if message.voice:

@@ -24,8 +24,8 @@ def get_provider(provider_name: Optional[str] = None) -> AIProvider:
         ValueError: If the provider is unknown.
     """
     if not provider_name:
-        from ..config import AI_PROVIDER
-        provider_name = AI_PROVIDER.lower()
+        from ..config import get_ai_provider
+        provider_name = get_ai_provider()
 
     if provider_name == "gemini":
         return GeminiProvider()

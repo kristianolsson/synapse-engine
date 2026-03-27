@@ -217,6 +217,20 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         label = "on" if enabled else "off"
         return True, f"Stats display turned {label}.", None
 
+    # /provider command
+    if stripped_body.startswith("/provider"):
+        parts = stripped_body.split()
+        if len(parts) == 2:
+            requested = parts[1]
+            if requested in ("gemini", "claude", "echo"):
+                config.set_ai_provider(requested)
+                return True, f"Switched to {requested} provider.", None
+            else:
+                return True, f"Unknown provider: {requested}. Options: gemini, claude", None
+        else:
+            current = config.get_ai_provider()
+            return True, f"Current provider: {current}. Usage: /provider <gemini|claude>", None
+
     images = extract_images(msg)
 
     incoming = IncomingMessage(

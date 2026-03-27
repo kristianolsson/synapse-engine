@@ -6,7 +6,7 @@ backend — capturing messages, standardizing them into a structured format, and
 routing them to the configured AI provider for autonomous processing of the
 **Synapse Vault**.
 
-> **Current provider:** Gemini CLI
+> **Supported providers:** Gemini CLI, Claude Code CLI
 
 ## How It Works
 
@@ -30,7 +30,7 @@ The service is organized into four layers under `services/ingestion/`:
 | **Core** | `core/pipe.py` | Prompt formatting + AI provider dispatch |
 | | `core/rate_limiter.py` | Sliding-window rate limiter |
 | | `core/session_manager.py` | Per-user session state (TTL-based) |
-| **Providers** | `providers/` | Pluggable AI backends (`gemini`, `echo`) |
+| **Providers** | `providers/` | Pluggable AI backends (`gemini`, `claude`, `echo`) |
 | **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
 | | `tools/calendar_mcp.py` | MCP server exposing calendar tools |
 | | `tools/setup_calendar.py` | One-time OAuth2 setup |
@@ -41,7 +41,7 @@ The service is organized into four layers under `services/ingestion/`:
 
 1.  **Prerequisites:**
     -   Python 3.10+
-    -   Gemini CLI installed and in PATH.
+    -   At least one AI CLI installed: [Gemini CLI](https://github.com/google-gemini/gemini-cli) or [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code).
     -   A dedicated Gmail account for ingestion (with App Password).
     -   (Recommended) A Telegram bot token from [@BotFather](https://t.me/BotFather).
 
@@ -61,7 +61,10 @@ The service is organized into four layers under `services/ingestion/`:
 
     **Key Configuration:**
     - `ENABLED_CHANNELS`: Comma-separated list of channels to run (`email`, `telegram`, or `email,telegram`).
-    - `AI_PROVIDER`: The AI backend to use (`gemini` or `echo`). Defaults to `gemini`.
+    - `AI_PROVIDER`: The AI backend to use (`gemini`, `claude`, or `echo`). Defaults to `gemini`.
+    - `CLAUDE_CMD`: (Optional) Explicit path to `claude` binary. Auto-detected if omitted.
+    - `CLAUDE_TIMEOUT_SECONDS`: Max execution time for Claude CLI (default: `300`).
+    - `CLAUDE_MAX_BUDGET_USD`: (Optional) Per-request cost cap for Claude.
     - `EMAIL_ADDRESS`: The account to ingest from (and reply from).
     - `ALLOWED_SENDERS`: Whitelist of email addresses authorized to send tasks.
     - `REPLY_TO_ADDRESS`: (Optional) Redirect all system replies to this address.
@@ -90,18 +93,36 @@ The service is organized into four layers under `services/ingestion/`:
        ```bash
        python -m services.ingestion.tools.calendar_cli list-events --days 7
        ```
-    7. (Optional) To use via MCP instead of the CLI, register the server in
-       your Gemini CLI project's `.gemini/settings.json`:
+    7. (Optional) To use via MCP instead of the CLI, register the calendar server
+       in your vault's AI provider config:
+
+       **Gemini** — `.gemini/settings.json` in the vault:
        ```json
        {
          "mcpServers": {
            "calendar": {
              "command": "/path/to/venv/bin/python3",
-             "args": ["/path/to/services/ingestion/tools/calendar_mcp.py"]
+             "args": ["/path/to/services/ingestion/tools/calendar_mcp.py"],
+             "env": { "PYTHONPATH": "/path/to/synapse-engine" }
            }
          }
        }
        ```
+
+       **Claude** — `.mcp.json` in the vault root (same schema):
+       ```json
+       {
+         "mcpServers": {
+           "calendar": {
+             "command": "/path/to/venv/bin/python3",
+             "args": ["/path/to/services/ingestion/tools/calendar_mcp.py"],
+             "env": { "PYTHONPATH": "/path/to/synapse-engine" }
+           }
+         }
+       }
+       ```
+       Also create `.claude/settings.json` with `{"enableAllProjectMcpServers": true}`
+       so MCP servers are auto-approved in headless mode.
 
 ## Deployment (macOS)
 

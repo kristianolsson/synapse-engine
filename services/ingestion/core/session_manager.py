@@ -25,11 +25,10 @@ class SessionManager:
         self.ttl_seconds = ttl_minutes * 60
         self._lock = threading.Lock()
         self._stats_prefs: dict[str, bool] = {}  # per-user stats overrides (in-memory)
-        self._provider = config.AI_PROVIDER  # namespace sessions by provider
 
     def _provider_key(self, session_key: str) -> str:
         """Prefix a session key with the active provider to isolate session IDs across providers."""
-        return f"{self._provider}:{session_key}"
+        return f"{config.get_ai_provider()}:{session_key}"
 
     def _read_data(self) -> dict:
         """Read the JSON file and clean up expired sessions."""
@@ -89,7 +88,7 @@ class SessionManager:
                 "last_seen": time.time()
             }
             self._write_data(data)
-            logger.debug("Saved session_id %r for %r (provider=%s)", session_id, session_key, self._provider)
+            logger.debug("Saved session_id %r for %r (provider=%s)", session_id, session_key, config.get_ai_provider())
 
     def clear_session(self, session_key: str) -> bool:
         """Explicitly delete a user's session. Returns True if one was deleted."""

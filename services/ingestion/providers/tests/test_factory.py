@@ -11,8 +11,8 @@ def test_get_provider_invalid():
 def test_get_provider_default(monkeypatch):
     # Mock the configuration to return 'gemini'
     import services.ingestion.config as config
-    monkeypatch.setattr(config, "AI_PROVIDER", "gemini")
-    
+    monkeypatch.setattr(config, "_ai_provider", "gemini")
+
     provider = get_provider()
     assert isinstance(provider, GeminiProvider)
 
