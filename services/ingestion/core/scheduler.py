@@ -199,6 +199,7 @@ class ReminderScheduler:
             source_type=source_type,
             sender=sender,
             subject="Scheduled Task",
+            subtype="work",
             body=task,
         )
 
