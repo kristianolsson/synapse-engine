@@ -203,7 +203,14 @@ class ReminderScheduler:
         )
 
         prompt = build_prompt(incoming)
-        result = pipe_to_gemini(prompt)
+
+        # Use the stronger work model for scheduled tasks that modify files.
+        # Only applies when the active provider supports it (e.g. Claude → opus).
+        work_model = None
+        if config.get_ai_provider() == "claude":
+            work_model = config.CLAUDE_WORK_MODEL
+
+        result = pipe_to_gemini(prompt, model=work_model)
 
         if result.is_error:
             logger.error("Work reminder failed: %s", result.output)

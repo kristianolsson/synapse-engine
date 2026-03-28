@@ -132,6 +132,8 @@ def _resolve_claude_cmd() -> str:
 CLAUDE_CMD = _resolve_claude_cmd()
 CLAUDE_TIMEOUT_SECONDS = int(os.getenv("CLAUDE_TIMEOUT_SECONDS", "300"))
 CLAUDE_MAX_RETRIES = int(os.getenv("CLAUDE_MAX_RETRIES", "3"))
+CLAUDE_DEFAULT_MODEL = os.getenv("CLAUDE_DEFAULT_MODEL", "sonnet").strip() or None
+CLAUDE_WORK_MODEL = os.getenv("CLAUDE_WORK_MODEL", "opus").strip() or None
 CLAUDE_FALLBACK_MODELS = [
     m.strip()
     for m in os.getenv("CLAUDE_FALLBACK_MODELS", "sonnet,haiku").split(",")

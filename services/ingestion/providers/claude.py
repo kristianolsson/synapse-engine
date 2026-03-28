@@ -129,7 +129,8 @@ class ClaudeProvider(AIProvider):
         if model:
             models_to_try.append(model)
         else:
-            models_to_try.append(None)
+            # Use the configured default model (e.g. sonnet) instead of CLI default
+            models_to_try.append(config.CLAUDE_DEFAULT_MODEL)
 
         for m in config.CLAUDE_FALLBACK_MODELS:
             if m not in models_to_try:
