@@ -12,6 +12,7 @@ class ProviderResult:
     stats: Optional[Dict[str, Any]] = None
     session_id: Optional[str] = None
     return_code: int = 0
+    provider_name: str = ""
 
 class AIProvider(ABC):
     """Abstract base class for AI providers."""

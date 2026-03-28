@@ -43,12 +43,33 @@ RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "10"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
 # --- AI Provider ---
-AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower()
-_ai_provider = AI_PROVIDER  # mutable runtime value
+# Ordered list of providers. First entry is the default; subsequent entries
+# are fallback options offered to the user on quota errors.
+_raw_providers = os.getenv("AI_PROVIDERS", "").strip()
+if not _raw_providers:
+    # Backward compat: fall back to the old single-provider env var
+    _raw_providers = os.getenv("AI_PROVIDER", "gemini").strip()
+AI_PROVIDERS = [p.strip().lower() for p in _raw_providers.split(",") if p.strip()]
+
+_ai_provider = AI_PROVIDERS[0] if AI_PROVIDERS else "gemini"  # mutable runtime value
 
 def get_ai_provider() -> str:
     """Get the current AI provider (may differ from .env after /provider command)."""
     return _ai_provider
+
+def get_ai_providers() -> list[str]:
+    """Get the full ordered list of configured providers."""
+    return list(AI_PROVIDERS)
+
+def get_next_provider(current: str) -> str | None:
+    """Return the next provider in the ordered list after *current*, or None."""
+    try:
+        idx = AI_PROVIDERS.index(current.strip().lower())
+        if idx + 1 < len(AI_PROVIDERS):
+            return AI_PROVIDERS[idx + 1]
+    except ValueError:
+        pass
+    return None
 
 def set_ai_provider(provider: str) -> None:
     """Switch the active AI provider at runtime."""

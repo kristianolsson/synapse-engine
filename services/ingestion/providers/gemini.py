@@ -102,7 +102,7 @@ class GeminiProvider(AIProvider):
                     if result.returncode != 0:
                         error_msg = stderr or stdout or f"Gemini CLI exited with code {result.returncode}"
                         logger.error("Gemini CLI error (code %d): %s", result.returncode, error_msg)
-                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=result.returncode)
+                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=result.returncode, provider_name="gemini")
 
                     if match := re.search(r"(\{.*\})", stdout, re.DOTALL):
                         try:
@@ -115,26 +115,26 @@ class GeminiProvider(AIProvider):
                                 # Check for success signal code word
                                 if response.strip() == "SYNAPSE_OK":
                                     logger.info("Gemini CLI completed successfully (SYNAPSE_OK)")
-                                    return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats)
+                                    return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats, provider_name="gemini")
 
                                 # Non-empty response = agent wants to relay something (question/error)
                                 logger.info("Gemini CLI returned response: %s", response[:200])
-                                return ProviderResult(is_error=False, requires_reply=True, text=response, return_code=0, session_id=returned_session_id, stats=stats)
+                                return ProviderResult(is_error=False, requires_reply=True, text=response, return_code=0, session_id=returned_session_id, stats=stats, provider_name="gemini")
                             
                             # Empty response = silent success
                             logger.info("Gemini CLI completed successfully (silent response)")
-                            return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats)
+                            return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats, provider_name="gemini")
                         except json.JSONDecodeError:
                             logger.warning("Failed to parse JSON from stdout despite --output-format=json")
                     
                     # Fallback for non-JSON output (e.g. fatal errors before JSON emission)
                     if stdout:
                         logger.info("Gemini CLI returned non-JSON output: %s", stdout[:200])
-                        return ProviderResult(is_error=True, requires_reply=True, text=stdout, return_code=0)
+                        return ProviderResult(is_error=True, requires_reply=True, text=stdout, return_code=0, provider_name="gemini")
 
                     # Empty output = success
                     logger.info("Gemini CLI completed successfully (silent)")
-                    return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0)
+                    return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, provider_name="gemini")
 
                 except subprocess.TimeoutExpired:
                     logger.error("Gemini CLI timed out after %ds", config.GEMINI_TIMEOUT_SECONDS)
@@ -143,6 +143,7 @@ class GeminiProvider(AIProvider):
                         requires_reply=True,
                         text=f"Gemini CLI timed out after {config.GEMINI_TIMEOUT_SECONDS} seconds.",
                         return_code=-1,
+                        provider_name="gemini",
                     )
                 except FileNotFoundError:
                     logger.error("Gemini CLI not found at '%s'", config.GEMINI_CMD)
@@ -151,10 +152,11 @@ class GeminiProvider(AIProvider):
                         requires_reply=True,
                         text=f"Gemini CLI not found at '{config.GEMINI_CMD}'. Is it installed and in PATH?",
                         return_code=-1,
+                        provider_name="gemini",
                     )
                 except Exception as e:
                     logger.error("Unexpected error piping to Gemini CLI: %s", e)
-                    return ProviderResult(is_error=True, requires_reply=True, text=str(e), return_code=-1)
+                    return ProviderResult(is_error=True, requires_reply=True, text=str(e), return_code=-1, provider_name="gemini")
 
         # Build the list of models to try
         models_to_try = []

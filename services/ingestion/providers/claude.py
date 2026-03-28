@@ -52,7 +52,7 @@ class ClaudeProvider(AIProvider):
                     if result.returncode != 0:
                         error_msg = stderr or stdout or f"Claude CLI exited with code {result.returncode}"
                         logger.error("Claude CLI error (code %d): %s", result.returncode, error_msg)
-                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=result.returncode)
+                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=result.returncode, provider_name="claude")
 
                     # Claude outputs clean JSON with --output-format json
                     try:
@@ -61,9 +61,9 @@ class ClaudeProvider(AIProvider):
                         # Fallback for non-JSON output (e.g. fatal errors before JSON emission)
                         if stdout:
                             logger.info("Claude CLI returned non-JSON output: %s", stdout[:200])
-                            return ProviderResult(is_error=True, requires_reply=True, text=stdout, return_code=0)
+                            return ProviderResult(is_error=True, requires_reply=True, text=stdout, return_code=0, provider_name="claude")
                         logger.info("Claude CLI completed successfully (silent)")
-                        return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0)
+                        return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, provider_name="claude")
 
                     response = data.get("result", "").strip()
                     returned_session_id = data.get("session_id", "")
@@ -81,22 +81,26 @@ class ClaudeProvider(AIProvider):
                     # Check for error from Claude's own is_error flag
                     if is_error_flag or data.get("subtype", "").startswith("error"):
                         error_msg = response or data.get("subtype", "Unknown Claude error")
+                        # Normalize Claude quota limit messages so they match
+                        # the generic keyword detection ("quota") used downstream.
+                        if any(s in error_msg.lower() for s in ["hit your limit", "resets"]):
+                            error_msg = f"Quota limit reached: {error_msg}"
                         logger.error("Claude CLI returned error: %s", error_msg[:200])
-                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=0, session_id=returned_session_id, stats=stats)
+                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=0, session_id=returned_session_id, stats=stats, provider_name="claude")
 
                     if response:
                         # Check for success signal code word
                         if response.strip() == "SYNAPSE_OK":
                             logger.info("Claude CLI completed successfully (SYNAPSE_OK)")
-                            return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats)
+                            return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats, provider_name="claude")
 
                         # Non-empty response = agent wants to relay something (question/answer)
                         logger.info("Claude CLI returned response: %s", response[:200])
-                        return ProviderResult(is_error=False, requires_reply=True, text=response, return_code=0, session_id=returned_session_id, stats=stats)
+                        return ProviderResult(is_error=False, requires_reply=True, text=response, return_code=0, session_id=returned_session_id, stats=stats, provider_name="claude")
 
                     # Empty response = silent success
                     logger.info("Claude CLI completed successfully (silent response)")
-                    return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats)
+                    return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats, provider_name="claude")
 
                 except subprocess.TimeoutExpired:
                     logger.error("Claude CLI timed out after %ds", config.CLAUDE_TIMEOUT_SECONDS)
@@ -105,6 +109,7 @@ class ClaudeProvider(AIProvider):
                         requires_reply=True,
                         text=f"Claude CLI timed out after {config.CLAUDE_TIMEOUT_SECONDS} seconds.",
                         return_code=-1,
+                        provider_name="claude",
                     )
                 except FileNotFoundError:
                     logger.error("Claude CLI not found at '%s'", config.CLAUDE_CMD)
@@ -113,10 +118,11 @@ class ClaudeProvider(AIProvider):
                         requires_reply=True,
                         text=f"Claude CLI not found at '{config.CLAUDE_CMD}'. Is it installed and in PATH?",
                         return_code=-1,
+                        provider_name="claude",
                     )
                 except Exception as e:
                     logger.error("Unexpected error piping to Claude CLI: %s", e)
-                    return ProviderResult(is_error=True, requires_reply=True, text=str(e), return_code=-1)
+                    return ProviderResult(is_error=True, requires_reply=True, text=str(e), return_code=-1, provider_name="claude")
 
         # Build the list of models to try
         models_to_try = []

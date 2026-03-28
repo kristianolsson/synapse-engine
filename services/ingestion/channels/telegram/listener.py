@@ -22,6 +22,7 @@ from telegram.ext import (
 )
 
 from ... import config
+from ...config import get_next_provider
 from ...core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
@@ -32,6 +33,10 @@ from .task_buttons import parse_tasks, build_task_keyboard, recover_task_from_ca
 logger = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = config.TELEGRAM_MAX_FILE_SIZE_MB * 1024 * 1024
+
+# Pending retry context: maps bot message_id → {prompt, session_id, user_key}
+# so quota retry/switch callbacks can re-execute without reply_to_message.
+_pending_retries: dict[int, dict] = {}
 
 
 # ── Attachment Handling ─────────────────────────────────────────────
@@ -207,14 +212,28 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id, None, True)
 
-    if result.is_error and any(s in result.output.lower() for s in ["429", "quota", "rate limit", "capacity", "resource_exhausted", "timeout", "timed out"]):
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("Retry (Same Session)", callback_data="quota:retry"),
-                InlineKeyboardButton("Fallback (New Session)", callback_data="quota:fallback")
-            ]
-        ])
-        await message.reply_text(f"⚠️ <b>Request Failed</b>\n\n{result.output}", parse_mode='HTML', reply_markup=keyboard)
+    if result.is_error and any(s in result.output.lower() for s in ["429", "quota", "rate limit", "capacity", "resource_exhausted", "timeout", "timed out", "hit your limit", "resets"]):
+        provider = result.provider_name or config.get_ai_provider()
+        next_provider = get_next_provider(provider)
+
+        buttons = []
+        buttons.append(InlineKeyboardButton("🔁 Retry", callback_data="quota:retry"))
+        if next_provider:
+            buttons.append(InlineKeyboardButton(
+                f"🔄 Try with {next_provider}",
+                callback_data=f"quota:switch:{next_provider}"
+            ))
+        keyboard = InlineKeyboardMarkup([buttons])
+
+        friendly = f"⚠️ <b>{provider.capitalize()} hit a limit</b>\n\n{result.output}"
+        sent = await message.reply_text(friendly, parse_mode='HTML', reply_markup=keyboard)
+
+        # Stash context so the callback handler can re-execute the prompt
+        _pending_retries[sent.message_id] = {
+            "prompt": prompt,
+            "session_id": session_id,
+            "user_key": user_key,
+        }
         return
 
     if result.session_id and not reply_to_id:
@@ -280,62 +299,39 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
 
     # --- HANDLE QUOTA BUTTONS ---
     if is_quota:
-        action = query.data.split(":")[1]
-        await query.answer(f"Executing {action}...")
-        
-        original_msg = query.message.reply_to_message
-        if not original_msg:
-            await query.message.edit_text("⚠️ Could not find original message context.")
-            return
-            
-        await query.message.edit_text("⏳ Processing...")
-        
-        class FakeUpdate:
-            message = original_msg
-            def get_bot(self): return query.get_bot()
-            
-        image_paths = await extract_attachments(FakeUpdate())
-        text = original_msg.text or original_msg.caption or ""
-        
-        try:
-            reply_to_id = original_msg.reply_to_message.message_id if original_msg.reply_to_message else None
-            reply_to_text = original_msg.reply_to_message.text or original_msg.reply_to_message.caption if original_msg.reply_to_message else None
-        except AttributeError:
-            reply_to_id = None
-            reply_to_text = None
+        parts = query.data.split(":")
+        action = parts[1]  # 'retry' or 'switch'
+        switch_provider = parts[2] if len(parts) > 2 else None
+        await query.answer(f"Retrying{'  with ' + switch_provider if switch_provider else ''}...")
 
-        if reply_to_text:
-            text = f"Context: You previously sent the user this message: \"{reply_to_text}\"\nThe user replied to that message with: \"{text}\""
-            
-        incoming = IncomingMessage(
-            source_type="telegram",
-            sender=str(user.id),
-            subject="",
-            body=text,
-            image_paths=image_paths,
-        )
-        prompt = build_prompt(incoming)
-        
-        user_key = str(user.id)
-        parent_session = None
-        if reply_to_id:
-            parent_session = session_manager.get_message_session(reply_to_id)
-            session_id = parent_session
-        else:
-            session_id = session_manager.get_session(user_key)
-            
-        model = None
-        if action == "fallback":
-            model = "flash"
+        # Look up stashed context from when we showed the quota buttons
+        ctx = _pending_retries.pop(query.message.message_id, None)
+        if not ctx:
+            await query.message.edit_text("⚠️ Retry context expired. Please send your message again.")
+            return
+
+        await query.message.edit_text("⏳ Processing...")
+
+        prompt = ctx["prompt"]
+        session_id = ctx["session_id"]
+        user_key = ctx["user_key"]
+
+        # Determine provider and session handling for the retry
+        retry_provider = None
+        if action == "switch" and switch_provider:
+            retry_provider = switch_provider
+            # Start fresh session when switching providers
             if session_id:
                 from ...core.pipe import cleanup_session
                 cleanup_session(session_id)
             session_id = None
             
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id, model, False)
+        result = await loop.run_in_executor(
+            None, pipe_to_gemini, prompt, session_id, None, False, False, retry_provider
+        )
         
-        if result.session_id and not reply_to_id:
+        if result.session_id:
             session_manager.save_session(user_key, result.session_id)
             
         reply_text = result.output
@@ -358,8 +354,6 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         
         if result.session_id:
             session_manager.save_message_session(query.message.message_id, result.session_id)
-        if reply_to_id and not parent_session and result.session_id:
-            session_manager.save_message_session(reply_to_id, result.session_id)
             
         return
 

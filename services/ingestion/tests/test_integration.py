@@ -6,7 +6,7 @@ def test_echo_integration_pipeline(monkeypatch):
     # Setup
     import services.ingestion.core.pipe as pipe_module
     import services.ingestion.config as config
-    monkeypatch.setattr(config, "AI_PROVIDER", "echo")
+    config.set_ai_provider("echo")
     
     # Ingest
     msg = IncomingMessage(
