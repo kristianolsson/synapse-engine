@@ -20,7 +20,6 @@ class IncomingMessage:
     source_type: str  # "email" or "telegram"
     sender: str
     subject: str = ""
-    subtype: str = ""
     body: str = ""
     image_paths: list[str] = field(default_factory=list)
 
@@ -65,14 +64,12 @@ def build_prompt(msg: IncomingMessage) -> str:
         )
 
     subject_line = f"Subject: {msg.subject}\n" if msg.subject else ""
-    subtype_line = f"Subtype: {msg.subtype}\n" if msg.subtype else ""
     now = datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S %Z")
     git_status = _sync_git()
 
     prompt = (
         f"---\n"
         f"Type: {msg.source_type}\n"
-        f"{subtype_line}"
         f"Sender: {msg.sender}\n"
         f"{subject_line}"
         f"Context: Ingested via {msg.source_type.upper()}\n"

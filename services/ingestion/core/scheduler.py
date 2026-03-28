@@ -198,8 +198,7 @@ class ReminderScheduler:
         incoming = IncomingMessage(
             source_type=source_type,
             sender=sender,
-            subject="Scheduled Task",
-            subtype="work",
+            subject="Scheduled Work Task",
             body=task,
         )
 
