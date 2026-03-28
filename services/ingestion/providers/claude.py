@@ -126,7 +126,11 @@ class ClaudeProvider(AIProvider):
 
         # Build the list of models to try
         models_to_try = []
-        if model:
+        if model == "scheduler":
+            models_to_try.append(config.CLAUDE_DEFAULT_MODEL)
+        elif model == "work":
+            models_to_try.append(config.CLAUDE_WORK_MODEL)
+        elif model:
             models_to_try.append(model)
         else:
             # Use the configured default model (e.g. sonnet) instead of CLI default

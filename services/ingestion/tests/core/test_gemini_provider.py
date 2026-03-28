@@ -14,6 +14,7 @@ def mock_config():
     with patch("services.ingestion.providers.gemini.config") as m:
         m.GEMINI_CMD = "gemini"
         m.VAULT_PATH = "/tmp/vault"
+        m.GEMINI_WORK_MODEL = "pro"
         m.GEMINI_FALLBACK_MODELS = ["pro", "flash"]
         m.GEMINI_MAX_RETRIES = 3
         m.GEMINI_TIMEOUT_SECONDS = 120
@@ -24,7 +25,7 @@ def provider():
     return GeminiProvider()
 
 def test_model_sequence_no_specific_model(provider, mock_config):
-    """Verify that None is tried first if no model is requested."""
+    """Verify that configured default model is tried first if no model is requested."""
     with patch("subprocess.run") as mock_run:
         # Simulate failure for all attempts
         mock_run.return_value = MagicMock(returncode=1, stderr="Error", stdout="")
@@ -46,22 +47,18 @@ def test_model_sequence_no_specific_model(provider, mock_config):
         assert "--model=flash" in args_3
 
 def test_model_sequence_with_specific_model(provider, mock_config):
-    """Verify that requested model is tried first."""
+    """Verify that requested intent model is resolved and tried first."""
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=1, stderr="Error", stdout="")
         
-        provider.generate_response("test prompt", model="auto")
+        provider.generate_response("test prompt", model="work")
         
-        assert mock_run.call_count == 3
+        assert mock_run.call_count == 2
         
-        # 1st attempt: auto
+        # 1st attempt: pro (work intent)
         args_1 = mock_run.call_args_list[0][0][0]
-        assert "--model=auto" in args_1
+        assert "--model=pro" in args_1
         
-        # 2nd attempt: pro
+        # 2nd attempt: flash
         args_2 = mock_run.call_args_list[1][0][0]
-        assert "--model=pro" in args_2
-        
-        # 3rd attempt: flash
-        args_3 = mock_run.call_args_list[2][0][0]
-        assert "--model=flash" in args_3
+        assert "--model=flash" in args_2

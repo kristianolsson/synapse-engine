@@ -101,6 +101,7 @@ def _resolve_gemini_cmd() -> str:
 GEMINI_CMD = _resolve_gemini_cmd()
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "120"))
 GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "3"))
+GEMINI_WORK_MODEL = os.getenv("GEMINI_WORK_MODEL", "pro").strip() or None
 GEMINI_FALLBACK_MODELS = [
     m.strip()
     for m in os.getenv("GEMINI_FALLBACK_MODELS", "pro,flash,flash-lite").split(",")

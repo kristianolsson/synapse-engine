@@ -206,11 +206,8 @@ class ReminderScheduler:
 
         # Use the stronger work model for scheduled tasks that modify files.
         # Only applies when the active provider supports it (e.g. Claude → opus).
-        work_model = None
-        if config.get_ai_provider() == "claude":
-            work_model = config.CLAUDE_WORK_MODEL
-
-        result = pipe_to_gemini(prompt, model=work_model)
+        # Pass intent-based model so each provider can resolve its own best model
+        result = pipe_to_gemini(prompt, model="work")
 
         if result.is_error:
             logger.error("Work reminder failed: %s", result.output)
@@ -274,11 +271,9 @@ class ReminderScheduler:
         prompt = self._build_scheduler_prompt()
 
         # Use a fresh session (no resume) — scheduler prompts are stateless
-        # We explicitly request the 'auto' model for this background check as it is 
-        # much cheaper and faster at reading JSON arrays than the default 'pro' model (if using Gemini).
+        # We explicitly request the 'scheduler' model intent for this background check.
         # We also want to immediately clean up the session if a quota error occurs so we don't leave orphaned sessions.
-        tick_model = "auto" if config.get_ai_provider() == "gemini" else None
-        result = pipe_to_gemini(prompt, model=tick_model, cleanup_on_error=True)
+        result = pipe_to_gemini(prompt, model="scheduler", cleanup_on_error=True)
 
         # The scheduler executes a stateless prompt simply to evaluate `reminders.md`.
         # The provider might generate a persistent session for this interaction.

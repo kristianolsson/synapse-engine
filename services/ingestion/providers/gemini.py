@@ -160,11 +160,13 @@ class GeminiProvider(AIProvider):
 
         # Build the list of models to try
         models_to_try = []
-        if model:
-            models_to_try.append(model)
-        else:
-            # If no specific model requested, try the default (None) first
+        if model == "work":
+            models_to_try.append(config.GEMINI_WORK_MODEL)
+        elif model in ("scheduler", "auto") or not model:
+            # None forces gemini CLI to naturally use its default model without an explicit --model arg
             models_to_try.append(None)
+        else:
+            models_to_try.append(model)
             
         for m in config.GEMINI_FALLBACK_MODELS:
             # If the user explicitly requested a model, don't try it twice immediately
