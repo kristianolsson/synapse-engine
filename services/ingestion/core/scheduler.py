@@ -210,9 +210,10 @@ class ReminderScheduler:
         result = pipe_to_provider(prompt, model="work")
 
         if result.is_error and 'quota' in result.output.lower():
-            logger.warning("Work reminder failed due to quota. Falling back to alternative provider...")
-            alt_provider = config.get_next_provider(config.ACTIVE_PROVIDER)
-            result = pipe_to_provider(prompt, model="work", override_provider=alt_provider)
+            alt_provider = config.get_next_provider(config.get_ai_provider())
+            if alt_provider:
+                logger.warning("Work reminder failed due to quota. Falling back to %s...", alt_provider)
+                result = pipe_to_provider(prompt, model="work", override_provider=alt_provider)
 
         if result.is_error:
             logger.error("Work reminder failed: %s", result.output)
@@ -258,9 +259,10 @@ class ReminderScheduler:
             result = pipe_to_provider(fallback_prompt)
             
             if result.is_error and 'quota' in result.output.lower():
-                logger.warning("Fallback logging failed due to quota. Falling back to alternative provider...")
-                alt_provider = config.get_next_provider(config.ACTIVE_PROVIDER)
-                result = pipe_to_provider(fallback_prompt, override_provider=alt_provider)
+                alt_provider = config.get_next_provider(config.get_ai_provider())
+                if alt_provider:
+                    logger.warning("Fallback logging failed due to quota. Falling back to %s...", alt_provider)
+                    result = pipe_to_provider(fallback_prompt, override_provider=alt_provider)
 
             if result.is_error:
                 logger.error("Fallback logging returned an error: %s", result.output)
@@ -287,9 +289,10 @@ class ReminderScheduler:
         result = pipe_to_provider(prompt, model="scheduler", cleanup_on_error=True)
 
         if result.is_error and 'quota' in result.output.lower():
-            logger.warning("Scheduler check failed due to quota. Falling back to alternative provider...")
-            alt_provider = config.get_next_provider(config.ACTIVE_PROVIDER)
-            result = pipe_to_provider(prompt, model="scheduler", override_provider=alt_provider, cleanup_on_error=True)
+            alt_provider = config.get_next_provider(config.get_ai_provider())
+            if alt_provider:
+                logger.warning("Scheduler check failed due to quota. Falling back to %s...", alt_provider)
+                result = pipe_to_provider(prompt, model="scheduler", override_provider=alt_provider, cleanup_on_error=True)
 
         # The scheduler executes a stateless prompt simply to evaluate `reminders.md`.
         # The provider might generate a persistent session for this interaction.
