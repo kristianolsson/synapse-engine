@@ -24,6 +24,28 @@ class IncomingMessage:
     image_paths: list[str] = field(default_factory=list)
 
 
+def _sync_git() -> str:
+    """
+    Attempt to run git pull on the vault directory.
+    If it fails, return an instruction for the LLM to handle it manually.
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "pull", "--rebase"],
+            cwd=config.VAULT_PATH,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            return "Git Context: Automatically synced and up to date"
+        else:
+            return "Git Context: AUTOMATIC PULL FAILED. Always execute `git pull` at the start of a session or before reading files to ensure the local context matches the remote repository."
+    except Exception:
+        return "Git Context: AUTOMATIC PULL FAILED. Always execute `git pull` at the start of a session or before reading files to ensure the local context matches the remote repository."
+
+
 def build_prompt(msg: IncomingMessage) -> str:
     """
     Wrap a message in the metadata block format expected by the
@@ -43,6 +65,7 @@ def build_prompt(msg: IncomingMessage) -> str:
 
     subject_line = f"Subject: {msg.subject}\n" if msg.subject else ""
     now = datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S %Z")
+    git_status = _sync_git()
 
     prompt = (
         f"---\n"
@@ -51,6 +74,7 @@ def build_prompt(msg: IncomingMessage) -> str:
         f"{subject_line}"
         f"Context: Ingested via {msg.source_type.upper()}\n"
         f"Current Time: {now}\n"
+        f"{git_status}\n"
         f"{image_line}\n"
         f"---\n\n"
         f"{msg.body}"
