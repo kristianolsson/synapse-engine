@@ -73,6 +73,8 @@ class ClaudeProvider(AIProvider):
                     stats = {}
                     if data.get("modelUsage"):
                         stats["modelUsage"] = data["modelUsage"]
+                    if data.get("usage") and data["usage"].get("server_tool_use"):
+                        stats["server_tool_use"] = data["usage"]["server_tool_use"]
                     if data.get("total_cost_usd") is not None:
                         stats["total_cost_usd"] = data["total_cost_usd"]
                     if data.get("duration_ms") is not None:
