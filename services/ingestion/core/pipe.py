@@ -29,6 +29,8 @@ def build_prompt(msg: IncomingMessage) -> str:
     Wrap a message in the metadata block format expected by the
     Ingestion Protocols defined in GEMINI.md.
     """
+    from datetime import datetime
+
     image_line = f"Images: {len(msg.image_paths)} attached" if msg.image_paths else "Images: none"
 
     # If there are images, append their paths so the CLI can reference them
@@ -40,6 +42,7 @@ def build_prompt(msg: IncomingMessage) -> str:
         )
 
     subject_line = f"Subject: {msg.subject}\n" if msg.subject else ""
+    now = datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S %Z")
 
     prompt = (
         f"---\n"
@@ -47,6 +50,7 @@ def build_prompt(msg: IncomingMessage) -> str:
         f"Sender: {msg.sender}\n"
         f"{subject_line}"
         f"Context: Ingested via {msg.source_type.upper()}\n"
+        f"Current Time: {now}\n"
         f"{image_line}\n"
         f"---\n\n"
         f"{msg.body}"
