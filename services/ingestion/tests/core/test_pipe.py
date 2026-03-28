@@ -6,7 +6,7 @@ from services.ingestion.core.pipe import (
     IncomingMessage,
     PipeResult,
     build_prompt,
-    pipe_to_gemini,
+    pipe_to_provider,
 )
 from services.ingestion.providers.base import ProviderResult
 
@@ -64,7 +64,7 @@ class TestBuildPrompt:
         assert "Context: Ingested via TELEGRAM" in prompt
 
 
-# ── pipe_to_gemini delegation tests ─────────────────────────────────
+# ── pipe_to_provider delegation tests ─────────────────────────────────
 
 class TestPipeToGeminiDelegation:
     @patch("services.ingestion.core.pipe.get_provider")
@@ -81,7 +81,7 @@ class TestPipeToGeminiDelegation:
             session_id="session-123"
         )
 
-        result = pipe_to_gemini("test prompt", session_id="old-session")
+        result = pipe_to_provider("test prompt", session_id="old-session")
 
         mock_provider.generate_response.assert_called_once_with("test prompt", session_id="old-session", attachments=[], model=None, auto_retry=True, cleanup_on_error=False)
 

@@ -25,7 +25,7 @@ def _make_update(user_id=12345, chat_type="private", text="Hello"):
 @pytest.mark.asyncio
 @patch("services.ingestion.channels.telegram.listener.config")
 @patch("services.ingestion.channels.telegram.listener.get_next_provider")
-@patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+@patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
 @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
 async def test_timeout_triggers_retry_buttons(mock_extract, mock_pipe, mock_next_provider, mock_config):
     """Verify that a timeout error triggers retry button (no fallback when single provider)."""
@@ -70,7 +70,7 @@ async def test_timeout_triggers_retry_buttons(mock_extract, mock_pipe, mock_next
 @pytest.mark.asyncio
 @patch("services.ingestion.channels.telegram.listener.config")
 @patch("services.ingestion.channels.telegram.listener.get_next_provider")
-@patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+@patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
 @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
 async def test_quota_triggers_retry_buttons(mock_extract, mock_pipe, mock_next_provider, mock_config):
     """Verify that a quota error triggers the retry buttons."""
@@ -106,7 +106,7 @@ async def test_quota_triggers_retry_buttons(mock_extract, mock_pipe, mock_next_p
 @pytest.mark.asyncio
 @patch("services.ingestion.channels.telegram.listener.config")
 @patch("services.ingestion.channels.telegram.listener.get_next_provider")
-@patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+@patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
 @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
 async def test_claude_quota_shows_fallback_button(mock_extract, mock_pipe, mock_next_provider, mock_config):
     """When Claude hits quota and gemini is next in the list, show a 'Try with gemini' button."""
@@ -148,7 +148,7 @@ async def test_claude_quota_shows_fallback_button(mock_extract, mock_pipe, mock_
 @pytest.mark.asyncio
 @patch("services.ingestion.channels.telegram.listener.config")
 @patch("services.ingestion.channels.telegram.listener.get_next_provider")
-@patch("services.ingestion.channels.telegram.listener.pipe_to_gemini")
+@patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
 @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
 async def test_claude_quota_no_fallback_when_single_provider(mock_extract, mock_pipe, mock_next_provider, mock_config):
     """When Claude is the only provider, no fallback button is shown."""

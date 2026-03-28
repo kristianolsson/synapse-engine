@@ -1,6 +1,6 @@
 
 import pytest
-from services.ingestion.core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from services.ingestion.core.pipe import IncomingMessage, build_prompt, pipe_to_provider
 
 def test_echo_integration_pipeline(monkeypatch):
     # Setup
@@ -19,7 +19,7 @@ def test_echo_integration_pipeline(monkeypatch):
     prompt = build_prompt(msg)
     
     # Pipe
-    result = pipe_to_gemini(prompt)
+    result = pipe_to_provider(prompt)
     
     # Verify
     assert result.is_error is False

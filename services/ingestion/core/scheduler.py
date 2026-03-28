@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Optional
 
 from .. import config
-from ..core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from ..core.pipe import IncomingMessage, build_prompt, pipe_to_provider
 from ..core.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -207,12 +207,12 @@ class ReminderScheduler:
         # Use the stronger work model for scheduled tasks that modify files.
         # Only applies when the active provider supports it (e.g. Claude → opus).
         # Pass intent-based model so each provider can resolve its own best model
-        result = pipe_to_gemini(prompt, model="work")
+        result = pipe_to_provider(prompt, model="work")
 
         if result.is_error and 'quota' in result.output.lower():
             logger.warning("Work reminder failed due to quota. Falling back to alternative provider...")
             alt_provider = config.get_next_provider(config.ACTIVE_PROVIDER)
-            result = pipe_to_gemini(prompt, model="work", override_provider=alt_provider)
+            result = pipe_to_provider(prompt, model="work", override_provider=alt_provider)
 
         if result.is_error:
             logger.error("Work reminder failed: %s", result.output)
@@ -255,12 +255,12 @@ class ReminderScheduler:
         logger.warning("Delivery failed, sending fallback to log task: %s", task)
         fallback_prompt = FALLBACK_PROMPT_TEMPLATE.format(task=task)
         try:
-            result = pipe_to_gemini(fallback_prompt)
+            result = pipe_to_provider(fallback_prompt)
             
             if result.is_error and 'quota' in result.output.lower():
                 logger.warning("Fallback logging failed due to quota. Falling back to alternative provider...")
                 alt_provider = config.get_next_provider(config.ACTIVE_PROVIDER)
-                result = pipe_to_gemini(fallback_prompt, override_provider=alt_provider)
+                result = pipe_to_provider(fallback_prompt, override_provider=alt_provider)
 
             if result.is_error:
                 logger.error("Fallback logging returned an error: %s", result.output)
@@ -284,12 +284,12 @@ class ReminderScheduler:
         # Use a fresh session (no resume) — scheduler prompts are stateless
         # We explicitly request the 'scheduler' model intent for this background check.
         # We also want to immediately clean up the session if a quota error occurs so we don't leave orphaned sessions.
-        result = pipe_to_gemini(prompt, model="scheduler", cleanup_on_error=True)
+        result = pipe_to_provider(prompt, model="scheduler", cleanup_on_error=True)
 
         if result.is_error and 'quota' in result.output.lower():
             logger.warning("Scheduler check failed due to quota. Falling back to alternative provider...")
             alt_provider = config.get_next_provider(config.ACTIVE_PROVIDER)
-            result = pipe_to_gemini(prompt, model="scheduler", override_provider=alt_provider, cleanup_on_error=True)
+            result = pipe_to_provider(prompt, model="scheduler", override_provider=alt_provider, cleanup_on_error=True)
 
         # The scheduler executes a stateless prompt simply to evaluate `reminders.md`.
         # The provider might generate a persistent session for this interaction.

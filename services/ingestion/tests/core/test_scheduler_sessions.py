@@ -17,7 +17,7 @@ def scheduler():
 class TestSchedulerSessions:
     """Tests for session persistence logic in ReminderScheduler."""
 
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.session_manager.SessionManager.save_session")
     def test_tick_saves_session_for_message_email(self, mock_save, mock_pipe, scheduler):
         """Test that _tick saves a session ID for email message reminders."""
@@ -39,7 +39,7 @@ class TestSchedulerSessions:
             mock_deliver.assert_called_once()
             assert mock_deliver.call_args[1].get("session_id") is None
 
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.session_manager.SessionManager.save_session")
     def test_tick_does_not_save_session_for_message_telegram(self, mock_save, mock_pipe, scheduler):
         """Test that _tick does NOT save a session ID for telegram message reminders."""
@@ -57,7 +57,7 @@ class TestSchedulerSessions:
             # Should NOT have called save_session
             assert mock_save.call_count == 0
 
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.session_manager.SessionManager.save_session")
     @patch("services.ingestion.core.scheduler.config")
     def test_handle_work_reminder_saves_session_for_email(self, mock_config, mock_save, mock_pipe, scheduler):
@@ -86,7 +86,7 @@ class TestSchedulerSessions:
             mock_deliver.assert_called_once()
             assert mock_deliver.call_args[1]["session_id"] == returned_session_id
 
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.session_manager.SessionManager.save_session")
     @patch("services.ingestion.core.scheduler.config")
     def test_handle_work_reminder_no_save_for_telegram(self, mock_config, mock_save, mock_pipe, scheduler):

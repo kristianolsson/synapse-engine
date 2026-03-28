@@ -96,10 +96,10 @@ class PipeResult:
     provider_name: str = ""
 
 
-def pipe_to_gemini(prompt: str, session_id: Optional[str] = None, model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, provider_name: Optional[str] = None) -> PipeResult:
+def pipe_to_provider(prompt: str, session_id: Optional[str] = None, model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, provider_name: Optional[str] = None) -> PipeResult:
     """
     Execute the AI provider with the given prompt.
-    Kept as 'pipe_to_gemini' for backward compatibility, but now delegates to the configured provider.
+    Kept as 'pipe_to_provider' for backward compatibility, but now delegates to the configured provider.
     """
     provider: AIProvider = get_provider(provider_name)
 

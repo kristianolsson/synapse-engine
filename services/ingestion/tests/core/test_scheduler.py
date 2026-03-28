@@ -185,7 +185,7 @@ class TestTick:
     """Tests for the _tick method (one scheduler cycle)."""
 
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_tick_with_messages(self, mock_pipe, mock_deliver, scheduler):
         mock_pipe.return_value = MagicMock(
             is_error=False,
@@ -209,7 +209,7 @@ class TestTick:
         # Email messages are unchanged
         assert "Reminder 2" in messages
 
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_tick_no_reminders(self, mock_pipe, scheduler):
         mock_pipe.return_value = MagicMock(
             is_error=False,
@@ -219,7 +219,7 @@ class TestTick:
         # No errors, no delivery attempts
 
     @patch.object(ReminderScheduler, "_send_email")
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_tick_prompt_error(self, mock_pipe, mock_email, scheduler):
         mock_pipe.return_value = MagicMock(
             is_error=True,
@@ -234,7 +234,7 @@ class TestTick:
         assert "Background Check Failed" in kwargs["subject"]
 
     @patch.object(ReminderScheduler, "_handle_work_reminder")
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_tick_with_work_reminder(self, mock_pipe, mock_work, scheduler):
         mock_pipe.return_value = MagicMock(
             is_error=False,
@@ -249,7 +249,7 @@ class TestTick:
 
     @patch.object(ReminderScheduler, "_handle_delivery_failure")
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_tick_delivery_failure_triggers_fallback(
         self, mock_pipe, mock_deliver, mock_fallback, scheduler
     ):
@@ -270,7 +270,7 @@ class TestWorkReminder:
     """Tests for _handle_work_reminder."""
 
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.scheduler.config")
     def test_work_reminder_telegram(self, mock_config, mock_pipe, mock_deliver, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -298,7 +298,7 @@ class TestWorkReminder:
         assert call_args.args[1] == "Here are the stock results..."
 
     @patch.object(ReminderScheduler, "_handle_delivery_failure")
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.scheduler.config")
     def test_work_reminder_pipe_error(self, mock_config, mock_pipe, mock_fallback, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -316,7 +316,7 @@ class TestWorkReminder:
 class TestDeliveryFailure:
     """Tests for _handle_delivery_failure."""
 
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_fallback_logs_to_master_todos(self, mock_pipe, scheduler):
         mock_pipe.return_value = MagicMock(is_error=False, output="")
 
@@ -328,7 +328,7 @@ class TestDeliveryFailure:
         assert "Call the dentist" in prompt_arg
 
     @patch.object(ReminderScheduler, "_send_email")
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_fallback_handles_exception(self, mock_pipe, mock_email, scheduler):
         mock_pipe.side_effect = Exception("Total failure")
         # Should not raise
@@ -341,7 +341,7 @@ class TestDeliveryFailure:
         assert "execute and log" in kwargs["subject"]
 
     @patch.object(ReminderScheduler, "_send_email")
-    @patch("services.ingestion.core.scheduler.pipe_to_gemini")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_fallback_returns_error_sends_email(self, mock_pipe, mock_email, scheduler):
         mock_pipe.return_value = MagicMock(is_error=True, output="API error")
         

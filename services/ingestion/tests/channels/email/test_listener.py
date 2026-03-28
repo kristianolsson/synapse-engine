@@ -120,7 +120,7 @@ class TestExtractImages:
 
 
 class TestProcessEmail:
-    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
     @patch("services.ingestion.channels.email.listener.config")
     def test_rejects_unauthorized_sender(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["allowed@example.com"]
@@ -131,7 +131,7 @@ class TestProcessEmail:
         assert stats is None
         mock_pipe.assert_not_called()
 
-    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
     @patch("services.ingestion.channels.email.listener.config")
     def test_success_silent(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
@@ -143,7 +143,7 @@ class TestProcessEmail:
         assert text == ""
         assert stats is None
 
-    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
     @patch("services.ingestion.channels.email.listener.config")
     def test_error_triggers_reply(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
@@ -155,7 +155,7 @@ class TestProcessEmail:
         assert "Repo is locked" in text
         assert stats is not None
 
-    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
     @patch("services.ingestion.channels.email.listener.config")
     def test_process_done_subject_from_body(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
@@ -172,7 +172,7 @@ class TestProcessEmail:
         args = mock_pipe.call_args[0]
         assert "Mark the following task as completed: Buy groceries" in args[0]
         
-    @patch("services.ingestion.channels.email.listener.pipe_to_gemini")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
     @patch("services.ingestion.channels.email.listener.config")
     def test_process_undo_subject_from_history(self, mock_config, mock_pipe):
         from services.ingestion.utils.task_formatter import _hash_task

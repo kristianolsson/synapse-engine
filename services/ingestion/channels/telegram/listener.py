@@ -23,7 +23,7 @@ from telegram.ext import (
 
 from ... import config
 from ...config import get_next_provider
-from ...core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from ...core.pipe import IncomingMessage, build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
@@ -211,7 +211,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
 
     prompt = build_prompt(incoming)
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, pipe_to_gemini, prompt, session_id, None, True)
+    result = await loop.run_in_executor(None, pipe_to_provider, prompt, session_id, None, True)
 
     if result.is_error and any(s in result.output.lower() for s in ["429", "quota", "rate limit", "capacity", "resource_exhausted", "timeout", "timed out", "hit your limit", "resets"]):
         provider = result.provider_name or config.get_ai_provider()
@@ -329,7 +329,7 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
             
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
-            None, pipe_to_gemini, prompt, session_id, None, False, False, retry_provider
+            None, pipe_to_provider, prompt, session_id, None, False, False, retry_provider
         )
         
         if result.session_id:
@@ -439,7 +439,7 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
             full_prompt = build_prompt(incoming)
 
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, pipe_to_gemini, full_prompt, session_id)
+            result = await loop.run_in_executor(None, pipe_to_provider, full_prompt, session_id)
 
             if result.session_id:
                 session_manager.save_session(user_key, result.session_id)

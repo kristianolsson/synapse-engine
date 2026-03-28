@@ -21,7 +21,7 @@ from email.message import EmailMessage
 from imapclient import IMAPClient
 
 from ... import config
-from ...core.pipe import IncomingMessage, build_prompt, pipe_to_gemini
+from ...core.pipe import IncomingMessage, build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
 
@@ -189,7 +189,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         )
         full_prompt = build_prompt(incoming)
         session_id = session_manager.get_session(session_key)
-        result = pipe_to_gemini(full_prompt, session_id=session_id)
+        result = pipe_to_provider(full_prompt, session_id=session_id)
         
         if result.session_id:
             session_manager.save_session(session_key, result.session_id)
@@ -243,7 +243,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
 
     prompt = build_prompt(incoming)
     session_id = session_manager.get_session(session_key)
-    result = pipe_to_gemini(prompt, session_id=session_id)
+    result = pipe_to_provider(prompt, session_id=session_id)
 
     if result.session_id:
         session_manager.save_session(session_key, result.session_id)
