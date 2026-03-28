@@ -51,8 +51,7 @@ def format_stats_email(stats: Optional[dict]) -> str:
         if server_tools:
             fetch = server_tools.get("web_fetch_requests", 0)
             search = server_tools.get("web_search_requests", 0)
-            if fetch > 0 or search > 0:
-                lines.append(f"- Web Tools: {search} search{'es' if search != 1 else ''}, {fetch} fetch{'es' if fetch != 1 else ''}")
+            lines.append(f"- Web Tools: {search} search{'es' if search != 1 else ''}, {fetch} fetch{'es' if fetch != 1 else ''}")
 
         # Gemini format: per-tool stats
         by_name = stats.get("tools", {}).get("byName", {})
@@ -100,8 +99,7 @@ def format_stats_telegram(stats: Optional[dict]) -> str:
         if server_tools:
             fetch = server_tools.get("web_fetch_requests", 0)
             search = server_tools.get("web_search_requests", 0)
-            if fetch > 0 or search > 0:
-                parts.append(f"web: {search}s/{fetch}f")
+            parts.append(f"web: {search}s/{fetch}f")
 
         # Gemini format: per-tool stats
         by_name = stats.get("tools", {}).get("byName", {})
