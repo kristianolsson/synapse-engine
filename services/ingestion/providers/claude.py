@@ -49,16 +49,19 @@ class ClaudeProvider(AIProvider):
                     stdout = result.stdout.strip()
                     stderr = result.stderr.strip()
 
-                    if result.returncode != 0:
-                        error_msg = stderr or stdout or f"Claude CLI exited with code {result.returncode}"
-                        logger.error("Claude CLI error (code %d): %s", result.returncode, error_msg)
-                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=result.returncode, provider_name="claude")
-
-                    # Claude outputs clean JSON with --output-format json
+                    # Claude outputs clean JSON with --output-format json even on API errors (codes like 1)
                     try:
                         data = json.loads(stdout)
                     except json.JSONDecodeError:
-                        # Fallback for non-JSON output (e.g. fatal errors before JSON emission)
+                        data = None
+
+                    if data is None:
+                        if result.returncode != 0:
+                            error_msg = stderr or stdout or f"Claude CLI exited with code {result.returncode}"
+                            logger.error("Claude CLI error (code %d): %s", result.returncode, error_msg)
+                            return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=result.returncode, provider_name="claude")
+
+                        # Fallback for non-JSON output (e.g. fatal crashes before JSON emission)
                         if stdout:
                             logger.info("Claude CLI returned non-JSON output: %s", stdout[:200])
                             return ProviderResult(is_error=True, requires_reply=True, text=stdout, return_code=0, provider_name="claude")
@@ -80,21 +83,21 @@ class ClaudeProvider(AIProvider):
                     if data.get("duration_ms") is not None:
                         stats["duration_ms"] = data["duration_ms"]
 
-                    # Check for error from Claude's own is_error flag
+                    # Check for error from Claude's own is_error flag or subtype
                     if is_error_flag or data.get("subtype", "").startswith("error"):
                         error_msg = response or data.get("subtype", "Unknown Claude error")
                         # Normalize Claude quota limit messages so they match
                         # the generic keyword detection ("quota") used downstream.
                         if any(s in error_msg.lower() for s in ["hit your limit", "resets"]):
                             error_msg = f"Quota limit reached: {error_msg}"
-                        logger.error("Claude CLI returned error: %s", error_msg[:200])
-                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=0, session_id=returned_session_id, stats=stats, provider_name="claude")
+                        logger.error("Claude CLI returned API error: %s", error_msg[:200])
+                        return ProviderResult(is_error=True, requires_reply=True, text=error_msg, return_code=result.returncode if result.returncode else 0, session_id=returned_session_id, stats=stats, provider_name="claude")
 
                     if response:
                         # Check for success signal code word
                         if response.strip() == "SYNAPSE_OK":
                             logger.info("Claude CLI completed successfully (SYNAPSE_OK)")
-                            return ProviderResult(is_error=False, requires_reply=False, text="", return_code=0, session_id=returned_session_id, stats=stats, provider_name="claude")
+                            return ProviderResult(is_error=False, requires_reply=False, text="", return_code=result.returncode if result.returncode else 0, session_id=returned_session_id, stats=stats, provider_name="claude")
 
                         # Non-empty response = agent wants to relay something (question/answer)
                         logger.info("Claude CLI returned response: %s", response[:200])
