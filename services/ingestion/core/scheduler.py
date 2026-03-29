@@ -224,6 +224,14 @@ class ReminderScheduler:
         if not response_text:
             response_text = "✓ Scheduled task completed."
 
+        if self.session_manager.get_stats_enabled(sender):
+            if channel == "telegram":
+                from ..utils.stats_formatter import format_stats_telegram
+                response_text += format_stats_telegram(result.stats)
+            elif channel == "email":
+                from ..utils.stats_formatter import format_stats_email
+                response_text += format_stats_email(result.stats)
+
         # Save the session context for future replies if this is an email thread.
         # This allows the user to reply to the summary and continue the conversation.
         if channel == "email" and result.session_id:
@@ -322,9 +330,26 @@ class ReminderScheduler:
         for item in reminders:
             try:
                 if item["type"] == "message":
+                    channel = item["channel"]
+                    reply_text = f"Reminder: {item['message']}" if channel == "telegram" else item["message"]
+                    
+                    # Determine sender to check if stats are enabled
+                    if channel == "telegram":
+                        sender = str(config.TELEGRAM_ALLOWED_USER_IDS[0]) if config.TELEGRAM_ALLOWED_USER_IDS else "system"
+                    else:
+                        sender = config.REPLY_TO_ADDRESS or (config.ALLOWED_SENDERS[0] if config.ALLOWED_SENDERS else "system")
+                        
+                    if self.session_manager.get_stats_enabled(sender):
+                        if channel == "telegram":
+                            from ..utils.stats_formatter import format_stats_telegram
+                            reply_text += format_stats_telegram(result.stats)
+                        elif channel == "email":
+                            from ..utils.stats_formatter import format_stats_email
+                            reply_text += format_stats_email(result.stats)
+
                     success = self._deliver(
-                        item["channel"],
-                        f"Reminder: {item['message']}" if item["channel"] == "telegram" else item["message"],
+                        channel,
+                        reply_text,
                         subject=self._make_subject(item["message"]),
                         session_id=None,
                     )

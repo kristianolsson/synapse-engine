@@ -43,15 +43,8 @@ def format_stats_email(stats: Optional[dict]) -> str:
         # Claude: total cost and duration
         if stats.get("total_cost_usd") is not None:
             lines.append(f"- Total cost: ${stats['total_cost_usd']:.4f}")
-        if stats.get("duration_ms") is not None:
-            lines.append(f"- Duration: {stats['duration_ms']}ms")
-
-        # Claude format: server tools
-        server_tools = stats.get("server_tool_use", {})
-        if server_tools:
-            fetch = server_tools.get("web_fetch_requests", 0)
-            search = server_tools.get("web_search_requests", 0)
-            lines.append(f"- Web Tools: {search} search{'es' if search != 1 else ''}, {fetch} fetch{'es' if fetch != 1 else ''}")
+        if stats.get("duration_api_ms") is not None:
+            lines.append(f"- Duration: {stats['duration_api_ms']}ms")
 
         # Gemini format: per-tool stats
         by_name = stats.get("tools", {}).get("byName", {})
@@ -94,12 +87,9 @@ def format_stats_telegram(stats: Optional[dict]) -> str:
             cost = data.get("costUSD", 0)
             parts.append(f"{name} ({tokens_in}in/{tokens_out}out, ${cost:.4f})")
 
-        # Claude format: server tools
-        server_tools = stats.get("server_tool_use", {})
-        if server_tools:
-            fetch = server_tools.get("web_fetch_requests", 0)
-            search = server_tools.get("web_search_requests", 0)
-            parts.append(f"web: {search}s/{fetch}f")
+        # Claude format: duration
+        if stats.get("duration_api_ms") is not None:
+            parts.append(f"{stats['duration_api_ms']}ms")
 
         # Gemini format: per-tool stats
         by_name = stats.get("tools", {}).get("byName", {})

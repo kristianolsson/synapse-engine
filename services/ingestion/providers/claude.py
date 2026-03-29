@@ -76,12 +76,12 @@ class ClaudeProvider(AIProvider):
                     stats = {}
                     if data.get("modelUsage"):
                         stats["modelUsage"] = data["modelUsage"]
-                    if data.get("usage") and data["usage"].get("server_tool_use"):
-                        stats["server_tool_use"] = data["usage"]["server_tool_use"]
                     if data.get("total_cost_usd") is not None:
                         stats["total_cost_usd"] = data["total_cost_usd"]
-                    if data.get("duration_ms") is not None:
-                        stats["duration_ms"] = data["duration_ms"]
+                    if data.get("duration_api_ms") is not None:
+                        stats["duration_api_ms"] = data["duration_api_ms"]
+                    elif data.get("duration_ms") is not None:
+                        stats["duration_api_ms"] = data["duration_ms"]
 
                     # Check for error from Claude's own is_error flag or subtype
                     if is_error_flag or data.get("subtype", "").startswith("error"):
