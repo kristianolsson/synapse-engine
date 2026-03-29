@@ -35,10 +35,18 @@ def format_stats_email(stats: Optional[dict]) -> str:
 
         # Claude format: per-model usage
         for name, data in stats.get("modelUsage", {}).items():
-            tokens_in = data.get("inputTokens", 0)
+            tokens_in = (
+                data.get("inputTokens", 0) + 
+                data.get("cacheReadInputTokens", 0) + 
+                data.get("cacheCreationInputTokens", 0)
+            )
             tokens_out = data.get("outputTokens", 0)
+            
+            def _fmt_tokens(n):
+                return f"{n/1000:.1f}k" if n >= 1000 else str(n)
+                
             cost = data.get("costUSD", 0)
-            lines.append(f"- {name}: {tokens_in} in / {tokens_out} out, ${cost:.4f}")
+            lines.append(f"- {name}: {_fmt_tokens(tokens_in)} in / {_fmt_tokens(tokens_out)} out, ${cost:.4f}")
 
         # Claude: total cost and duration
         if stats.get("total_cost_usd") is not None:
@@ -82,10 +90,19 @@ def format_stats_telegram(stats: Optional[dict]) -> str:
 
         # Claude format: per-model usage
         for name, data in stats.get("modelUsage", {}).items():
-            tokens_in = data.get("inputTokens", 0)
+            tokens_in = (
+                data.get("inputTokens", 0) + 
+                data.get("cacheReadInputTokens", 0) + 
+                data.get("cacheCreationInputTokens", 0)
+            )
             tokens_out = data.get("outputTokens", 0)
+            
+            # Format numbers cleanly (e.g. 48.5k)
+            def _fmt_tokens(n):
+                return f"{n/1000:.1f}k" if n >= 1000 else str(n)
+                
             cost = data.get("costUSD", 0)
-            parts.append(f"{name} ({tokens_in}in/{tokens_out}out, ${cost:.4f})")
+            parts.append(f"{name} ({_fmt_tokens(tokens_in)} in / {_fmt_tokens(tokens_out)} out, ${cost:.4f})")
 
         # Claude format: duration
         if stats.get("duration_api_ms") is not None:
