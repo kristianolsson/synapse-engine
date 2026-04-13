@@ -31,12 +31,14 @@ RUN python3 -m venv /app/venv && \
 WORKDIR /app/synapse-engine
 USER synapse
 
-# Configure git signing and identity
+# Configure git signing, identity, and safe directories
 RUN git config --global gpg.format ssh && \
     git config --global user.signingkey /home/synapse/.ssh/id_ed25519.pub && \
     git config --global commit.gpgsign true && \
     git config --global user.name "Kristian Olsson" && \
-    git config --global user.email "developer@kasa.nu"
+    git config --global user.email "developer@kasa.nu" && \
+    git config --global --add safe.directory /app/synapse-engine && \
+    git config --global --add safe.directory /app/notes
 
 ENV PATH="/app/venv/bin:$PATH"
 
