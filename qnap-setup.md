@@ -99,8 +99,6 @@ scp ~/.gemini/oauth_creds.json ~/.gemini/google_accounts.json ~/.gemini/settings
 On QNAP:
 ```bash
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini
-chmod 755 /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini
-chmod 644 /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini/*
 chmod 664 /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini/oauth_creds.json
 ```
 
