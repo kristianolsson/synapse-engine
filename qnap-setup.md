@@ -66,7 +66,7 @@ docker run --rm --entrypoint sh \
 Set ownership:
 ```bash
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/notes
-chmod 755 /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 ```
 
 ## 5. Set up Claude credentials
