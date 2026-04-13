@@ -142,6 +142,17 @@ cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 docker compose build && docker compose up -d
 ```
 
+## Logs
+
+```bash
+# Follow live logs (SSH into QNAP first)
+cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
+docker compose logs -f
+
+# Last 100 lines without following
+docker compose logs --tail=100
+```
+
 ## Token refresh
 
 **Claude:** Re-run step 5.
