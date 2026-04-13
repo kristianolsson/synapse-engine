@@ -73,20 +73,22 @@ FROM node:20-slim
 RUN npm install -g @anthropic-ai/claude-code
 RUN useradd -m -u 1002 synapse
 USER synapse
-CMD ["claude", "--dangerously-skip-permissions"]
+ENTRYPOINT ["bash"]
 EOF
 
 docker build -f /tmp/Dockerfile.auth -t claude-auth-temp /tmp
 docker run -it --name claude-login-temp claude-auth-temp
 ```
 
-Inside the container: type `claude`, then `/login`. Complete OAuth via the URL on your Mac browser. Exit the container, then copy the credentials out:
+Inside the container shell: run `claude`, then `/login`. Complete OAuth via the URL on your Mac browser. Exit the container, then copy the entire `.claude` directory out:
 
 ```bash
-docker cp claude-login-temp:/home/synapse/.claude/.credentials.json \
-  /share/CE_CACHEDEV2_DATA/synapse/credentials/claude/.credentials.json
+docker cp claude-login-temp:/home/synapse/.claude/. \
+  /share/CE_CACHEDEV2_DATA/synapse/credentials/claude/
 docker rm claude-login-temp
 docker rmi claude-auth-temp
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/claude
+chmod 755 /share/CE_CACHEDEV2_DATA/synapse/credentials/claude
 chmod 644 /share/CE_CACHEDEV2_DATA/synapse/credentials/claude/.credentials.json
 ```
 
@@ -98,14 +100,15 @@ scp ~/.gemini/oauth_creds.json ~/.gemini/google_accounts.json ~/.gemini/settings
   admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/gemini/
 ```
 
-Then on QNAP fix permissions:
+Then on QNAP set ownership and permissions:
 ```bash
-chmod 777 /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini
+chmod 755 /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini
 chmod 644 /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini/*
-chmod 666 /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini/oauth_creds.json
+chmod 664 /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini/oauth_creds.json
 ```
 
-Note: `777` on the directory is required so the container can write `projects.json` (Gemini CLI requirement).
+Note: `oauth_creds.json` needs group-write (664) so the container's synapse user can refresh tokens.
 
 ## 7. Set up .env
 
@@ -125,7 +128,7 @@ echo "SESSION_STORAGE_PATH=/app/data/sessions.json" >> /share/CE_CACHEDEV2_DATA/
 
 ```bash
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/notes
-chown synapse /share/CE_CACHEDEV2_DATA/synapse/data
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/data
 chmod 755 /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 ```
 
@@ -157,6 +160,6 @@ docker compose build && docker compose up -d
 
 ## Token refresh (when auth expires)
 
-**Claude:** Re-run step 5 to log in again and copy fresh `.credentials.json`.
+**Claude:** Re-run step 5 to log in again and copy fresh credentials directory.
 
 **Gemini:** Re-auth on Mac (`gemini` to trigger browser flow), then re-run the scp in step 6 and `docker compose restart`.
