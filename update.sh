@@ -14,6 +14,7 @@ docker run --rm --entrypoint sh \
   -v "$SYNAPSE_DIR/ssh/id_ed25519:/root/.ssh/id_ed25519" \
   alpine/git \
   -c "chmod 600 /root/.ssh/id_ed25519 && \
+      git config --global --add safe.directory $COMPOSE_DIR && \
       cd $COMPOSE_DIR && \
       GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git pull"
 
