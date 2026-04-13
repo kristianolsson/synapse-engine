@@ -3,6 +3,8 @@ services:
     build: .
     restart: always
     env_file: /share/CE_CACHEDEV2_DATA/synapse/.env
+    environment:
+      - TZ=America/Los_Angeles
     volumes:
       - /share/CE_CACHEDEV2_DATA/synapse/notes:/app/notes
       - /share/CE_CACHEDEV2_DATA/synapse/synapse-engine:/app/synapse-engine
