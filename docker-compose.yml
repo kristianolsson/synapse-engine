@@ -10,3 +10,4 @@ services:
       - /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini:/home/synapse/.gemini
       - /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519:/home/synapse/.ssh/id_ed25519
       - /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519.pub:/home/synapse/.ssh/id_ed25519.pub
+      - /share/CE_CACHEDEV2_DATA/synapse/data:/app/data

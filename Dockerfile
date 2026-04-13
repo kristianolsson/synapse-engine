@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 RUN npm install -g @anthropic-ai/claude-code @google/gemini-cli
 
 # Create non-root user (required for --dangerously-skip-permissions)
-RUN useradd -m synapse
+RUN useradd -m -u 1002 synapse
 
 # Set up SSH config for GitHub
 RUN mkdir -p /home/synapse/.ssh && \
