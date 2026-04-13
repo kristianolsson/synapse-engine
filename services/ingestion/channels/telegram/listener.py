@@ -9,6 +9,8 @@ import asyncio
 import logging
 import os
 import re
+import subprocess
+import sys
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -150,6 +152,26 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         label = "on" if enabled else "off"
         await message.reply_text(f"Stats display turned {label}.")
         return
+
+    # /update command — git pull + graceful restart (Docker restart: always brings it back)
+    if stripped == "/update":
+        await message.reply_text("Pulling latest code...")
+        try:
+            result = subprocess.run(
+                ["git", "pull"],
+                cwd=Path(__file__).resolve().parents[4],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                output = result.stdout.strip() or "Already up to date."
+                await message.reply_text(f"{output}\nRestarting...")
+            else:
+                await message.reply_text(f"git pull failed:\n{result.stderr.strip()}")
+                return
+        except Exception as e:
+            await message.reply_text(f"Update failed: {e}")
+            return
+        sys.exit(0)
 
     # /provider command
     if stripped.startswith("/provider"):
