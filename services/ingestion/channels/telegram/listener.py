@@ -9,8 +9,8 @@ import asyncio
 import logging
 import os
 import re
+import signal
 import subprocess
-import sys
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -171,7 +171,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         except Exception as e:
             await message.reply_text(f"Update failed: {e}")
             return
-        sys.exit(0)
+        os.kill(1, signal.SIGTERM)
 
     # /provider command
     if stripped.startswith("/provider"):
