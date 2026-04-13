@@ -28,7 +28,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 
-WORKDIR /app
+WORKDIR /app/synapse-engine
 USER synapse
 
 # Configure git signing and identity
@@ -40,4 +40,4 @@ RUN git config --global gpg.format ssh && \
 
 ENV PATH="/app/venv/bin:$PATH"
 
-CMD ["python3", "/app/synapse-engine/services/ingestion/main.py"]
+CMD ["python3", "-m", "services.ingestion.main"]
