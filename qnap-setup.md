@@ -129,17 +129,11 @@ docker compose logs -f
 
 ## Update workflow
 
-```bash
-docker run --rm --entrypoint sh \
-  -v /share/CE_CACHEDEV2_DATA/synapse:/share/CE_CACHEDEV2_DATA/synapse \
-  -v /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519:/root/.ssh/id_ed25519 \
-  alpine/git \
-  -c "chmod 600 /root/.ssh/id_ed25519 && \
-      cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine && \
-      GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git pull"
+**Code changes** (most updates) — send `/update` via Telegram. Synapse pulls the latest code and restarts automatically.
 
-cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
-docker compose build && docker compose up -d
+**Dockerfile or requirements.txt changes** — SSH into QNAP and run:
+```bash
+bash /share/CE_CACHEDEV2_DATA/synapse/synapse-engine/update.sh
 ```
 
 ## Logs
