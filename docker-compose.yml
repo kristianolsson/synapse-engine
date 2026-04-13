@@ -1,0 +1,12 @@
+services:
+  synapse:
+    build: .
+    restart: always
+    env_file: /share/synapse/.env
+    volumes:
+      - /share/synapse/notes:/app/notes
+      - /share/synapse/synapse-engine:/app/synapse-engine
+      - /share/synapse/credentials/claude/.credentials.json:/home/synapse/.claude/.credentials.json
+      - /share/synapse/credentials/gemini:/home/synapse/.gemini
+      - /share/synapse/ssh/id_ed25519:/home/synapse/.ssh/id_ed25519
+      - /share/synapse/ssh/id_ed25519.pub:/home/synapse/.ssh/id_ed25519.pub
