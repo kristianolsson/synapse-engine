@@ -6,7 +6,7 @@ services:
     volumes:
       - /share/CE_CACHEDEV2_DATA/synapse/notes:/app/notes
       - /share/CE_CACHEDEV2_DATA/synapse/synapse-engine:/app/synapse-engine
-      - /share/CE_CACHEDEV2_DATA/synapse/credentials/claude/.credentials.json:/home/synapse/.claude/.credentials.json
+      - /share/CE_CACHEDEV2_DATA/synapse/credentials/claude:/home/synapse/.claude
       - /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini:/home/synapse/.gemini
       - /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519:/home/synapse/.ssh/id_ed25519
       - /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519.pub:/home/synapse/.ssh/id_ed25519.pub
