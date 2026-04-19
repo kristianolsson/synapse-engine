@@ -101,11 +101,12 @@ On QNAP:
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini
 ```
 
-## 7. Set up .env
+## 7. Set up .env and config files
 
 On Mac:
 ```bash
 scp ~/Documents/code/synapse-engine/.env admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/.env
+scp ~/Documents/code/synapse-engine/calendars.json admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/synapse-engine/calendars.json
 ```
 
 On QNAP:
@@ -113,6 +114,7 @@ On QNAP:
 sed -i 's|VAULT_PATH=.*|VAULT_PATH=/app/notes|' /share/CE_CACHEDEV2_DATA/synapse/.env
 sed -i 's|CLAUDE_CMD=.*|CLAUDE_CMD=/usr/local/bin/claude|' /share/CE_CACHEDEV2_DATA/synapse/.env
 echo "SESSION_STORAGE_PATH=/app/data/sessions.json" >> /share/CE_CACHEDEV2_DATA/synapse/.env
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 ```
 
 ## 8. Build and start
