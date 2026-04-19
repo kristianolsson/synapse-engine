@@ -106,7 +106,10 @@ chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini
 On Mac:
 ```bash
 scp ~/Documents/code/synapse-engine/.env admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/.env
-scp ~/Documents/code/synapse-engine/calendars.json admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/synapse-engine/calendars.json
+scp ~/Documents/code/synapse-engine/calendars.json \
+    ~/Documents/code/synapse-engine/credentials.json \
+    ~/Documents/code/synapse-engine/token.json \
+    admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/synapse-engine/
 ```
 
 On QNAP:
