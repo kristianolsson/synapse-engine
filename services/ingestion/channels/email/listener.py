@@ -10,12 +10,9 @@ import email.policy
 import logging
 import os
 import re
-import signal
-import sys
 from datetime import date
 from typing import Optional
 import time
-from collections import deque
 from email.message import EmailMessage
 
 from imapclient import IMAPClient

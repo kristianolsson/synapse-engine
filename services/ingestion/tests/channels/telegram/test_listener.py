@@ -1,8 +1,7 @@
 """Tests for the Telegram listener module."""
 
-import os
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 

@@ -1,7 +1,7 @@
 """Tests for the EmailListener class."""
 
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from services.ingestion.channels.email.listener import EmailListener
 from services.ingestion import config
 

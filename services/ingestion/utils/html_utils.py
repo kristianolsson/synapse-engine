@@ -4,7 +4,6 @@ HTML utility functions for message sanitization across different channels.
 
 import re
 import logging
-from typing import Set
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,6 @@ def sanitize_telegram_html(html: str) -> str:
     tag_pattern = re.compile(r'<(/?)([a-z0-9-]+)([^>]*)>', re.IGNORECASE)
     
     def tag_replacer(match):
-        is_closing = match.group(1) == "/"
         tag_name = match.group(2).lower()
         full_tag = match.group(0)
         

@@ -1,7 +1,5 @@
 
-import pytest
 from unittest.mock import patch, MagicMock
-import subprocess
 from services.ingestion.providers.gemini import GeminiProvider
 from services.ingestion import config
 

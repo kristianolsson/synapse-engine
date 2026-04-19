@@ -6,7 +6,6 @@ All tests mock the Google Calendar API — no real API calls are made.
 
 import json
 import sys
-from pathlib import Path
 from unittest import mock
 
 import pytest

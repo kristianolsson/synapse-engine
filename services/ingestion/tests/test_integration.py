@@ -1,10 +1,8 @@
 
-import pytest
 from services.ingestion.core.pipe import IncomingMessage, build_prompt, pipe_to_provider
 
 def test_echo_integration_pipeline(monkeypatch):
     # Setup
-    import services.ingestion.core.pipe as pipe_module
     import services.ingestion.config as config
     config.set_ai_provider("echo")
     

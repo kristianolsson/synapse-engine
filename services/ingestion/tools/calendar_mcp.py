@@ -20,7 +20,6 @@ Registering with Gemini CLI (project-level .gemini/settings.json):
     }
 """
 
-from pathlib import Path
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP

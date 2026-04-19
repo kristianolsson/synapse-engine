@@ -15,7 +15,6 @@ Two-phase architecture:
 import json
 import logging
 import threading
-import time
 from datetime import datetime
 from typing import Optional
 
@@ -326,7 +325,6 @@ class ReminderScheduler:
 
         logger.info("Processing %d due reminder(s).", len(reminders))
 
-        import uuid
         for item in reminders:
             try:
                 if item["type"] == "message":

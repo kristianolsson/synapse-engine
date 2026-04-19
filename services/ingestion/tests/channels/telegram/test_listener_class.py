@@ -1,7 +1,7 @@
 """Tests for the TelegramListener class."""
 
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 from services.ingestion.channels.telegram.listener import TelegramListener
 from services.ingestion import config
 

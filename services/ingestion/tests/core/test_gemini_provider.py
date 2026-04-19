@@ -3,11 +3,8 @@ Tests for GeminiProvider model fallback sequence.
 """
 
 import pytest
-import subprocess
-import json
 from unittest.mock import patch, MagicMock
 from services.ingestion.providers.gemini import GeminiProvider
-from services.ingestion import config
 
 @pytest.fixture
 def mock_config():

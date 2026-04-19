@@ -82,7 +82,8 @@ def _resolve_gemini_cmd() -> str:
     if explicit:
         return explicit
     # Auto-detect: ask the login shell where gemini lives (handles nvm, etc.)
-    import subprocess, shutil
+    import subprocess
+    import shutil
     found = shutil.which("gemini")
     if found:
         return found
@@ -114,7 +115,8 @@ def _resolve_claude_cmd() -> str:
     explicit = os.getenv("CLAUDE_CMD", "").strip()
     if explicit:
         return explicit
-    import subprocess, shutil
+    import subprocess
+    import shutil
     found = shutil.which("claude")
     if found:
         return found

@@ -8,7 +8,6 @@ two-way task completion via inline keyboard buttons.
 from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from ...utils.task_formatter import _hash_task, parse_tasks, format_message_with_tasks, recover_task_from_callback
 
 # Max tasks per row in inline keyboard
 BUTTONS_PER_ROW = 5

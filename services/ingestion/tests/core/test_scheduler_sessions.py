@@ -5,7 +5,6 @@ Tests for session persistence in ReminderScheduler.
 import json
 from unittest.mock import MagicMock, patch
 import pytest
-import uuid
 
 from services.ingestion.core.scheduler import ReminderScheduler
 

@@ -7,7 +7,7 @@ and delivery failure fallback.
 
 import json
 from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 

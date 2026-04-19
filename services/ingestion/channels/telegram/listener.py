@@ -31,7 +31,7 @@ from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
 from ...utils.task_formatter import format_message_with_tasks
-from .task_buttons import parse_tasks, build_task_keyboard, recover_task_from_callback
+from .task_buttons import build_task_keyboard, recover_task_from_callback
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,6 @@
 Tests for the standalone Telegram message sender.
 """
 
-import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
 

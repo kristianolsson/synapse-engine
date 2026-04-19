@@ -1,8 +1,6 @@
 
-import pytest
 import json
 from unittest.mock import patch, MagicMock
-import subprocess
 from services.ingestion.providers.claude import ClaudeProvider
 from services.ingestion import config
 

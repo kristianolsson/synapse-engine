@@ -6,7 +6,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 from unittest.mock import patch, MagicMock
 
-import tempfile
 
 from services.ingestion.channels.email.listener import (
     EmailListener,
@@ -223,7 +222,6 @@ class TestEmailReplyLogic:
         mock_config.RATE_LIMIT_MAX = 10
         mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
 
-        from services.ingestion.channels.email.listener import EmailListener
         listener = EmailListener()
         # Mock dependencies
         listener.client = MagicMock()
@@ -258,7 +256,6 @@ class TestEmailReplyLogic:
         mock_config.RATE_LIMIT_MAX = 10
         mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
 
-        from services.ingestion.channels.email.listener import EmailListener
         listener = EmailListener()
         listener.client = MagicMock()
         listener.rate_limiter = MagicMock()

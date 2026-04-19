@@ -1,7 +1,5 @@
 """Tests for task_buttons utility module."""
 
-import pytest
-from unittest.mock import MagicMock
 
 from services.ingestion.channels.telegram.task_buttons import (
     parse_tasks,
