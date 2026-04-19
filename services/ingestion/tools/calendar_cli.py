@@ -253,7 +253,8 @@ def cmd_list_events(days: int = 7, date: str = "", calendar: str = "",
         location = f" — {event['location']}" if event["location"] else ""
         event_id = f" (id: {event['event_id']})" if event["event_id"] and event["calendar_access"] == "primary" else ""
         cal_label = f" [{event['calendar']}]" if event["calendar_access"] != "primary" else ""
-        out.write(f"- {time_str} | {event['summary']}{cal_label}{location}{event_id}\n")
+        description = f"\n  {event['description']}" if event["description"] else ""
+        out.write(f"- {time_str} | {event['summary']}{cal_label}{location}{event_id}{description}\n")
 
     return out.getvalue()
 
