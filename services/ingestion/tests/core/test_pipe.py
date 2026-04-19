@@ -26,22 +26,22 @@ class TestBuildPrompt:
         assert "Sender: user@example.com" in prompt
         assert "Subject: Buy groceries" in prompt
         assert "Context: Ingested via EMAIL" in prompt
-        assert "Images: none" in prompt
+        assert "Attachments: none" in prompt
         assert "Milk, eggs, bread" in prompt
 
-    def test_with_images(self):
+    def test_with_attachments(self):
         msg = IncomingMessage(
             source_type="email",
             sender="user@example.com",
             subject="Photo note",
             body="Check this out",
-            image_paths=["/tmp/img1.jpg", "/tmp/img2.png"],
+            attachment_paths=["/tmp/img1.jpg", "/tmp/img2.png"],
         )
         prompt = build_prompt(msg)
-        assert "Images: 2 attached" in prompt
+        assert "Attachments: 2 attached" in prompt
         assert "/tmp/img1.jpg" in prompt
         assert "/tmp/img2.png" in prompt
-        assert "**Attached Images (use read_file to analyze):**" in prompt
+        assert "**Attached Files (use read_file to analyze):**" in prompt
 
     def test_empty_body(self):
         msg = IncomingMessage(

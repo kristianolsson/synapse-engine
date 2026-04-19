@@ -21,7 +21,7 @@ class IncomingMessage:
     sender: str
     subject: str = ""
     body: str = ""
-    image_paths: list[str] = field(default_factory=list)
+    attachment_paths: list[str] = field(default_factory=list)
 
 
 def _sync_git() -> str:
@@ -53,14 +53,14 @@ def build_prompt(msg: IncomingMessage) -> str:
     """
     from datetime import datetime
 
-    image_line = f"Images: {len(msg.image_paths)} attached" if msg.image_paths else "Images: none"
+    attachment_line = f"Attachments: {len(msg.attachment_paths)} attached" if msg.attachment_paths else "Attachments: none"
 
-    # If there are images, append their paths so the CLI can reference them
-    image_refs = ""
-    if msg.image_paths:
-        refs = "\n".join(f"  - {p}" for p in msg.image_paths)
-        image_refs = (
-            f"\n\n**Attached Images (use read_file to analyze):**\n{refs}"
+    # If there are attachments, append their paths so the CLI can reference them
+    attachment_refs = ""
+    if msg.attachment_paths:
+        refs = "\n".join(f"  - {p}" for p in msg.attachment_paths)
+        attachment_refs = (
+            f"\n\n**Attached Files (use read_file to analyze):**\n{refs}"
         )
 
     subject_line = f"Subject: {msg.subject}\n" if msg.subject else ""
@@ -75,10 +75,10 @@ def build_prompt(msg: IncomingMessage) -> str:
         f"Context: Ingested via {msg.source_type.upper()}\n"
         f"Current Time: {now}\n"
         f"{git_status}\n"
-        f"{image_line}\n"
+        f"{attachment_line}\n"
         f"---\n\n"
         f"{msg.body}"
-        f"{image_refs}"
+        f"{attachment_refs}"
     )
     return prompt
 

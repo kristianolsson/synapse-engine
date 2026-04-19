@@ -12,7 +12,7 @@ from services.ingestion.channels.email.listener import (
     EmailListener,
     extract_sender,
     extract_text_body,
-    extract_images,
+    extract_attachments,
     process_email,
 )
 from services.ingestion.core.session_manager import SessionManager
@@ -94,12 +94,12 @@ class TestExtractTextBody:
         assert "Plain text body" in extract_text_body(parsed)
 
 
-class TestExtractImages:
-    def test_no_images(self):
+class TestExtractAttachments:
+    def test_no_attachments(self):
         raw = _make_simple_email()
         msg = email.message_from_bytes(raw)
-        images = extract_images(msg)
-        assert images == []
+        attachments = extract_attachments(msg)
+        assert attachments == []
 
     @patch("services.ingestion.channels.email.listener.config")
     def test_with_image_attachment(self, mock_config, tmp_path):
@@ -111,9 +111,27 @@ class TestExtractImages:
         img = MIMEImage(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, name="test.png")
         msg.attach(img)
         parsed = email.message_from_bytes(msg.as_bytes())
-        images = extract_images(parsed)
-        assert len(images) == 1
-        assert "test.png" in images[0]
+        attachments = extract_attachments(parsed)
+        assert len(attachments) == 1
+        assert "test.png" in attachments[0]
+
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_with_pdf_attachment(self, mock_config, tmp_path):
+        from email.mime.base import MIMEBase
+        from email import encoders
+        mock_config.VAULT_PATH = str(tmp_path)
+        msg = MIMEMultipart()
+        msg["From"] = "test@example.com"
+        msg.attach(MIMEText("See attached PDF", "plain"))
+        pdf_part = MIMEBase("application", "pdf")
+        pdf_part.set_payload(b"%PDF-1.4 fake content")
+        encoders.encode_base64(pdf_part)
+        pdf_part.add_header("Content-Disposition", "attachment", filename="report.pdf")
+        msg.attach(pdf_part)
+        parsed = email.message_from_bytes(msg.as_bytes())
+        attachments = extract_attachments(parsed)
+        assert len(attachments) == 1
+        assert "report.pdf" in attachments[0]
 
 
 # ── process_email tests ─────────────────────────────────────────────

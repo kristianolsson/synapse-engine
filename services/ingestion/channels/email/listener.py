@@ -64,15 +64,22 @@ def extract_text_body(msg: EmailMessage) -> str:
     return ""
 
 
-def extract_images(msg: EmailMessage) -> list[str]:
+# Supported attachment content types
+_ATTACHMENT_TYPES = (
+    "image/",
+    "application/pdf",
+)
+
+
+def extract_attachments(msg: EmailMessage) -> list[str]:
     """
-    Extract image attachments and inline images from an email.
+    Extract image and PDF attachments from an email.
     Saves them to the vault's assets/ingestion/ folder and returns
     a list of absolute file paths.
     """
-    image_paths = []
+    paths = []
     if not msg.is_multipart():
-        return image_paths
+        return paths
 
     assets_dir = os.path.join(config.VAULT_PATH, "assets", "ingestion")
     os.makedirs(assets_dir, exist_ok=True)
@@ -80,28 +87,30 @@ def extract_images(msg: EmailMessage) -> list[str]:
 
     for part in msg.walk():
         content_type = part.get_content_type()
-        if content_type and content_type.startswith("image/"):
-            payload = part.get_payload(decode=True)
-            if payload:
-                raw_name = part.get_filename() or f"image_{len(image_paths)}.jpg"
-                raw_name = re.sub(r"[^\w.\-]", "_", raw_name)
-                stem, ext = os.path.splitext(raw_name)
-                filename = f"{today}_{stem}{ext}"
+        if not content_type or not any(content_type.startswith(t) for t in _ATTACHMENT_TYPES):
+            continue
 
-                # Handle name conflicts with _1, _2, etc.
+        payload = part.get_payload(decode=True)
+        if payload:
+            raw_name = part.get_filename() or f"attachment_{len(paths)}"
+            raw_name = re.sub(r"[^\w.\-]", "_", raw_name)
+            stem, ext = os.path.splitext(raw_name)
+            filename = f"{today}_{stem}{ext}"
+
+            # Handle name conflicts with _1, _2, etc.
+            filepath = os.path.join(assets_dir, filename)
+            counter = 1
+            while os.path.exists(filepath):
+                filename = f"{today}_{stem}_{counter}{ext}"
                 filepath = os.path.join(assets_dir, filename)
-                counter = 1
-                while os.path.exists(filepath):
-                    filename = f"{today}_{stem}_{counter}{ext}"
-                    filepath = os.path.join(assets_dir, filename)
-                    counter += 1
+                counter += 1
 
-                with open(filepath, "wb") as f:
-                    f.write(payload)
-                image_paths.append(filepath)
-                logger.info("Extracted image: %s (%d bytes)", filename, len(payload))
+            with open(filepath, "wb") as f:
+                f.write(payload)
+            paths.append(filepath)
+            logger.info("Extracted attachment: %s (%d bytes)", filename, len(payload))
 
-    return image_paths
+    return paths
 
 
 # ── Message Processing ──────────────────────────────────────────────
@@ -231,14 +240,14 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
             current = config.get_ai_provider()
             return True, f"Current provider: {current}. Usage: /provider <gemini|claude>", None
 
-    images = extract_images(msg)
+    attachments = extract_attachments(msg)
 
     incoming = IncomingMessage(
         source_type="email",
         sender=sender,
         subject=subject,
         body=body,
-        image_paths=images,
+        attachment_paths=attachments,
     )
 
     prompt = build_prompt(incoming)

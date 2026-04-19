@@ -2,7 +2,7 @@
 Telegram bot listener with long-polling support.
 
 Receives messages from a private Telegram bot, validates user IDs,
-extracts content/attachments, and pipes to the Gemini CLI.
+extracts content/attachments, and pipes to the AI provider.
 """
 
 import asyncio
@@ -188,14 +188,14 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             await message.reply_text(f"Current provider: {current}. Usage: /provider <gemini|claude>")
         return
 
-    image_paths = await extract_attachments(update)
+    attachment_paths = await extract_attachments(update)
 
     if message.voice:
         logger.info("Unsupported voice message from user %d", user.id)
         await message.reply_text("Sorry, voice notes are not supported yet.")
         return
 
-    if not text and not image_paths:
+    if not text and not attachment_paths:
         logger.info("Empty message from user %d, ignoring", user.id)
         return
 
@@ -215,7 +215,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         sender=str(user.id),
         subject="",
         body=text,
-        image_paths=image_paths,
+        attachment_paths=attachment_paths,
     )
 
     parent_session = None
