@@ -18,6 +18,8 @@ docker run --rm --entrypoint sh \
       cd $COMPOSE_DIR && \
       GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git pull"
 
+chown -R synapse "$COMPOSE_DIR"
+
 echo "Rebuilding image..."
 cd "$COMPOSE_DIR"
 docker compose build
