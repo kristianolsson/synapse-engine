@@ -173,6 +173,25 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             return
         os.kill(1, signal.SIGTERM)
 
+    # /update-cli command — update Claude and Gemini CLI tools locally
+    if stripped == "/update-cli":
+        await message.reply_text("Updating CLI tools locally (this might take a minute)...")
+        try:
+            result = subprocess.run(
+                ["npm", "install", "@anthropic-ai/claude-code@latest", "@google/gemini-cli@latest"],
+                cwd=Path(__file__).resolve().parents[4],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0:
+                await message.reply_text(f"Successfully updated CLI tools:\n{result.stdout.strip()}")
+            else:
+                await message.reply_text(f"CLI update failed:\n{result.stderr.strip()}")
+                return
+        except Exception as e:
+            await message.reply_text(f"CLI update failed: {e}")
+            return
+        return
+
     # /provider command
     if stripped.startswith("/provider"):
         parts = stripped.split()
