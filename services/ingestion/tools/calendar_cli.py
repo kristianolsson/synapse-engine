@@ -123,13 +123,13 @@ def _get_primary_calendar(calendars: list[dict]) -> dict:
     raise ValueError("No calendar with access 'primary' found in config.")
 
 
-def cmd_list_events(days: int = 7, date: str = "", calendar: str = "",
+def cmd_list_events(days: int = None, date: str = "", calendar: str = "",
                     calendars: list[dict] = None, service=None) -> str:
     """List events across all configured calendars.
 
     Args:
-        days: Number of days ahead to query (default 7).
-        date: Specific date to query (YYYY-MM-DD). Overrides days if set.
+        days: Number of days ahead to query (default 7, or 1 if date is provided).
+        date: Specific date to query (YYYY-MM-DD). Can be combined with days.
         calendar: Filter to a specific calendar by label.
         calendars: Calendar config list.
         service: Google Calendar API service client.
@@ -142,6 +142,8 @@ def cmd_list_events(days: int = 7, date: str = "", calendar: str = "",
     """
     out = StringIO()
 
+    actual_days = days if days is not None else (1 if date else 7)
+
     # Determine time range
     if date:
         try:
@@ -149,13 +151,13 @@ def cmd_list_events(days: int = 7, date: str = "", calendar: str = "",
         except ValueError:
             raise ValueError(f"Invalid date format '{date}'. Use YYYY-MM-DD.")
         time_min = target.replace(tzinfo=LOCAL_TZ).isoformat()
-        time_max = (target + timedelta(days=1)).replace(tzinfo=LOCAL_TZ).isoformat()
-        range_desc = date
+        time_max = (target + timedelta(days=actual_days)).replace(tzinfo=LOCAL_TZ).isoformat()
+        range_desc = f"{actual_days} day(s) starting {date}"
     else:
         now = datetime.now(timezone.utc)
         time_min = now.isoformat()
-        time_max = (now + timedelta(days=days)).isoformat()
-        range_desc = f"the next {days} day(s)"
+        time_max = (now + timedelta(days=actual_days)).isoformat()
+        range_desc = f"the next {actual_days} day(s)"
 
     # Filter calendars if --calendar specified
     cal_list = list(calendars) if calendars else []
@@ -463,7 +465,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     # list-events
     p_list = sub.add_parser("list-events", help="List upcoming events")
-    p_list.add_argument("--days", type=int, default=7, help="Number of days ahead (default: 7)")
+    p_list.add_argument("--days", type=int, default=None, help="Number of days ahead (default: 7, or 1 if --date is provided)")
     p_list.add_argument("--date", default="", help="Specific date to query (YYYY-MM-DD)")
     p_list.add_argument("--calendar", default="", help="Filter to a specific calendar by label")
 
