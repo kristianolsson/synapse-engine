@@ -30,8 +30,8 @@ from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
-from ...utils.task_formatter import format_message_with_tasks
-from .task_buttons import build_task_keyboard, recover_task_from_callback
+from ...utils.task_formatter import format_message_with_tasks, recover_task_from_callback
+from .task_buttons import build_task_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +276,6 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         reply_text = reply_text[:4093] + "..."
 
     # Check if response contains actionable tasks — attach inline keyboard
-    from .task_buttons import format_message_with_tasks, build_task_keyboard
     reply_text, tasks = format_message_with_tasks(reply_text)
     keyboard = build_task_keyboard(tasks)
 

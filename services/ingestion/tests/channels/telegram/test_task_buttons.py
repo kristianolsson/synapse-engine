@@ -1,18 +1,16 @@
 """Tests for task_buttons utility module."""
 
 
-from services.ingestion.channels.telegram.task_buttons import (
+from services.ingestion.channels.telegram.task_buttons import build_task_keyboard
+from services.ingestion.utils.task_formatter import (
     parse_tasks,
     format_message_with_tasks,
-    build_task_keyboard,
     recover_task_from_callback,
     _hash_task,
 )
 
 
 class TestFormatMessageWithTasks:
-    from services.ingestion.channels.telegram.task_buttons import format_message_with_tasks
-    
     def test_single_task(self):
         text = "Here are your tasks:\n☐ Buy groceries\nHave a great day!"
         mod_text, tasks = format_message_with_tasks(text)
