@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -315,7 +316,15 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # Sanitize HTML for Telegram
     reply_text = sanitize_telegram_html(reply_text)
 
-    sent_message = await message.reply_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
+    try:
+        sent_message = await message.reply_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
+    except BadRequest as e:
+        if "parse entities" in str(e).lower() or "unexpected end tag" in str(e).lower():
+            logger.warning("Failed to send message with HTML parse_mode due to formatting error, retrying as plain text: %s", e)
+            # Remove HTML parse_mode to ensure delivery of malformed output
+            sent_message = await message.reply_text(reply_text, reply_markup=keyboard)
+        else:
+            raise
     
     # Save the new message ID tied to this session so the user can keep replying
     if result.session_id and sent_message:
