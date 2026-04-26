@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+export PYTHONPATH="/app/synapse-engine:$PYTHONPATH"
+python3 -m services.ingestion.tools.calendar_cli "$@"

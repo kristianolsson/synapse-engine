@@ -93,36 +93,7 @@ The service is organized into four layers under `services/ingestion/`:
        ```bash
        python -m services.ingestion.tools.calendar_cli list-events --days 7
        ```
-    7. (Optional) To use via MCP instead of the CLI, register the calendar server
-       in your vault's AI provider config:
-
-       **Gemini** — `.gemini/settings.json` in the vault:
-       ```json
-       {
-         "mcpServers": {
-           "calendar": {
-             "command": "/path/to/venv/bin/python3",
-             "args": ["/path/to/services/ingestion/tools/calendar_mcp.py"],
-             "env": { "PYTHONPATH": "/path/to/synapse-engine" }
-           }
-         }
-       }
-       ```
-
-       **Claude** — `.mcp.json` in the vault root (same schema):
-       ```json
-       {
-         "mcpServers": {
-           "calendar": {
-             "command": "/path/to/venv/bin/python3",
-             "args": ["/path/to/services/ingestion/tools/calendar_mcp.py"],
-             "env": { "PYTHONPATH": "/path/to/synapse-engine" }
-           }
-         }
-       }
-       ```
-       Also create `.claude/settings.json` with `{"enableAllProjectMcpServers": true}`
-       so MCP servers are auto-approved in headless mode.
+    7. The calendar integration is automatically injected as a global `calendar` command to AI providers, so you don't need any additional configuration for the bots to use it.
 
 ## Telegram Commands
 

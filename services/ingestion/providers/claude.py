@@ -25,11 +25,14 @@ class ClaudeProvider(AIProvider):
         """
         vault_path = config.VAULT_PATH
 
-        # Build env with the Claude CLI's directory in PATH
+        # Build env with the Claude CLI's directory and our custom bin in PATH
         env = os.environ.copy()
+        custom_bin = "/app/synapse-engine/bin"
         claude_dir = os.path.dirname(config.CLAUDE_CMD)
         if claude_dir:
-            env["PATH"] = claude_dir + ":" + env.get("PATH", "")
+            env["PATH"] = custom_bin + ":" + claude_dir + ":" + env.get("PATH", "")
+        else:
+            env["PATH"] = custom_bin + ":" + env.get("PATH", "")
 
         def _run_cmd(current_cmd: list[str], stdin_prompt: str = "") -> ProviderResult:
             logger.debug("Waiting for Claude CLI lock...")

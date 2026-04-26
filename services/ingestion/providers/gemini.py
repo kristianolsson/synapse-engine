@@ -76,11 +76,14 @@ class GeminiProvider(AIProvider):
         """
         vault_path = config.VAULT_PATH
 
-        # Build env with the Gemini CLI's directory in PATH (needed for nvm-managed node)
+        # Build env with the Gemini CLI's directory and our custom bin in PATH (needed for nvm-managed node)
         env = os.environ.copy()
+        custom_bin = "/app/synapse-engine/bin"
         gemini_dir = os.path.dirname(config.GEMINI_CMD)
         if gemini_dir:
-            env["PATH"] = gemini_dir + ":" + env.get("PATH", "")
+            env["PATH"] = custom_bin + ":" + gemini_dir + ":" + env.get("PATH", "")
+        else:
+            env["PATH"] = custom_bin + ":" + env.get("PATH", "")
 
         def _run_cmd(current_cmd: list[str]) -> ProviderResult:
             logger.debug("Waiting for Gemini CLI lock...")
@@ -237,9 +240,12 @@ class GeminiProvider(AIProvider):
         cmd = [config.GEMINI_CMD, "--delete-session", session_id]
 
         env = os.environ.copy()
+        custom_bin = "/app/synapse-engine/bin"
         gemini_dir = os.path.dirname(config.GEMINI_CMD)
         if gemini_dir:
-            env["PATH"] = gemini_dir + ":" + env.get("PATH", "")
+            env["PATH"] = custom_bin + ":" + gemini_dir + ":" + env.get("PATH", "")
+        else:
+            env["PATH"] = custom_bin + ":" + env.get("PATH", "")
 
         logger.debug("Cleaning up Gemini session %s...", session_id)
         try:
