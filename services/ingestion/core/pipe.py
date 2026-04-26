@@ -41,9 +41,12 @@ def _sync_git() -> str:
         if result.returncode == 0:
             return "Git Context: Automatically synced and up to date"
         else:
-            return "Git Context: AUTOMATIC PULL FAILED. Always execute `git pull` at the start of a session or before reading files to ensure the local context matches the remote repository."
-    except Exception:
-        return "Git Context: AUTOMATIC PULL FAILED. Always execute `git pull` at the start of a session or before reading files to ensure the local context matches the remote repository."
+            err_msg = result.stderr.strip().replace('\n', ' ')[:200]
+            logger.warning("Automatic git pull failed: %s", err_msg)
+            return f"Git Context: AUTOMATIC PULL FAILED. Error: '{err_msg}'. Always execute `git pull` at the start of a session or before reading files to ensure the local context matches the remote repository. If your manual pull also fails, YOU MUST notify the user about the exact git error before answering their request."
+    except Exception as e:
+        logger.warning("Automatic git pull exception: %s", e)
+        return f"Git Context: AUTOMATIC PULL FAILED. Exception: '{e}'. Always execute `git pull` at the start of a session or before reading files to ensure the local context matches the remote repository. If your manual pull also fails, YOU MUST notify the user about the exact git error before answering their request."
 
 
 def build_prompt(msg: IncomingMessage) -> str:
