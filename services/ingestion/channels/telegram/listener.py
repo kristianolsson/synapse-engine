@@ -144,6 +144,20 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             await message.reply_text("No active session to clear.")
         return
 
+    # /help command
+    if text.strip() == "/help":
+        help_text = (
+            "🤖 **Synapse Engine Commands**\n\n"
+            "/new — Clears the current session and starts a fresh context.\n"
+            "/stats on|off — Toggles the display of token usage and request stats.\n"
+            "/update — Pulls the latest code via git and restarts the bot.\n"
+            "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
+            "/provider <gemini|claude> — Switches the active AI provider.\n"
+            "/help — Shows this help message."
+        )
+        await message.reply_text(help_text, parse_mode='Markdown')
+        return
+
     # /stats on|off command
     stripped = text.strip().lower()
     if stripped in ("/stats on", "/stats off"):

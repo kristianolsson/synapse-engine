@@ -124,6 +124,17 @@ The service is organized into four layers under `services/ingestion/`:
        Also create `.claude/settings.json` with `{"enableAllProjectMcpServers": true}`
        so MCP servers are auto-approved in headless mode.
 
+## Telegram Commands
+
+When interacting with the bot via Telegram, the following commands are available:
+
+- `/new` — Clears the current session and starts a fresh context.
+- `/stats on` | `/stats off` — Toggles the display of token usage and request stats after responses.
+- `/update` — Pulls the latest code via git and gracefully restarts the service.
+- `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
+- `/provider <gemini|claude>` — Switches the active AI provider. Without an argument, shows the current provider.
+- `/help` — Shows the available Telegram commands.
+
 ## Deployment (macOS)
 
 Run as a background service using `launchd`.
