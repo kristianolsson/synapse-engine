@@ -446,19 +446,25 @@ def cmd_list_calendars(calendars: list[dict]) -> str:
 
 def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Google Calendar CLI for synapse-engine"
+        prog="calendar",
+        description="Google Calendar CLI for synapse-engine",
+        add_help=False
+    )
+    parser.add_argument(
+        "--help", action="help",
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         "--config", type=Path, default=DEFAULT_CONFIG_PATH,
-        help="Path to calendars.json"
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         "--token", type=Path, default=DEFAULT_TOKEN_PATH,
-        help="Path to token.json"
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         "--credentials", type=Path, default=DEFAULT_CREDENTIALS_PATH,
-        help="Path to credentials.json"
+        help=argparse.SUPPRESS
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
