@@ -44,14 +44,31 @@ class SessionManager:
 
         # Clean expired sessions on read
         now = time.time()
+        
+        from datetime import date
+        now_date = date.fromtimestamp(now)
+        
         cleaned_data = {}
         cleaned_count = 0
         for key, info in data.items():
             last_seen = info.get("last_seen", 0)
-            if now - last_seen <= self.ttl_seconds:
-                cleaned_data[key] = info
-            else:
+            
+            # Check standard TTL
+            if now - last_seen > self.ttl_seconds:
                 cleaned_count += 1
+                continue
+                
+            # Check midnight reset for main user sessions
+            parts = key.split(":", 1)
+            actual_key = parts[1] if len(parts) > 1 else key
+            
+            if not actual_key.startswith("msg_"):
+                last_seen_date = date.fromtimestamp(last_seen) if last_seen else date.min
+                if last_seen_date != now_date:
+                    cleaned_count += 1
+                    continue
+                    
+            cleaned_data[key] = info
 
         if cleaned_count > 0:
             logger.debug("Cleaned up %d expired session(s).", cleaned_count)
