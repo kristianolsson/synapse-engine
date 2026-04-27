@@ -6,12 +6,9 @@ import threading
 from typing import Optional, List
 
 from .. import config
-from .base import AIProvider, ProviderResult
+from .base import AIProvider, ProviderResult, GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
-
-# Global lock to prevent concurrent Claude CLI executions across threads
-_claude_lock = threading.Lock()
 
 
 class ClaudeProvider(AIProvider):
@@ -35,9 +32,9 @@ class ClaudeProvider(AIProvider):
             env["PATH"] = custom_bin + ":" + env.get("PATH", "")
 
         def _run_cmd(current_cmd: list[str], stdin_prompt: str = "") -> ProviderResult:
-            logger.debug("Waiting for Claude CLI lock...")
-            with _claude_lock:
-                logger.debug("Acquired Claude CLI lock.")
+            logger.debug("Waiting for GLOBAL_PROVIDER_LOCK...")
+            with GLOBAL_PROVIDER_LOCK:
+                logger.debug("Acquired GLOBAL_PROVIDER_LOCK for Claude CLI.")
                 try:
                     result = subprocess.run(
                         current_cmd,

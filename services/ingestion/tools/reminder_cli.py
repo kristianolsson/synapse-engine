@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import uuid
+import subprocess
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -379,7 +380,19 @@ def main(argv: Optional[list[str]] = None) -> None:
             parser.print_help()
             return
 
-        print(result)
+        print(result, end="")
+
+        if args.command in ("add", "edit", "remove"):
+            try:
+                subprocess.run(["git", "pull", "--rebase"], cwd=reminders_path.parent, check=True, capture_output=True)
+                status = subprocess.run(["git", "status", "--porcelain", str(reminders_path)], cwd=reminders_path.parent, check=True, capture_output=True, text=True)
+                if status.stdout.strip():
+                    subprocess.run(["git", "add", str(reminders_path)], cwd=reminders_path.parent, check=True, capture_output=True)
+                    subprocess.run(["git", "commit", "-m", f"Auto-sync reminders.json (CLI {args.command})"], cwd=reminders_path.parent, check=True, capture_output=True)
+                    subprocess.run(["git", "push"], cwd=reminders_path.parent, check=True, capture_output=True)
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to git sync reminders.json: {e}", file=sys.stderr)
+
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

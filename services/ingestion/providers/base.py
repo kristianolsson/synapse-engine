@@ -1,7 +1,10 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import threading
 from typing import Optional, List, Dict, Any
+
+GLOBAL_PROVIDER_LOCK = threading.Lock()
 
 @dataclass
 class ProviderResult:

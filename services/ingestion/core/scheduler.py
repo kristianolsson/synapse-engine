@@ -21,6 +21,8 @@ import json
 import logging
 import os
 import threading
+import time
+import subprocess
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -28,6 +30,7 @@ from zoneinfo import ZoneInfo
 from .. import config
 from ..core.pipe import IncomingMessage, build_prompt, pipe_to_provider
 from ..core.session_manager import SessionManager
+from ..providers.base import GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
 
@@ -197,49 +200,78 @@ class ReminderScheduler:
     def _remove_from_json(self, reminder_id: str) -> bool:
         """Remove a reminder from reminders.json by ID. Returns True on success.
 
-        Uses a lockfile to serialize access with the CLI tool.
+        Uses a lockfile to serialize access with the CLI tool, and GLOBAL_PROVIDER_LOCK
+        to prevent deadlocks with concurrent LLM executions (which might use git).
+        """
+        logger.debug("Waiting for GLOBAL_PROVIDER_LOCK in _remove_from_json...")
+        with GLOBAL_PROVIDER_LOCK:
+            logger.debug("Acquired GLOBAL_PROVIDER_LOCK in _remove_from_json.")
+            path = config.REMINDERS_JSON_PATH
+            tmp_path = path + ".tmp"
+            lock_path = self._lock_path()
+            removed = False
+            try:
+                with open(lock_path, "w") as lf:
+                    fcntl.flock(lf, fcntl.LOCK_EX)
+                    try:
+                        with open(path, "r") as f:
+                            data = json.load(f)
+
+                        if not isinstance(data, list):
+                            return False
+
+                        original_count = len(data)
+                        data = [r for r in data if r.get("id") != reminder_id]
+                        if len(data) == original_count:
+                            return False
+
+                        with open(tmp_path, "w") as f:
+                            json.dump(data, f, indent=2, ensure_ascii=False)
+                            f.write("\n")
+                            f.flush()
+                            os.fsync(f.fileno())
+                        os.rename(tmp_path, path)
+                        removed = True
+                    finally:
+                        fcntl.flock(lf, fcntl.LOCK_UN)
+                
+                if removed:
+                    # Automatically commit and push to keep git in sync
+                    self._sync_reminders_to_git()
+                return removed
+            except Exception as e:
+                logger.error("Failed to remove reminder %s from JSON: %s", reminder_id, e)
+                self._send_email(
+                    text=f"Failed to remove fired one-shot reminder from reminders.json.\n\n"
+                         f"Reminder ID: {reminder_id}\nError: {e}\n\n"
+                         f"The reminder may fire again on next restart. Please remove it manually.",
+                    subject="[Synapse Alert] Failed to clean up one-shot reminder",
+                )
+                if os.path.exists(tmp_path):
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                return False
+
+    def _sync_reminders_to_git(self) -> None:
+        """Commit and push reminders.json to git after modifications.
+        Must be called with GLOBAL_PROVIDER_LOCK already acquired.
         """
         path = config.REMINDERS_JSON_PATH
-        tmp_path = path + ".tmp"
-        lock_path = self._lock_path()
+        vault_dir = os.path.dirname(path)
         try:
-            with open(lock_path, "w") as lf:
-                fcntl.flock(lf, fcntl.LOCK_EX)
-                try:
-                    with open(path, "r") as f:
-                        data = json.load(f)
-
-                    if not isinstance(data, list):
-                        return False
-
-                    original_count = len(data)
-                    data = [r for r in data if r.get("id") != reminder_id]
-                    if len(data) == original_count:
-                        return False
-
-                    with open(tmp_path, "w") as f:
-                        json.dump(data, f, indent=2, ensure_ascii=False)
-                        f.write("\n")
-                        f.flush()
-                        os.fsync(f.fileno())
-                    os.rename(tmp_path, path)
-                    return True
-                finally:
-                    fcntl.flock(lf, fcntl.LOCK_UN)
-        except Exception as e:
-            logger.error("Failed to remove reminder %s from JSON: %s", reminder_id, e)
-            self._send_email(
-                text=f"Failed to remove fired one-shot reminder from reminders.json.\n\n"
-                     f"Reminder ID: {reminder_id}\nError: {e}\n\n"
-                     f"The reminder may fire again on next restart. Please remove it manually.",
-                subject="[Synapse Alert] Failed to clean up one-shot reminder",
-            )
-            if os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-            return False
+            subprocess.run(["git", "pull", "--rebase"], cwd=vault_dir, check=True, capture_output=True)
+            # Only proceed with commit if there are changes to the file
+            status = subprocess.run(["git", "status", "--porcelain", path], cwd=vault_dir, check=True, capture_output=True, text=True)
+            if not status.stdout.strip():
+                return
+            subprocess.run(["git", "add", path], cwd=vault_dir, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "Auto-sync reminders.json (one-shot cleanup)"], cwd=vault_dir, check=True, capture_output=True)
+            subprocess.run(["git", "push"], cwd=vault_dir, check=True, capture_output=True)
+            logger.info("Successfully synced reminders.json to git.")
+        except subprocess.CalledProcessError as e:
+            logger.error("Failed to git sync reminders.json: %s\n%s", e, getattr(e, 'stderr', b'').decode('utf-8', errors='ignore'))
 
     # ── Schedule Management ──────────────────────────────────────────────
 

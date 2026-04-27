@@ -7,12 +7,9 @@ import threading
 from typing import Optional, List
 
 from .. import config
-from .base import AIProvider, ProviderResult
+from .base import AIProvider, ProviderResult, GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
-
-# Global lock to prevent concurrent Gemini CLI executions across threads
-_gemini_lock = threading.Lock()
 
 def _clean_error_message(raw_error: str) -> str:
     """
@@ -86,9 +83,9 @@ class GeminiProvider(AIProvider):
             env["PATH"] = custom_bin + ":" + env.get("PATH", "")
 
         def _run_cmd(current_cmd: list[str]) -> ProviderResult:
-            logger.debug("Waiting for Gemini CLI lock...")
-            with _gemini_lock:
-                logger.debug("Acquired Gemini CLI lock.")
+            logger.debug("Waiting for GLOBAL_PROVIDER_LOCK...")
+            with GLOBAL_PROVIDER_LOCK:
+                logger.debug("Acquired GLOBAL_PROVIDER_LOCK for Gemini CLI.")
                 try:
                     result = subprocess.run(
                         current_cmd,
