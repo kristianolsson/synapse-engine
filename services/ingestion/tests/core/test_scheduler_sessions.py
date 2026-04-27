@@ -2,7 +2,6 @@
 Tests for session persistence in ReminderScheduler.
 """
 
-import json
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -11,50 +10,10 @@ from services.ingestion.core.scheduler import ReminderScheduler
 @pytest.fixture
 def scheduler():
     """Create a scheduler instance with test defaults."""
-    return ReminderScheduler(interval_minutes=60)
+    return ReminderScheduler()
 
 class TestSchedulerSessions:
     """Tests for session persistence logic in ReminderScheduler."""
-
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.session_manager.SessionManager.save_session")
-    def test_tick_saves_session_for_message_email(self, mock_save, mock_pipe, scheduler):
-        """Test that _tick saves a session ID for email message reminders."""
-        mock_pipe.return_value = MagicMock(
-            is_error=False,
-            output=json.dumps([
-                {"type": "message", "channel": "email", "message": "Email Reminder"},
-            ]),
-        )
-        
-        with patch("services.ingestion.core.scheduler.ReminderScheduler._deliver") as mock_deliver:
-            mock_deliver.return_value = True
-            scheduler._tick()
-            
-            # Should NOT have called save_session for the scheduler prompt
-            assert mock_save.call_count == 0
-            
-            # Should have delivered with session_id=None
-            mock_deliver.assert_called_once()
-            assert mock_deliver.call_args[1].get("session_id") is None
-
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.session_manager.SessionManager.save_session")
-    def test_tick_does_not_save_session_for_message_telegram(self, mock_save, mock_pipe, scheduler):
-        """Test that _tick does NOT save a session ID for telegram message reminders."""
-        mock_pipe.return_value = MagicMock(
-            is_error=False,
-            output=json.dumps([
-                {"type": "message", "channel": "telegram", "message": "Telegram Reminder"},
-            ]),
-        )
-        
-        with patch("services.ingestion.core.scheduler.ReminderScheduler._deliver") as mock_deliver:
-            mock_deliver.return_value = True
-            scheduler._tick()
-            
-            # Should NOT have called save_session
-            assert mock_save.call_count == 0
 
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.session_manager.SessionManager.save_session")

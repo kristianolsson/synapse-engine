@@ -117,6 +117,7 @@ On QNAP:
 sed -i 's|VAULT_PATH=.*|VAULT_PATH=/app/notes|' /share/CE_CACHEDEV2_DATA/synapse/.env
 sed -i 's|CLAUDE_CMD=.*|CLAUDE_CMD=/usr/local/bin/claude|' /share/CE_CACHEDEV2_DATA/synapse/.env
 echo "SESSION_STORAGE_PATH=/app/data/sessions.json" >> /share/CE_CACHEDEV2_DATA/synapse/.env
+echo "REMINDERS_JSON_PATH=/app/notes/reminders/reminders.json" >> /share/CE_CACHEDEV2_DATA/synapse/.env
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 ```
 

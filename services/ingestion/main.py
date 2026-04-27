@@ -75,19 +75,18 @@ def main():
         logger.info("Telegram channel enabled.")
 
     # --- Reminder Scheduler ---
-    if config.SCHEDULER_ENABLED:
-        from .core.scheduler import ReminderScheduler
+    from .core.scheduler import ReminderScheduler
 
-        scheduler = ReminderScheduler()
-        listeners.append(scheduler)
+    scheduler = ReminderScheduler()
+    listeners.append(scheduler)
 
-        t = threading.Thread(
-            target=scheduler.run,
-            name="reminder-scheduler",
-            daemon=True,
-        )
-        threads.append(t)
-        logger.info("Reminder scheduler enabled (interval=%dm).", config.SCHEDULER_INTERVAL_MINUTES)
+    t = threading.Thread(
+        target=scheduler.run,
+        name="reminder-scheduler",
+        daemon=True,
+    )
+    threads.append(t)
+    logger.info("Reminder scheduler enabled.")
 
     # --- Signal handling ---
     def signal_handler(sig, frame):

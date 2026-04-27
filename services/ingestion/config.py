@@ -171,8 +171,10 @@ SESSION_STORAGE_PATH = os.getenv(
 SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", "60"))
 
 # --- Reminder Scheduler ---
-SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").strip().lower() in ("true", "1", "yes")
-SCHEDULER_INTERVAL_MINUTES = int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "60"))
+REMINDERS_JSON_PATH = os.getenv(
+    "REMINDERS_JSON_PATH",
+    str(Path(VAULT_PATH) / "reminders" / "reminders.json")
+)
 
 # --- Calendar ---
 CALENDAR_CONFIG_PATH = os.getenv(
