@@ -187,9 +187,22 @@ class TestComputeNextFire:
         assert result is None
 
     def test_invalid_time_format(self):
-        reminder = {"time": "seven", "recurring": "daily"}
-        result = compute_next_fire(reminder)
-        assert result is None
+        reminder = {"time": "not-a-time", "recurring": "daily"}
+        assert compute_next_fire(reminder) is None
+
+    def test_hourly_future_minute(self):
+        now = datetime(2026, 4, 27, 10, 15, 0, tzinfo=LOCAL_TZ)
+        reminder = {"time": "00:30", "recurring": "hourly"}
+        result = compute_next_fire(reminder, after=now)
+        assert result is not None
+        assert result == datetime(2026, 4, 27, 10, 30, 0, tzinfo=LOCAL_TZ)
+
+    def test_hourly_past_minute(self):
+        now = datetime(2026, 4, 27, 10, 45, 0, tzinfo=LOCAL_TZ)
+        reminder = {"time": "00:30", "recurring": "hourly"}
+        result = compute_next_fire(reminder, after=now)
+        assert result is not None
+        assert result == datetime(2026, 4, 27, 11, 30, 0, tzinfo=LOCAL_TZ)
 
 
 # ── Delivery ─────────────────────────────────────────────────────────
@@ -408,9 +421,13 @@ class TestFireReminder:
     @patch.object(ReminderScheduler, "_handle_work_reminder")
     def test_fire_work_reminder(self, mock_handle, scheduler):
         now = datetime.now(LOCAL_TZ)
-        reminder = {"id": "test-2", "type": "work", "channel": "email", "task": "Research stocks", "recurring": "daily", "time": "07:00"}
+        reminder = {"id": "test-2", "type": "work", "channel": "email", "task": "Research stocks", "recurring": "none", "time": "2099-01-01T07:00:00"}
         scheduler._fire_reminder(reminder, now)
-        mock_handle.assert_called_once_with("email", "Research stocks", is_missed=False)
+        mock_handle.assert_called_once()
+        args, kwargs = mock_handle.call_args
+        assert args == ("email", "Research stocks")
+        assert kwargs["is_missed"] is False
+        assert "seconds_late" in kwargs
 
     @patch.object(ReminderScheduler, "_handle_message_reminder")
     def test_fire_missed_reminder(self, mock_handle, scheduler):
@@ -437,18 +454,16 @@ class TestFireReminder:
         scheduler._fire_reminder(reminder, now)
         mock_remove.assert_called_once_with("test-5")
 
-    @patch.object(ReminderScheduler, "_send_email")
+    @patch("services.ingestion.core.scheduler.logger")
     @patch.object(ReminderScheduler, "_remove_from_json")
     @patch.object(ReminderScheduler, "_handle_message_reminder")
-    def test_fire_one_shot_removal_failure_sends_email(self, mock_handle, mock_remove, mock_email, scheduler):
+    def test_fire_one_shot_removal_failure_logs_warning(self, mock_handle, mock_remove, mock_logger, scheduler):
         mock_remove.return_value = False
         now = datetime.now(LOCAL_TZ)
         reminder = {"id": "test-6", "type": "message", "channel": "telegram", "task": "Buy milk", "recurring": "none", "time": "2099-01-01T07:00:00"}
         scheduler._fire_reminder(reminder, now)
-        mock_email.assert_called_once()
-        kwargs = mock_email.call_args[1]
-        assert "test-6" in kwargs["text"]
-        assert "clean up" in kwargs["subject"].lower()
+        mock_logger.warning.assert_called_once()
+        assert "not found in reminders.json" in mock_logger.warning.call_args[0][0]
 
 
 # ── Scan and Schedule ────────────────────────────────────────────────

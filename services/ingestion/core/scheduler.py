@@ -87,7 +87,13 @@ def compute_next_fire(reminder: dict, after: Optional[datetime] = None) -> Optio
         logger.error("Invalid recurring time format: %s", time_str)
         return None
 
-    if recurring == "daily":
+    if recurring == "hourly":
+        candidate = after.replace(minute=minute, second=0, microsecond=0)
+        if candidate <= after:
+            candidate += timedelta(hours=1)
+        return candidate
+
+    elif recurring == "daily":
         candidate = after.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if candidate <= after:
             candidate += timedelta(days=1)

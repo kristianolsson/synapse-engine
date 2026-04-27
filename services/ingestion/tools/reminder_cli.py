@@ -30,7 +30,7 @@ LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_REMINDERS_PATH = _ROOT / "notes" / "reminders" / "reminders.json"
 
-VALID_RECURRING = {"none", "daily", "weekly", "weekdays", "monthly"}
+VALID_RECURRING = {"none", "hourly", "daily", "weekly", "weekdays", "monthly"}
 VALID_TYPES = {"message", "work"}
 VALID_CHANNELS = {"telegram", "email"}
 WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
@@ -183,7 +183,7 @@ def cmd_add(args, reminders_path: Path) -> str:
         if not args.day:
             raise ValueError(f"--day is required for {args.recurring} reminders.")
         _validate_day(args.day, args.recurring)
-    elif args.recurring in ("daily", "weekdays", "none"):
+    elif args.recurring in ("hourly", "daily", "weekdays", "none"):
         if args.day:
             raise ValueError(f"--day is not applicable for {args.recurring} reminders.")
 
@@ -332,10 +332,10 @@ def main(argv: Optional[list[str]] = None) -> None:
     p_add.add_argument("--type", required=True, help="Reminder type: 'message' or 'work'")
     p_add.add_argument("--task", required=True, help="The reminder text or work description")
     p_add.add_argument("--time", required=True,
-                       help="Fire time. For one-shot: full ISO datetime (e.g., 2026-06-22T07:00:00). "
-                            "For recurring: HH:MM in 24h format (e.g., 07:00, 15:30)")
+                       help="Fire time. One-shot: full ISO datetime (e.g., 2026-06-22T07:00:00). "
+                            "Recurring: HH:MM in 24h format (for hourly, HH is ignored and it fires at MM past the hour).")
     p_add.add_argument("--recurring", default="none",
-                       help="Recurrence: none, daily, weekly, weekdays, monthly (default: none)")
+                       help="Recurrence: none, hourly, daily, weekly, weekdays, monthly (default: none)")
     p_add.add_argument("--day", default="",
                        help="Day context. For weekly: weekday name (e.g., friday). "
                             "For monthly: day number (1-31) or 'last'. Not used for daily/weekdays/none.")
@@ -350,7 +350,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     p_edit.add_argument("--type", default="", help="New type: 'message' or 'work'")
     p_edit.add_argument("--task", default="", help="New task text")
     p_edit.add_argument("--time", default="", help="New fire time")
-    p_edit.add_argument("--recurring", default="", help="New recurrence: none, daily, weekly, weekdays, monthly")
+    p_edit.add_argument("--recurring", default="", help="New recurrence: none, hourly, daily, weekly, weekdays, monthly")
     p_edit.add_argument("--day", default="", help="New day context")
     p_edit.add_argument("--channel", default="", help="New channel: telegram or email")
     p_edit.add_argument("--source", default=None, help="New source reference (empty string to clear)")
