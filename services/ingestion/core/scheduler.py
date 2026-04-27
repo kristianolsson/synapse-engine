@@ -261,17 +261,23 @@ class ReminderScheduler:
         path = config.REMINDERS_JSON_PATH
         vault_dir = os.path.dirname(path)
         try:
-            subprocess.run(["git", "pull", "--rebase"], cwd=vault_dir, check=True, capture_output=True)
             # Only proceed with commit if there are changes to the file
             status = subprocess.run(["git", "status", "--porcelain", path], cwd=vault_dir, check=True, capture_output=True, text=True)
             if not status.stdout.strip():
                 return
             subprocess.run(["git", "add", path], cwd=vault_dir, check=True, capture_output=True)
             subprocess.run(["git", "commit", "-m", "Auto-sync reminders.json (one-shot cleanup)"], cwd=vault_dir, check=True, capture_output=True)
+            # Pull with rebase now that our changes are safely committed
+            subprocess.run(["git", "pull", "--rebase"], cwd=vault_dir, check=True, capture_output=True)
             subprocess.run(["git", "push"], cwd=vault_dir, check=True, capture_output=True)
             logger.info("Successfully synced reminders.json to git.")
         except subprocess.CalledProcessError as e:
-            logger.error("Failed to git sync reminders.json: %s\n%s", e, getattr(e, 'stderr', b'').decode('utf-8', errors='ignore'))
+            err_output = getattr(e, 'stderr', b'').decode('utf-8', errors='ignore')
+            logger.error("Failed to git sync reminders.json: %s\n%s", e, err_output)
+            self._send_email(
+                text=f"Failed to git sync reminders.json after one-shot cleanup.\n\nError: {e}\n\nStderr:\n{err_output}\n\nPlease pull or push manually.",
+                subject="[Synapse Alert] Git sync failed for reminders.json",
+            )
 
     # ── Schedule Management ──────────────────────────────────────────────
 
