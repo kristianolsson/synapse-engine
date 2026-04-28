@@ -133,7 +133,7 @@ def _resolve_claude_cmd() -> str:
     return "claude"
 
 CLAUDE_CMD = _resolve_claude_cmd()
-CLAUDE_TIMEOUT_SECONDS = int(os.getenv("CLAUDE_TIMEOUT_SECONDS", "300"))
+CLAUDE_TIMEOUT_SECONDS = int(os.getenv("CLAUDE_TIMEOUT_SECONDS", "900"))
 CLAUDE_MAX_RETRIES = int(os.getenv("CLAUDE_MAX_RETRIES", "3"))
 CLAUDE_DEFAULT_MODEL = os.getenv("CLAUDE_DEFAULT_MODEL", "sonnet").strip() or None
 CLAUDE_WORK_MODEL = os.getenv("CLAUDE_WORK_MODEL", "opus").strip() or None
@@ -188,4 +188,22 @@ CALENDAR_TOKEN_PATH = os.getenv(
 CALENDAR_CREDENTIALS_PATH = os.getenv(
     "CALENDAR_CREDENTIALS_PATH",
     str(Path(__file__).resolve().parent.parent.parent / "credentials.json")
+)
+
+# --- E*TRADE ---
+ETRADE_CONSUMER_KEY = os.getenv("ETRADE_CONSUMER_KEY", "")
+ETRADE_CONSUMER_SECRET = os.getenv("ETRADE_CONSUMER_SECRET", "")
+ETRADE_USERNAME = os.getenv("ETRADE_USERNAME", "")
+ETRADE_PASSWORD = os.getenv("ETRADE_PASSWORD", "")
+ETRADE_TOTP_SECRET = os.getenv("ETRADE_TOTP_SECRET", "")
+ETRADE_MODE = os.getenv("ETRADE_MODE", "production")  # "sandbox" or "production"
+
+# --- Stocks Config ---
+STOCKS_WATCHLISTS_PATH = os.getenv(
+    "STOCKS_WATCHLISTS_PATH",
+    str(Path(VAULT_PATH) / "stocks" / "watchlists.yaml")
+)
+STOCKS_OPTIONS_CONFIG_PATH = os.getenv(
+    "STOCKS_OPTIONS_CONFIG_PATH",
+    str(Path(VAULT_PATH) / "stocks" / "options_config.yaml")
 )

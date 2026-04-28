@@ -69,8 +69,19 @@ def send_reply(
         checkbox_html = f'<a href="{mailto_url}" style="text-decoration:none;color:inherit;font-size:1.1em;" title="Mark as complete">☐</a>'
         return f"{checkbox_html} {task_text}"
 
-    body_with_links = TASK_PATTERN_OPEN.sub(replacer, body)
-    final_body = body_with_links.replace('\n', '<br>') + format_stats_email(stats)
+    # Detect pre-formatted HTML from CLI tools (e.g. options-bot, etrade).
+    # These return rich HTML fragments that should be delivered verbatim.
+    _HTML_INDICATORS = ("<table", "<style", "<div ", "<div>", "<!DOCTYPE", "<tr>", "<tr ")
+    is_rich_html = any(indicator in body for indicator in _HTML_INDICATORS)
+
+    if is_rich_html:
+        # Pass through as-is — body is already a complete HTML document or fragment.
+        # Still append stats if present, but don't do newline conversion.
+        final_body = body + format_stats_email(stats)
+    else:
+        body_with_links = TASK_PATTERN_OPEN.sub(replacer, body)
+        final_body = body_with_links.replace('\n', '<br>') + format_stats_email(stats)
+
     msg = MIMEText(final_body, "html", "utf-8")
     msg["From"] = f"Synapse <{config.EMAIL_ADDRESS}>"
     msg["To"] = to_addr

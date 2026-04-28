@@ -28,6 +28,10 @@ COPY requirements.txt /tmp/requirements.txt
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 
+# Install Playwright Firefox for E*TRADE browser-based authentication (wetrade)
+# Must happen after pip install (playwright package) and before switching to non-root user
+RUN /app/venv/bin/playwright install firefox --with-deps
+
 WORKDIR /app/synapse-engine
 USER synapse
 

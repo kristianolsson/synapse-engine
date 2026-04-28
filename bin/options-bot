@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Options Bot CLI — weekday options opportunity scan.
+# Outputs HTML with TICKER_CONTEXT merge fields for the LLM to populate.
+set -euo pipefail
+export PYTHONPATH="/app/synapse-engine:${PYTHONPATH:-}"
+exec python3 -m services.ingestion.tools.options_bot_cli "$@"
