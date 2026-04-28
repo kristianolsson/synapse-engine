@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
 # E*TRADE CLI — query quotes, options, positions, and accounts.
-# Used by the Synapse LLM provider to access E*TRADE data.
-set -euo pipefail
-export PYTHONPATH="/app/synapse-engine:${PYTHONPATH:-}"
-exec python3 -m services.ingestion.tools.etrade_cli "$@"
+export PYTHONPATH="/app/synapse-engine:$PYTHONPATH"
+python3 -m services.ingestion.tools.etrade_cli "$@"

@@ -29,8 +29,11 @@ RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Install Playwright Firefox for E*TRADE browser-based authentication (wetrade)
-# Must happen after pip install (playwright package) and before switching to non-root user
-RUN /app/venv/bin/playwright install firefox --with-deps
+# Matches options-bot pattern: fixed browser path, owned by synapse for runtime access
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p /ms-playwright && \
+    /app/venv/bin/playwright install --with-deps firefox && \
+    chown -R synapse:synapse /ms-playwright
 
 WORKDIR /app/synapse-engine
 USER synapse

@@ -13,3 +13,6 @@ services:
       - /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519:/home/synapse/.ssh/id_ed25519
       - /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519.pub:/home/synapse/.ssh/id_ed25519.pub
       - /share/CE_CACHEDEV2_DATA/synapse/data:/app/data
+      # E*TRADE: persistent OAuth tokens and browser session (shared with options-bot credentials)
+      - /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/.etrade_tokens:/home/synapse/.etrade_tokens
+      - /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/.etrade_browser_profile:/home/synapse/.etrade_browser_profile
