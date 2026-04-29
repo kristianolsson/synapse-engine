@@ -76,7 +76,15 @@ def send_reply(
 
     if is_rich_html:
         # Pass through as-is — body is already a complete HTML document or fragment.
-        # Still append stats if present, but don't do newline conversion.
+        # Strip any markdown codeblock wrappers or LLM monologue preamble
+        import re
+        body = re.sub(r'^```html\s*', '', body.strip(), flags=re.IGNORECASE)
+        body = re.sub(r'```\s*$', '', body.strip())
+        
+        match = re.search(r'(<!DOCTYPE|<html|<body|<div|<table|<h[1-6])', body, re.IGNORECASE)
+        if match:
+            body = body[match.start():]
+            
         final_body = body + format_stats_email(stats)
     else:
         body_with_links = TASK_PATTERN_OPEN.sub(replacer, body)

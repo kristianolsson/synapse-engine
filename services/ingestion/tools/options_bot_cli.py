@@ -405,7 +405,8 @@ def cmd_scan(args) -> None:
     try:
         positions = client.get_short_put_positions()
         if positions:
-            analyzer = PositionAnalyzer(thresholds)
+            exit_thresholds = cfg.get("exit_thresholds", {})
+            analyzer = PositionAnalyzer(**exit_thresholds)
             position_recommendations = analyzer.analyze_positions(positions)
     except Exception as e:
         logger.warning("Could not fetch positions: %s", e)
