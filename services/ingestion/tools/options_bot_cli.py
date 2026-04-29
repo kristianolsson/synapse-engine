@@ -21,6 +21,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 # Resolve package path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
@@ -50,7 +51,7 @@ def _load_env() -> dict:
     }
 
 
-def _load_options_config(config_path: str | None = None) -> dict:
+def _load_options_config(config_path: Optional[str] = None) -> dict:
     """Load options_config.yaml from the vault."""
     from services.ingestion import config as syn_config
     path = (
@@ -120,10 +121,71 @@ def _format_pct(val) -> str:
     return f"{val * 100:.2f}%"
 
 
+def _build_markdown(
+    tickers: list[str],
+    by_ticker: dict,
+    buying_power: Optional[dict],
+    position_recommendations: list,
+    ticker_quotes: dict,
+) -> str:
+    """Build a text-friendly Markdown report for Telegram/CLI viewing."""
+    scan_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = [f"## 🎯 Options Trading Opportunities\n_{scan_time}_\n"]
+
+    # Account status section
+    if buying_power:
+        margin_bp = buying_power.get("margin_buying_power", 0) or 0
+        cash_bp = buying_power.get("cash_buying_power", 0) or 0
+        account_val = buying_power.get("account_value", 0) or 0
+        lines.append("### Account Status")
+        lines.append(f"- **Margin Buying Power:** {_format_currency(margin_bp)}")
+        lines.append(f"- **Cash Buying Power:** {_format_currency(cash_bp)}")
+        lines.append(f"- **Account Value:** {_format_currency(account_val)}\n")
+
+    # Open positions section
+    if position_recommendations:
+        lines.append("### 📊 Open Position Recommendations")
+        for rec in position_recommendations:
+            pnl_pct = rec.profit_loss_pct
+            pnl_str = f"{pnl_pct:+.1%}"
+            lines.append(f"- **{rec.action_emoji} {rec.action}** {rec.position.underlying} ${rec.position.strike_price:.0f}P exp {rec.position.expiration_date} (DTE: {rec.position.days_to_expiry}d) | P/L: {pnl_str} | _{rec.reason}_")
+        lines.append("")
+
+    all_opps = [opp for opps in by_ticker.values() for opp in opps]
+    tickers_with_opps = sorted(by_ticker.keys(), key=lambda t: max(o.score for o in by_ticker[t]), reverse=True)
+    other_tickers = sorted([t for t in tickers if t not in by_ticker])
+    sorted_tickers = tickers_with_opps + other_tickers
+
+    lines.append(f"Found **{len(all_opps)}** opportunities across **{len(tickers_with_opps)}** tickers.\n")
+
+    for ticker in sorted_tickers:
+        opps = by_ticker.get(ticker, [])
+        quote_data = ticker_quotes.get(ticker, {})
+        current_price = quote_data.get("current_price") or (opps[0].underlying_price if opps else 0)
+        price_change_pct = quote_data.get("price_change_pct") or (opps[0].price_change_pct if opps else None)
+
+        direction_str = ""
+        if price_change_pct is not None:
+            direction_str = f"▲ {_format_pct(abs(price_change_pct))}" if price_change_pct >= 0 else f"▼ {_format_pct(abs(price_change_pct))}"
+
+        lines.append(f"### {ticker} @ {_format_currency(current_price)} {direction_str}")
+        lines.append(f"<!-- TICKER_CONTEXT:{ticker} -->\n")
+
+        if opps:
+            for i, opp in enumerate(opps):
+                rank_badge = "🥇" if i == 0 else ("🥈" if i == 1 else ("🥉" if i == 2 else "  "))
+                lines.append(f"- {rank_badge} {opp.score:.0f} | **${opp.contract.strike_price:.2f}** | {opp.contract.expiration_date} ({opp.contract.days_to_expiry}d) | Bid: {_format_currency(opp.contract.bid)} | Yld: {_format_pct(opp.annualized_yield)} | Prot: {_format_pct(opp.downside_protection)}")
+            lines.append("")
+        else:
+            lines.append("_No opportunities met your thresholds._\n")
+
+    return "\n".join(lines)
+
+
 def _build_html(
     tickers: list[str],
     by_ticker: dict,
-    buying_power: dict | None,
+    buying_power: Optional[dict],
     position_recommendations: list,
     ticker_quotes: dict,
 ) -> str:
@@ -389,14 +451,23 @@ def cmd_scan(args) -> None:
             logger.warning("Error scanning %s: %s", ticker, e)
             ticker_quotes[ticker] = {"current_price": None, "price_change_pct": None}
 
-    html = _build_html(
-        tickers=tickers,
-        by_ticker=by_ticker,
-        buying_power=buying_power,
-        position_recommendations=position_recommendations,
-        ticker_quotes=ticker_quotes,
-    )
-    print(html)
+    if getattr(args, "format", "html") == "markdown":
+        output = _build_markdown(
+            tickers=tickers,
+            by_ticker=by_ticker,
+            buying_power=buying_power,
+            position_recommendations=position_recommendations,
+            ticker_quotes=ticker_quotes,
+        )
+    else:
+        output = _build_html(
+            tickers=tickers,
+            by_ticker=by_ticker,
+            buying_power=buying_power,
+            position_recommendations=position_recommendations,
+            ticker_quotes=ticker_quotes,
+        )
+    print(output)
 
 
 # ── CLI entrypoint ─────────────────────────────────────────────────────────────
@@ -422,6 +493,12 @@ def main():
         type=str,
         default=None,
         help="Path to options_config.yaml (default: from vault)",
+    )
+    p_scan.add_argument(
+        "--format",
+        choices=["html", "markdown"],
+        default="html",
+        help="Output format: html or markdown (default: html)",
     )
 
     args = parser.parse_args()

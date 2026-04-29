@@ -24,9 +24,10 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Resolve stocks package path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from services.ingestion.tools.stocks.auth import ETradeAuth
 from services.ingestion.tools.stocks.wetrade_auth import WetradeAuth, WETRADE_AVAILABLE
@@ -101,7 +102,7 @@ def _authenticate(env: dict, headless: bool = True) -> ETradeClient:
     )
 
 
-def _get_account_suffix(args_account: str | None) -> str | None:
+def _get_account_suffix(args_account: Optional[str]) -> Optional[str]:
     """Resolve account suffix: CLI arg > env var > None (uses first account)."""
     if args_account:
         return args_account
