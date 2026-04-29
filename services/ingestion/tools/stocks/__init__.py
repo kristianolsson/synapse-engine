@@ -1,1 +1,1 @@
-"""E*TRADE stocks package — migrated from options-bot."""
+"""E*TRADE stocks package."""
