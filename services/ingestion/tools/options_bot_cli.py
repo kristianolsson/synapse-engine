@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Resolve package path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 logger = logging.getLogger("options-bot")
 
@@ -38,7 +38,7 @@ def _err(message: str, code: str) -> None:
 
 def _load_env() -> dict:
     from dotenv import load_dotenv
-    env_path = Path(__file__).resolve().parent.parent.parent.parent.parent / ".env"
+    env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
     load_dotenv(env_path)
     return {
         "consumer_key": os.getenv("ETRADE_CONSUMER_KEY", ""),
