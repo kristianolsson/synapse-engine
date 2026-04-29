@@ -399,20 +399,22 @@ class ReminderScheduler:
 
     # ── Reminder Handlers ────────────────────────────────────────────────
 
-    def _handle_message_reminder(self, channel: str, task: str, is_missed: bool = False) -> None:
+    def _handle_message_reminder(self, channel: str, task: str, is_missed: bool = False, subject_override: str = None) -> None:
         """Send a message reminder directly to the user (no LLM call)."""
         prefix = "⏰ Missed reminder: " if is_missed else "Reminder: " if channel == "telegram" else ""
         text = f"{prefix}{task}"
 
+        subject = subject_override or self._make_subject(task, prefix="⏰ Missed Reminder" if is_missed else "Reminder")
+        
         success = self._deliver(
             channel,
             text,
-            subject=self._make_subject(task, prefix="⏰ Missed Reminder" if is_missed else "Reminder"),
+            subject=subject,
         )
         if not success:
             self._handle_delivery_failure(task)
 
-    def _handle_work_reminder(self, channel: str, task: str, is_missed: bool = False, seconds_late: float = 0) -> None:
+    def _handle_work_reminder(self, channel: str, task: str, is_missed: bool = False, seconds_late: float = 0, subject_override: str = None) -> None:
         """Re-pipe a work reminder through the normal ingestion flow.
 
         Builds an IncomingMessage as if it came from the user, pipes it
@@ -466,12 +468,6 @@ class ReminderScheduler:
             return
 
         response_text = result.output
-        custom_subject = None
-        if response_text and response_text.strip().startswith("SUBJECT:"):
-            lines = response_text.strip().split("\n", 1)
-            custom_subject = lines[0].replace("SUBJECT:", "").strip()
-            response_text = lines[1].strip() if len(lines) > 1 else ""
-
         if not response_text:
             response_text = "✓ Scheduled task completed."
 
@@ -500,10 +496,11 @@ class ReminderScheduler:
             response_text, tasks = format_message_with_tasks(response_text)
             keyboard = build_task_keyboard(tasks)
 
+        subject = subject_override or self._make_subject(task, prefix="Synapse")
         success = self._deliver(
             channel,
             response_text,
-            subject=custom_subject or self._make_subject(task, prefix="Synapse"),
+            subject=subject,
             session_id=result.session_id,
             reply_markup=keyboard,
         )
@@ -560,11 +557,13 @@ class ReminderScheduler:
             seconds_late, " MISSED" if is_missed else "", task[:80],
         )
 
+        subject = reminder.get("subject")
+
         try:
             if reminder_type == "message":
-                self._handle_message_reminder(channel, task, is_missed=is_missed)
+                self._handle_message_reminder(channel, task, is_missed=is_missed, subject_override=subject)
             elif reminder_type == "work":
-                self._handle_work_reminder(channel, task, is_missed=is_missed, seconds_late=seconds_late)
+                self._handle_work_reminder(channel, task, is_missed=is_missed, seconds_late=seconds_late, subject_override=subject)
             else:
                 logger.error("Unknown reminder type: %s", reminder_type)
         except Exception as e:
