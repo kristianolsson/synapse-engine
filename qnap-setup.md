@@ -26,6 +26,7 @@ If uid differs from 1002, update `Dockerfile`: `RUN useradd -m -u 1002 synapse`
 ```bash
 mkdir -p /share/CE_CACHEDEV2_DATA/synapse/credentials/claude \
   /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini \
+  /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade \
   /share/CE_CACHEDEV2_DATA/synapse/ssh \
   /share/CE_CACHEDEV2_DATA/synapse/data
 ```
@@ -101,7 +102,27 @@ On QNAP:
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini
 ```
 
-## 7. Set up .env and config files
+## 7. Set up E*TRADE credentials (Optional)
+
+If you use the `etrade` or `options-bot` CLI tools, you must authenticate on your Mac first to bypass E*TRADE's SMS 2FA. E*TRADE recognizes the saved Playwright profile as a "trusted device" and will not prompt the headless Docker container for SMS codes.
+
+On Mac:
+```bash
+# 1. Run etrade auth locally to generate tokens and trust the browser profile
+cd ~/Documents/code/synapse-engine
+python3 -m services.ingestion.tools.etrade_cli balance
+
+# 2. Transfer the API tokens and browser profile
+scp ~/.etrade_tokens admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/.etrade_tokens
+scp -r ~/.etrade_browser_profile admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/
+```
+
+On QNAP:
+```bash
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade
+```
+
+## 8. Set up .env and config files
 
 On Mac:
 ```bash
@@ -121,7 +142,7 @@ echo "REMINDERS_JSON_PATH=/app/notes/reminders/reminders.json" >> /share/CE_CACH
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 ```
 
-## 8. Build and start
+## 9. Build and start
 
 ```bash
 cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
