@@ -466,6 +466,12 @@ class ReminderScheduler:
             return
 
         response_text = result.output
+        custom_subject = None
+        if response_text and response_text.strip().startswith("SUBJECT:"):
+            lines = response_text.strip().split("\n", 1)
+            custom_subject = lines[0].replace("SUBJECT:", "").strip()
+            response_text = lines[1].strip() if len(lines) > 1 else ""
+
         if not response_text:
             response_text = "✓ Scheduled task completed."
 
@@ -497,7 +503,7 @@ class ReminderScheduler:
         success = self._deliver(
             channel,
             response_text,
-            subject=self._make_subject(task, prefix="Synapse"),
+            subject=custom_subject or self._make_subject(task, prefix="Synapse"),
             session_id=result.session_id,
             reply_markup=keyboard,
         )
