@@ -151,6 +151,9 @@ def _build_markdown(
             lines.append(f"- **{rec.action_emoji} {rec.action}** {rec.position.underlying} ${rec.position.strike_price:.0f}P exp {rec.position.expiration_date} (DTE: {rec.position.days_to_expiry}d) | P/L: {pnl_str} | _{rec.reason}_")
         lines.append("")
 
+    lines.append("### 💡 Portfolio Analysis & Action Plan")
+    lines.append("<!-- PORTFOLIO_ANALYSIS -->\n")
+
     all_opps = [opp for opps in by_ticker.values() for opp in opps]
     tickers_with_opps = sorted(by_ticker.keys(), key=lambda t: max(o.score for o in by_ticker[t]), reverse=True)
     other_tickers = sorted([t for t in tickers if t not in by_ticker])
@@ -347,6 +350,11 @@ def _build_html(
     {bp_html}
 
     {pos_html}
+
+    <div style="margin-bottom: 24px; padding: 14px 16px; background: #f5f0ff; border-left: 4px solid #6f42c1; border-radius: 4px;">
+        <h4 style="margin: 0 0 8px 0; color: #4a235a;">💡 Portfolio Analysis &amp; Action Plan</h4>
+        <!-- PORTFOLIO_ANALYSIS -->
+    </div>
 
     <p>Found <strong>{len(all_opps)}</strong> opportunities across <strong>{len(tickers_with_opps)}</strong> tickers.</p>
 
