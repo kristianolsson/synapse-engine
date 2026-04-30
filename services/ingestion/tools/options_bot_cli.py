@@ -452,7 +452,7 @@ def cmd_scan(args) -> None:
                 opportunities = options_analyzer.analyze_chain(
                     contracts, current_price, filter_passing_only=True
                 )
-                top = options_analyzer.get_top_opportunities(opportunities, top_n=5)
+                top = options_analyzer.get_top_opportunities(opportunities, top_n=3)
                 if top:
                     by_ticker[ticker] = top
 
