@@ -166,15 +166,12 @@ def _build_markdown(
         quote_data = ticker_quotes.get(ticker, {})
         current_price = quote_data.get("current_price") or (opps[0].underlying_price if opps else 0)
         price_change_pct = quote_data.get("price_change_pct") or (opps[0].price_change_pct if opps else None)
-        week52_high = quote_data.get("week52_high")
-        week52_low = quote_data.get("week52_low")
 
         direction_str = ""
         if price_change_pct is not None:
             direction_str = f"▲ {_format_pct(abs(price_change_pct))}" if price_change_pct >= 0 else f"▼ {_format_pct(abs(price_change_pct))}"
 
-        week52_str = f" | 52W: {_format_currency(week52_low)}–{_format_currency(week52_high)}" if week52_high and week52_low else ""
-        lines.append(f"### {ticker} @ {_format_currency(current_price)} {direction_str}{week52_str}")
+        lines.append(f"### {ticker} @ {_format_currency(current_price)} {direction_str}")
         lines.append(f"<!-- TICKER_CONTEXT:{ticker} -->\n")
 
         if opps:
@@ -287,8 +284,6 @@ def _build_html(
         quote_data = ticker_quotes.get(ticker, {})
         current_price = quote_data.get("current_price") or (opps[0].underlying_price if opps else 0)
         price_change_pct = quote_data.get("price_change_pct") or (opps[0].price_change_pct if opps else None)
-        week52_high = quote_data.get("week52_high")
-        week52_low = quote_data.get("week52_low")
 
         if price_change_pct is not None:
             if price_change_pct >= 0:
@@ -297,10 +292,6 @@ def _build_html(
                 direction_html = f'<span style="color: #dc3545;">▼ {_format_pct(abs(price_change_pct))}</span>'
         else:
             direction_html = ""
-
-        week52_html = ""
-        if week52_high and week52_low:
-            week52_html = f'<span style="color: #888; font-size: 13px; font-weight: normal;"> | 52W: {_format_currency(week52_low)}–{_format_currency(week52_high)}</span>'
 
         # TICKER_CONTEXT merge field — LLM replaces this with stock-researcher output
         merge_field = f"<!-- TICKER_CONTEXT:{ticker} -->"
@@ -349,7 +340,7 @@ def _build_html(
 
         ticker_sections.append(f"""
         <h3 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 5px;">
-            {ticker} @ {_format_currency(current_price)} {direction_html}{week52_html}
+            {ticker} @ {_format_currency(current_price)} {direction_html}
         </h3>
         {merge_field}
         {opps_html}""")
@@ -450,10 +441,6 @@ def cmd_scan(args) -> None:
             ticker_quotes[ticker] = {
                 "current_price": current_price,
                 "price_change_pct": price_change_pct,
-                "next_earning_date": all_data.get("nextEarningDate"),
-                "week52_high": all_data.get("week52High"),
-                "week52_low": all_data.get("week52Low"),
-                "avg_volume": all_data.get("average10DayVolume"),
             }
 
             exp_date, contracts = client.get_options_for_ticker(

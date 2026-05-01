@@ -577,7 +577,7 @@ class ETradeClient:
             Quote data dictionary
         """
         logger.debug(f"Fetching quote for {symbol}")
-        response = self.market.get_quote([symbol], resp_format='json', require_earnings_date=True)
+        response = self.market.get_quote([symbol], resp_format='json')
         
         if 'QuoteResponse' in response and 'QuoteData' in response['QuoteResponse']:
             quote_data = response['QuoteResponse']['QuoteData']

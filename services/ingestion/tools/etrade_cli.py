@@ -132,10 +132,6 @@ def cmd_quote(args, env: dict) -> None:
                 "previous_close": prev_close,
                 "change_pct": change_pct,
                 "volume": all_data.get("totalVolume"),
-                "avg_volume": all_data.get("average10DayVolume"),
-                "week52_high": all_data.get("week52High"),
-                "week52_low": all_data.get("week52Low"),
-                "next_earnings_date": all_data.get("nextEarningDate") or None,
             }
         except Exception as e:
             results[ticker] = {"ticker": ticker, "error": str(e), "code": "api_error"}
