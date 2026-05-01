@@ -199,10 +199,6 @@ ETRADE_TOTP_SECRET = os.getenv("ETRADE_TOTP_SECRET", "")
 ETRADE_MODE = os.getenv("ETRADE_MODE", "production")  # "sandbox" or "production"
 
 # --- Stocks Config ---
-STOCKS_WATCHLISTS_PATH = os.getenv(
-    "STOCKS_WATCHLISTS_PATH",
-    str(Path(VAULT_PATH) / "stocks" / "watchlists.yaml")
-)
 STOCKS_OPTIONS_CONFIG_PATH = os.getenv(
     "STOCKS_OPTIONS_CONFIG_PATH",
     str(Path(VAULT_PATH) / "stocks" / "options_config.yaml")
