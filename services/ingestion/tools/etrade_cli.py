@@ -218,29 +218,14 @@ def cmd_options(args, env: dict) -> None:
 
 
 def cmd_positions(args, env: dict) -> None:
-    """List open short put positions."""
+    """List all open positions."""
     suffix = _get_account_suffix(getattr(args, "account", None))
     client = _authenticate(env)
     client.account_suffix = suffix
 
     try:
-        positions = client.get_short_put_positions()
-        output = [
-            {
-                "underlying": p.underlying,
-                "option_type": p.option_type,
-                "strike_price": p.strike_price,
-                "expiration_date": str(p.expiration_date),
-                "days_to_expiry": p.days_to_expiry,
-                "quantity": p.quantity,
-                "current_price": p.current_price,
-                "cost_basis_per_share": p.cost_basis_per_share,
-                "profit_loss_pct": round(p.profit_loss_pct, 4),
-                "profit_loss_dollars": round(p.profit_loss, 2),
-            }
-            for p in positions
-        ]
-        print(json.dumps(output, ensure_ascii=False, default=str))
+        positions = client.get_all_positions()
+        print(json.dumps(positions, ensure_ascii=False, default=str))
     except Exception as e:
         _err(f"Failed to fetch positions: {e}", "api_error")
 

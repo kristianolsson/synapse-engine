@@ -472,6 +472,101 @@ class ETradeClient:
             logger.warning(f"Failed to get positions: {e}")
             return positions
     
+    def get_all_positions(self) -> list[dict]:
+        """Get all positions across all security types for the account.
+
+        Returns a list of dicts with common fields. Options include additional
+        strike/expiry/type fields. Does not filter by security type or direction.
+        """
+        def safe_float(val, default=0.0):
+            if val is None:
+                return default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+
+        positions = []
+
+        try:
+            accounts_data = self.accounts.list_accounts()
+            if not accounts_data:
+                return positions
+
+            account_list = accounts_data.get('AccountListResponse', {}).get('Accounts', {}).get('Account', [])
+            if not account_list:
+                return positions
+            if isinstance(account_list, dict):
+                account_list = [account_list]
+
+            account_key = None
+            for acct in account_list:
+                acct_id = acct.get('accountId', '')
+                acct_key = acct.get('accountIdKey')
+                if self.account_suffix:
+                    if str(acct_id).endswith(self.account_suffix):
+                        account_key = acct_key
+                        break
+                else:
+                    account_key = acct_key
+                    break
+
+            if not account_key:
+                return positions
+
+            portfolio_data = self.accounts.get_account_portfolio(account_id_key=account_key)
+            if not portfolio_data:
+                return positions
+
+            portfolio_response = portfolio_data.get('PortfolioResponse', {})
+            account_portfolios = portfolio_response.get('AccountPortfolio', [])
+            if isinstance(account_portfolios, dict):
+                account_portfolios = [account_portfolios]
+
+            for account_portfolio in account_portfolios:
+                position_list = account_portfolio.get('Position', [])
+                if isinstance(position_list, dict):
+                    position_list = [position_list]
+
+                for pos in position_list:
+                    product = pos.get('Product', {})
+                    security_type = product.get('securityType', 'UNKNOWN')
+                    symbol = product.get('symbol', '')
+                    quantity = safe_float(pos.get('quantity', 0))
+                    quick = pos.get('Quick', {})
+                    current_price = safe_float(quick.get('lastTrade') or quick.get('ask') or 0)
+                    market_value = safe_float(pos.get('marketValue', 0))
+                    cost_basis = safe_float(pos.get('costBasis', 0))
+                    gain_loss = safe_float(pos.get('totalGain', 0)) or (market_value - cost_basis)
+                    gain_loss_pct = (gain_loss / abs(cost_basis)) if cost_basis else None
+
+                    entry: dict = {
+                        'symbol': symbol,
+                        'security_type': security_type,
+                        'quantity': quantity,
+                        'current_price': current_price,
+                        'market_value': market_value,
+                        'cost_basis': cost_basis,
+                        'gain_loss': round(gain_loss, 2),
+                        'gain_loss_pct': round(gain_loss_pct, 4) if gain_loss_pct is not None else None,
+                    }
+
+                    if security_type == 'OPTN':
+                        entry['option_type'] = product.get('callPut')
+                        entry['strike_price'] = safe_float(product.get('strikePrice', 0))
+                        exp_y = product.get('expiryYear')
+                        exp_m = product.get('expiryMonth')
+                        exp_d = product.get('expiryDay')
+                        if exp_y and exp_m and exp_d:
+                            entry['expiration_date'] = str(date(int(exp_y), int(exp_m), int(exp_d)))
+
+                    positions.append(entry)
+
+        except Exception as e:
+            logger.warning(f"Failed to get all positions: {e}")
+
+        return positions
+
     def get_quote(self, symbol: str) -> dict:
         """Get current quote for a symbol.
         
