@@ -177,7 +177,8 @@ def _build_markdown(
         if opps:
             for i, opp in enumerate(opps):
                 rank_badge = "🥇" if i == 0 else ("🥈" if i == 1 else ("🥉" if i == 2 else "  "))
-                lines.append(f"- {rank_badge} {opp.score:.0f} | **${opp.contract.strike_price:.2f}** | {opp.contract.expiration_date} ({opp.contract.days_to_expiry}d) | Bid: {_format_currency(opp.contract.bid)} | Yld: {_format_pct(opp.annualized_yield)} | Prot: {_format_pct(opp.downside_protection)}")
+                iv_str = _format_pct(opp.contract.implied_volatility) if opp.contract.implied_volatility else "N/A"
+                lines.append(f"- {rank_badge} {opp.score:.0f} | **${opp.contract.strike_price:.2f}** | {opp.contract.expiration_date} ({opp.contract.days_to_expiry}d) | Bid: {_format_currency(opp.contract.bid)} | Yld: {_format_pct(opp.annualized_yield)} | Prot: {_format_pct(opp.downside_protection)} | IV: {iv_str}")
             lines.append("")
         else:
             lines.append("_No opportunities met your thresholds._\n")
@@ -299,6 +300,7 @@ def _build_html(
             rows = []
             for i, opp in enumerate(opps):
                 delta_str = f"{abs(opp.contract.delta):.2f}" if opp.contract.delta else "N/A"
+                iv_str = _format_pct(opp.contract.implied_volatility) if opp.contract.implied_volatility else "N/A"
                 rank_badge = "🥇" if i == 0 else ("🥈" if i == 1 else ("🥉" if i == 2 else ""))
                 rows.append(f"""
                 <tr>
@@ -310,6 +312,7 @@ def _build_html(
                     <td style="padding: 8px; border-bottom: 1px solid #eee; color: #28a745; font-weight: bold;">{_format_pct(opp.annualized_yield)}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">{_format_pct(opp.downside_protection)}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">{delta_str}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">{iv_str}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">{opp.contract.open_interest}</td>
                 </tr>""")
             opps_html = f"""
@@ -324,6 +327,7 @@ def _build_html(
                         <th style="padding: 8px; text-align: left;">Yield (Ann.)</th>
                         <th style="padding: 8px; text-align: left;">Protection</th>
                         <th style="padding: 8px; text-align: left;">Delta</th>
+                        <th style="padding: 8px; text-align: left;">IV</th>
                         <th style="padding: 8px; text-align: left;">OI</th>
                     </tr>
                 </thead>
