@@ -558,6 +558,8 @@ class ReminderScheduler:
         )
 
         subject = reminder.get("subject")
+        if subject:
+            subject = subject.replace("{date}", datetime.now().strftime("%Y-%m-%d"))
 
         try:
             if reminder_type == "message":
