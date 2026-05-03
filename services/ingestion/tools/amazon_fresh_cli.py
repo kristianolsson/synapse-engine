@@ -321,6 +321,14 @@ HTML:
 def main():
     logging.basicConfig(level=logging.WARNING)
 
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument(
+        "--headed",
+        action="store_true",
+        default=False,
+        help="Open a visible browser window.",
+    )
+
     parser = argparse.ArgumentParser(
         prog="amazon-fresh",
         description=(
@@ -328,23 +336,17 @@ def main():
             "(zero LLM calls in normal operation). Run 'heal' first to bootstrap selectors."
         ),
     )
-    parser.add_argument(
-        "--headed",
-        action="store_true",
-        default=False,
-        help="Open a visible browser window (auto-enabled for auth and heal).",
-    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("auth", help="One-time headed login — saves Firefox session for headless use.")
+    sub.add_parser("auth", help="One-time headed login — saves Firefox session for headless use.", parents=[parent_parser])
 
-    p_pp = sub.add_parser("past-purchases", help="List past Amazon Fresh purchases.")
+    p_pp = sub.add_parser("past-purchases", help="List past Amazon Fresh purchases.", parents=[parent_parser])
     p_pp.add_argument("--limit", type=int, default=None, help="Max items to return.")
 
-    p_si = sub.add_parser("saved-items", help="List Amazon Fresh saved items.")
+    p_si = sub.add_parser("saved-items", help="List Amazon Fresh saved items.", parents=[parent_parser])
     p_si.add_argument("--limit", type=int, default=None, help="Max items to return.")
 
-    p_search = sub.add_parser("search", help="Search Amazon Fresh. Previously-purchased items sorted first.")
+    p_search = sub.add_parser("search", help="Search Amazon Fresh. Previously-purchased items sorted first.", parents=[parent_parser])
     p_search.add_argument("query", help="Search query.")
     p_search.add_argument("--limit", type=int, default=10, help="Max results (default: 10).")
 
@@ -354,6 +356,7 @@ def main():
             "Bootstrap or repair selectors.json by loading live pages and calling an LLM. "
             "Run this first after 'auth', or whenever scraping breaks."
         ),
+        parents=[parent_parser]
     )
     p_heal.add_argument("--page", choices=PAGES, default=None, help="Page to heal (default: all).")
 
