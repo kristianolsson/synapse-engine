@@ -11,7 +11,18 @@ from typing import Optional
 logger = logging.getLogger("amazon-fresh")
 
 DEFAULT_PROFILE_DIR = Path.home() / ".amazon-fresh-session"
-AUTH_REDIRECT_PATTERNS = ["/ap/signin", "/ap/register", "/gp/sign-in"]
+
+# All Amazon auth/2FA/challenge URL patterns — polling waits until NONE of these match
+AUTH_REDIRECT_PATTERNS = [
+    "/ap/signin",
+    "/ap/register",
+    "/gp/sign-in",
+    "/ap/mfa",           # SMS / TOTP 2FA page
+    "/ap/cvf",           # Email/phone verification
+    "/ap/challenge",     # Bot/CAPTCHA challenge
+    "/ap/verify",        # Additional verification
+    "/ap/password",      # Password entry step
+]
 
 
 def is_auth_redirect(url: str) -> bool:

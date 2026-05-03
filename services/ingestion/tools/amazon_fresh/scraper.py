@@ -218,8 +218,30 @@ def dump_dom_for_heal(page, max_chars: int = 60000) -> str:
     return html
 
 
-def scroll_to_load(page, max_scrolls: int = 8) -> None:
-    """Scroll the page to trigger lazy-loading of product items."""
+def scroll_to_load(page, max_items: int = 150, max_scrolls: int = 25) -> None:
+    """Scroll the page to trigger lazy-loading until item count stabilizes.
+
+    Stops early when a scroll produces no new items (page fully loaded),
+    or when max_items or max_scrolls is reached.
+
+    Args:
+        page: Playwright page.
+        max_items: Stop scrolling once this many items are visible.
+        max_scrolls: Hard limit on scroll attempts regardless of item count.
+    """
+    previous_count = 0
     for _ in range(max_scrolls):
         page.evaluate("window.scrollBy(0, window.innerHeight * 1.5)")
-        page.wait_for_timeout(700)
+        page.wait_for_timeout(900)  # Give lazy-load time to fire
+
+        try:
+            # Count elements that have a data-asin attribute
+            current_count = page.locator("[data-asin]:not([data-asin=''])").count()
+        except Exception:
+            current_count = 0
+
+        if current_count >= max_items:
+            break
+        if current_count > 0 and current_count == previous_count:
+            break  # No new items loaded — page is fully loaded
+        previous_count = current_count
