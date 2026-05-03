@@ -311,9 +311,6 @@ HTML:
             logger.warning("LLM returned JSON, but all selector values were null. Raw output: %s", output[:500])
         return filtered
 
-    except subprocess.TimeoutExpired:
-        logger.warning("Claude CLI timed out during heal")
-        return None
     except (json.JSONDecodeError, Exception) as e:
         logger.warning("Failed to parse LLM response: %s", e)
         return None
