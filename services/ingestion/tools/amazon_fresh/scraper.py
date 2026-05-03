@@ -223,9 +223,9 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
     except Exception:
         pass
 
-    # Strip massive non-structural elements to save space before dumping
+    # Strip massive non-structural elements and return the HTML directly from JS
     try:
-        page.evaluate('''() => {
+        html = page.evaluate('''() => {
             const badSelectors = [
                 'script', 'style', 'svg', 'path', 'noscript', 'meta', 'link', 'iframe', 'img',
                 'header', 'footer', 'nav', '#navbar', '#nav-belt', '#nav-main', '#navFooter', '.hidden'
@@ -240,20 +240,18 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
                     }
                 }
             });
+            
+            // Try to find the grid container first
+            for (const sel of ["#gridlayout-main-grid", "#search", "main"]) {
+                const el = document.querySelector(sel);
+                if (el && el.innerHTML.length > 500) {
+                    return el.innerHTML;
+                }
+            }
+            return document.body.innerHTML;
         }''')
     except Exception as e:
         logger.warning("Failed to strip DOM: %s", e)
-
-    for selector in ["#gridlayout-main-grid", "#search", "#a-page", "main"]:
-        try:
-            el = page.locator(selector).first
-            html = el.inner_html(timeout=3000)
-            if html and len(html) > 500:
-                break
-        except Exception:
-            html = None
-
-    if not html:
         html = page.content()
 
     if len(html) > max_chars:
