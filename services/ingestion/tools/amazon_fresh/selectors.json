@@ -1,0 +1,20 @@
+{
+  "past_purchases": {
+    "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",
+    "item_container": "[data-asin]:not([data-asin=''])",
+    "item_name": "h2 span, .a-text-normal",
+    "item_price": ".a-price .a-offscreen"
+  },
+  "saved_items": {
+    "url": "https://www.amazon.com/fmc/saves/fresh",
+    "item_container": "[data-asin]:not([data-asin=''])",
+    "item_name": "h2 span, .a-text-normal",
+    "item_price": ".a-price .a-offscreen"
+  },
+  "search": {
+    "url_template": "https://www.amazon.com/s?k={query}&i=amazonfresh",
+    "item_container": "[data-component-type='s-search-result']",
+    "item_name": "h2 span",
+    "item_price": ".a-price .a-offscreen"
+  }
+}

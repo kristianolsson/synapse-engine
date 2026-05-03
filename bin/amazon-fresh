@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Amazon Fresh CLI — browse and manage Amazon Fresh groceries via Playwright Firefox.
+# Session profile: ~/.amazon-fresh-session/ (created by 'amazon-fresh auth')
+export PYTHONPATH="/app/synapse-engine:$PYTHONPATH"
+python3 -m services.ingestion.tools.amazon_fresh_cli "$@"

@@ -16,3 +16,5 @@ services:
       # E*TRADE: persistent OAuth tokens and browser session (shared with options-bot credentials)
       - /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/.etrade_tokens:/home/synapse/.etrade_tokens
       - /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/.etrade_browser_profile:/home/synapse/.etrade_browser_profile
+      # Amazon Fresh: persistent Firefox browser session
+      - /share/CE_CACHEDEV2_DATA/synapse/credentials/amazon/.amazon-fresh-session:/home/synapse/.amazon-fresh-session

@@ -122,7 +122,34 @@ On QNAP:
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade
 ```
 
-## 8. Set up .env and config files
+## 8. Set up Amazon Fresh credentials (Optional)
+
+If you use the `amazon-fresh` CLI tool, authenticate on your Mac first — Amazon's 2FA and device-trust checks require a headed browser. The saved Firefox profile is then recognized as a "trusted device" in the headless Docker container.
+
+On Mac:
+```bash
+# 1. Log into Amazon Fresh headed (browser opens automatically)
+cd ~/Documents/code/synapse-engine
+python3 -m services.ingestion.tools.amazon_fresh_cli auth
+
+# 2. Bootstrap selectors from the live pages (also headed)
+python3 -m services.ingestion.tools.amazon_fresh_cli heal
+
+# 3. Transfer the browser session profile to QNAP
+scp -r ~/.amazon-fresh-session admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/amazon/
+
+# 4. Also transfer the updated selectors.json
+scp ~/Documents/code/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json \
+  admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/synapse-engine/services/ingestion/tools/amazon_fresh/
+```
+
+On QNAP:
+```bash
+mkdir -p /share/CE_CACHEDEV2_DATA/synapse/credentials/amazon
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/amazon
+```
+
+## 9. Set up .env and config files
 
 On Mac:
 ```bash
