@@ -200,11 +200,20 @@ def cmd_heal(args) -> None:
 
     config = load_selectors()
 
+    # Get search URL template, inject a test query ('bananas') to load a live page for healing
+    search_template = config.get("search", {}).get("url_template", "https://www.amazon.com/s?k={query}&i=amazonfresh")
+    search_url = search_template.format(query="bananas")
+
     url_map = {
-        "past-purchases": config.get("past_purchases", {}).get("url", "https://www.amazon.com/afx/lists/pastpurchases/fresh"),
-        "saved-items": config.get("saved_items", {}).get("url", "https://www.amazon.com/fmc/saves/fresh"),
-        "search": "https://www.amazon.com/s?k=bananas&i=amazonfresh",
+        "past-purchases": config.get("past_purchases", {}).get("url"),
+        "saved-items": config.get("saved_items", {}).get("url"),
+        "search": search_url,
     }
+
+    # Ensure URLs exist in the config before trying to heal them
+    for k, v in url_map.items():
+        if not v:
+            _err(f"Missing URL config for '{k}' in selectors.json", "config_error")
 
     pages_to_heal = [args.page] if args.page else PAGES
 
