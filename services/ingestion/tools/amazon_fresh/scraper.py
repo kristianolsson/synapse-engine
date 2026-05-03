@@ -161,15 +161,14 @@ def add_to_cart(page, asin: str, qty: int, sel: dict) -> dict:
 
     card = page.locator(card_sel).first
     name = _card_name(card)
+    label = f'"{name}" ' if name else ""
 
     # Check for explicit out-of-stock indicator if a selector is configured
     oos_sel = sel.get("out_of_stock_indicator")
     if oos_sel:
         try:
             if card.locator(oos_sel).count() > 0:
-                raise ValueError(
-                    f"{'\"' + name + '\" ' if name else ''}({asin}) is out of stock on Amazon Fresh"
-                )
+                raise ValueError(f"{label}({asin}) is out of stock on Amazon Fresh")
         except ValueError:
             raise
         except Exception:
@@ -180,9 +179,7 @@ def add_to_cart(page, asin: str, qty: int, sel: dict) -> dict:
     # If no Add to cart button is present the item is likely out of stock / unavailable
     try:
         if card.locator(add_btn_sel).count() == 0:
-            raise ValueError(
-                f"{'\"' + name + '\" ' if name else ''}({asin}) is out of stock or unavailable on Amazon Fresh"
-            )
+            raise ValueError(f"{label}({asin}) is out of stock or unavailable on Amazon Fresh")
     except ValueError:
         raise
     except Exception:
