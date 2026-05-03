@@ -221,7 +221,10 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
                     capture_output=True, text=True, timeout=300
                 )
                 if result.returncode == 0:
-                    await message.reply_text(f"✅ Heal completed:\n```json\n{result.stdout.strip()}\n```", parse_mode='Markdown')
+                    reply = f"✅ Heal completed:\n```json\n{result.stdout.strip()}\n```"
+                    if result.stderr.strip():
+                        reply += f"\n\n⚠️ Logs/Warnings:\n```\n{result.stderr.strip()}\n```"
+                    await message.reply_text(reply, parse_mode='Markdown')
                 else:
                     await message.reply_text(f"❌ Heal failed:\n```\n{result.stdout.strip()}\n{result.stderr.strip()}\n```", parse_mode='Markdown')
             except Exception as e:

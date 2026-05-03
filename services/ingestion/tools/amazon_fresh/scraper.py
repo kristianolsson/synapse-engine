@@ -195,11 +195,19 @@ def scrape_search_results(page, sel: dict, limit: Optional[int] = None) -> list:
     return results
 
 
-def dump_dom_for_heal(page, max_chars: int = 60000) -> str:
+def dump_dom_for_heal(page, max_chars: int = 100000) -> str:
     """Dump a representative portion of the page HTML for LLM selector discovery.
 
     Called only by 'heal' — not used in normal scraping operations.
     """
+    # Strip massive non-structural elements to save space before dumping
+    try:
+        page.evaluate('''() => {
+            document.querySelectorAll('script, style, svg, path, noscript, meta, link, iframe').forEach(e => e.remove());
+        }''')
+    except Exception:
+        pass
+
     for selector in ["#gridlayout-main-grid", "#search", "#a-page", "main"]:
         try:
             el = page.locator(selector).first
