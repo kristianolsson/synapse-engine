@@ -200,6 +200,13 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
 
     Called only by 'heal' — not used in normal scraping operations.
     """
+    # Write the raw DOM to a file for debugging
+    try:
+        with open("debug_dom.html", "w") as f:
+            f.write(page.content())
+    except Exception:
+        pass
+
     # Strip massive non-structural elements to save space before dumping
     try:
         page.evaluate('''() => {
