@@ -1,9 +1,9 @@
 {
   "past_purchases": {
     "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",
-    "item_container": "div[id^='gridCell-']",
-    "item_name": "span.a-truncate-full",
-    "item_price": "span.a-price span.a-offscreen"
+    "item_container": "div[id^=\"gridCell-\"]",
+    "item_name": "span.p13nTitle",
+    "item_price": "span.a-price"
   },
   "saved_items": {
     "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",

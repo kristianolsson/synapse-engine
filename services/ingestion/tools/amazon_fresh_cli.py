@@ -131,7 +131,7 @@ def cmd_past_purchases(args) -> None:
     p, context = launch_browser(headed=args.headed)
     try:
         page = _open_page(context, sel["url"])
-        scroll_to_load(page)
+        scroll_to_load(page, item_selector=sel.get("item_container"), max_items=args.limit or 100)
         items = scrape_items(page, sel, limit=args.limit)
         _out({"items": items, "count": len(items)})
     except Exception as e:
@@ -157,7 +157,7 @@ def cmd_saved_items(args) -> None:
         if "click_selector" in sel:
             page.locator(sel["click_selector"]).first.click(timeout=10000)
             page.wait_for_timeout(3000)  # Wait for tab to load
-        scroll_to_load(page)
+        scroll_to_load(page, item_selector=sel.get("item_container"), max_items=args.limit or 100)
         items = scrape_items(page, sel, limit=args.limit)
         _out({"items": items, "count": len(items)})
     except Exception as e:

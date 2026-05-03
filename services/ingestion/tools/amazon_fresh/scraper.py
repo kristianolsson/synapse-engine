@@ -39,17 +39,24 @@ def _extract_name(element, name_selector: str) -> Optional[str]:
 
 
 def _extract_asin(element) -> Optional[str]:
-    """Extract ASIN from data-asin attribute.
-
-    Hardcoded intentionally — data-asin is Amazon's own internal SKU identifier,
-    not a UI class. Per the project plan: 'extremely stable, prefer over CSS classes'.
-    """
+    """Extract ASIN from data-asin attribute, or product link if missing."""
     try:
         asin = element.get_attribute("data-asin")
         if asin and asin.strip():
             return asin.strip()
     except Exception:
         pass
+
+    # Fallback: look for an href containing /dp/ anywhere in the container
+    try:
+        html = element.inner_html(timeout=2000)
+        import re
+        match = re.search(r'/dp/([A-Z0-9]{10})', html)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+
     return None
 
 
@@ -248,7 +255,7 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
     return html
 
 
-def scroll_to_load(page, max_items: int = 150, max_scrolls: int = 25) -> None:
+def scroll_to_load(page, item_selector: str = None, max_items: int = 150, max_scrolls: int = 25) -> None:
     """Scroll the page to trigger lazy-loading until item count stabilizes.
 
     Stops early when a scroll produces no new items (page fully loaded),
@@ -256,14 +263,22 @@ def scroll_to_load(page, max_items: int = 150, max_scrolls: int = 25) -> None:
 
     Args:
         page: Playwright page.
+        item_selector: CSS selector for the item container. If None, does a fast blind scroll (for heal).
         max_items: Stop scrolling once this many items are visible.
         max_scrolls: Hard limit on scroll attempts regardless of item count.
     """
+    if not item_selector:
+        # Fast blind scrolls to trigger initial lazy-loaders for LLM heal
+        for _ in range(4):
+            page.evaluate("window.scrollBy(0, window.innerHeight * 1.5)")
+            page.wait_for_timeout(1000)
+        return
+
     previous_count = 0
     for _ in range(max_scrolls):
         try:
             # Scroll the last loaded item into view to cleanly trigger the next batch
-            items = page.locator("[data-asin]:not([data-asin=''])")
+            items = page.locator(item_selector)
             count = items.count()
             if count > 0:
                 items.nth(count - 1).scroll_into_view_if_needed()
@@ -275,7 +290,7 @@ def scroll_to_load(page, max_items: int = 150, max_scrolls: int = 25) -> None:
         page.wait_for_timeout(1500)  # Give lazy-load more time to fire
 
         try:
-            current_count = page.locator("[data-asin]:not([data-asin=''])").count()
+            current_count = page.locator(item_selector).count()
         except Exception:
             current_count = 0
 
@@ -286,7 +301,7 @@ def scroll_to_load(page, max_items: int = 150, max_scrolls: int = 25) -> None:
             # Try a small nudge scroll in case we missed the intersection observer
             page.evaluate("window.scrollBy(0, 400)")
             page.wait_for_timeout(1500)
-            current_count = page.locator("[data-asin]:not([data-asin=''])").count()
+            current_count = page.locator(item_selector).count()
             if current_count == previous_count:
                 break  # Definitely fully loaded
                 
