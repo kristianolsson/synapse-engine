@@ -16,15 +16,14 @@ logger = logging.getLogger("amazon-fresh")
 
 # ── Element helpers ────────────────────────────────────────────────────────────
 
-def _extract_price(element) -> Optional[str]:
-    """Extract price text, preferring the screen-reader .a-offscreen element."""
-    for sel in (".a-price .a-offscreen", "[data-a-color='price'] .a-offscreen"):
-        try:
-            text = element.locator(sel).first.text_content(timeout=2000)
-            if text and text.strip():
-                return text.strip()
-        except Exception:
-            pass
+def _extract_price(element, price_selector: str) -> Optional[str]:
+    """Extract price text using the selector from selectors.json."""
+    try:
+        text = element.locator(price_selector).first.text_content(timeout=2000)
+        if text and text.strip():
+            return text.strip()
+    except Exception:
+        pass
     return None
 
 
@@ -40,7 +39,11 @@ def _extract_name(element, name_selector: str) -> Optional[str]:
 
 
 def _extract_asin(element) -> Optional[str]:
-    """Extract ASIN from data-asin attribute — extremely stable Amazon identifier."""
+    """Extract ASIN from data-asin attribute.
+
+    Hardcoded intentionally — data-asin is Amazon's own internal SKU identifier,
+    not a UI class. Per the project plan: 'extremely stable, prefer over CSS classes'.
+    """
     try:
         asin = element.get_attribute("data-asin")
         if asin and asin.strip():
@@ -133,7 +136,7 @@ def scrape_items(page, sel: dict, limit: Optional[int] = None) -> list:
 
         items.append({
             "name": name,
-            "price": _extract_price(el),
+            "price": _extract_price(el, sel["item_price"]),
             "asin": _extract_asin(el),
         })
 
@@ -177,7 +180,7 @@ def scrape_search_results(page, sel: dict, limit: Optional[int] = None) -> list:
         purchased = _extract_purchase_date(el)
         results.append({
             "name": name,
-            "price": _extract_price(el),
+            "price": _extract_price(el, sel["item_price"]),
             "asin": _extract_asin(el),
             "in_stock": _is_in_stock(el),
             "purchased": purchased,  # e.g. "Purchased Apr 2026" or null
