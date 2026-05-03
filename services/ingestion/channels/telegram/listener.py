@@ -207,6 +207,29 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             return
         return
 
+    # /amazon command — interact with Amazon Fresh CLI
+    if stripped.startswith("/amazon "):
+        parts = stripped.split(" ", 1)
+        subcmd = parts[1].strip()
+        if subcmd == "heal":
+            await message.reply_text("⏳ Running Amazon Fresh heal (this takes a minute)...")
+            try:
+                # Run headlessly in the container
+                result = subprocess.run(
+                    ["python3", "-m", "services.ingestion.tools.amazon_fresh_cli", "heal"],
+                    cwd=Path(__file__).resolve().parents[4],
+                    capture_output=True, text=True, timeout=300
+                )
+                if result.returncode == 0:
+                    await message.reply_text(f"✅ Heal completed:\n```json\n{result.stdout.strip()}\n```", parse_mode='Markdown')
+                else:
+                    await message.reply_text(f"❌ Heal failed:\n```\n{result.stdout.strip()}\n{result.stderr.strip()}\n```", parse_mode='Markdown')
+            except Exception as e:
+                await message.reply_text(f"⚠️ Error running heal: {e}")
+        else:
+            await message.reply_text(f"Unknown Amazon subcommand: {subcmd}. Available: heal")
+        return
+
     # /provider command
     if stripped.startswith("/provider"):
         parts = stripped.split()

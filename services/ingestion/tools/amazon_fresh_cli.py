@@ -221,7 +221,7 @@ def cmd_heal(args) -> None:
     pages_to_heal = [args.page] if args.page else PAGES
 
     results = {}
-    p, context = launch_browser(headed=True)  # Always headed — needs live JS-rendered DOM
+    p, context = launch_browser(headed=args.headed)
     try:
         for page_name in pages_to_heal:
             page_key = PAGE_KEY_MAP[page_name]
