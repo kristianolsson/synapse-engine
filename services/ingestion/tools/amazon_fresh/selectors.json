@@ -1,7 +1,7 @@
 {
   "past_purchases": {
     "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",
-    "item_container": "div[id^='gridCell-']",
+    "item_container": "div[id^=\"closedCard-\"]",
     "item_name": ".p13nTitle .a-truncate-full",
     "item_price": ".a-price .a-offscreen"
   },

@@ -216,16 +216,8 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
 
     Called only by 'heal' — not used in normal scraping operations.
     """
-    # Write the raw DOM to a file for debugging
-    try:
-        with open("debug_dom.html", "w") as f:
-            f.write(page.content())
-    except Exception:
-        pass
-
     # Grab the full HTML natively
     html = page.content()
-    original_len = len(html)
 
     # Bulletproof native Python stripping (JS evaluate often crashes on Amazon's weird DOM)
     import re
@@ -243,12 +235,10 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
     # 3. Strip all massive data-* attributes to save tokens
     html = re.sub(r'\bdata-[a-zA-Z0-9_-]+=[\'"][^\'"]{100,}[\'"]', '', html)
 
-    stripped_len = len(html)
-
     if len(html) > max_chars:
         html = html[:max_chars] + "\n<!-- TRUNCATED -->"
 
-    return html, original_len, stripped_len
+    return html
 
 
 def scroll_to_load(page, item_selector: str = None, max_items: int = 150, max_scrolls: int = 25) -> None:
