@@ -48,7 +48,7 @@ def _extract_name(element, name_selector: str) -> Optional[str]:
 
 
 def _extract_asin(element) -> Optional[str]:
-    """Extract ASIN from data-asin attribute, or product link if missing."""
+    """Extract ASIN from data-asin attribute, element id, or product link."""
     try:
         asin = element.get_attribute("data-asin")
         if asin and asin.strip():
@@ -56,11 +56,19 @@ def _extract_asin(element) -> Optional[str]:
     except Exception:
         pass
 
-    # Fallback: look for an href containing /dp/ anywhere in the container
+    # Past-purchases cards use id="closedCard-<ASIN>" — pull it from there directly.
+    try:
+        elem_id = element.get_attribute("id") or ""
+        match = re.search(r'([A-Z0-9]{10})$', elem_id)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+
+    # Fallback: look for /dp/ or /gp/product/ URLs anywhere in the container HTML.
     try:
         html = element.inner_html(timeout=2000)
-        import re
-        match = re.search(r'/dp/([A-Z0-9]{10})', html)
+        match = re.search(r'/(?:dp|gp/product)/([A-Z0-9]{10})', html)
         if match:
             return match.group(1)
     except Exception:
