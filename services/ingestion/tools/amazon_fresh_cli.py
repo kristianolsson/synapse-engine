@@ -154,6 +154,9 @@ def cmd_saved_items(args) -> None:
     p, context = launch_browser(headed=args.headed)
     try:
         page = _open_page(context, sel["url"])
+        if "click_selector" in sel:
+            page.locator(sel["click_selector"]).first.click(timeout=10000)
+            page.wait_for_timeout(3000)  # Wait for tab to load
         scroll_to_load(page)
         items = scrape_items(page, sel, limit=args.limit)
         _out({"items": items, "count": len(items)})
@@ -223,10 +226,15 @@ def cmd_heal(args) -> None:
         for page_name in pages_to_heal:
             page_key = PAGE_KEY_MAP[page_name]
             url = url_map[page_name]
+            click_sel = config.get(page_key, {}).get("click_selector")
 
             print(json.dumps({"status": "healing", "page": page_name, "url": url}), flush=True)
 
             page = _open_page(context, url, wait_until="networkidle", timeout=45000)
+            if click_sel:
+                page.locator(click_sel).first.click(timeout=10000)
+                page.wait_for_timeout(3000)
+            
             page.wait_for_timeout(2000)
             scroll_to_load(page, max_scrolls=3)
 

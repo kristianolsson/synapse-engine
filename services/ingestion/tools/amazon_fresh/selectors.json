@@ -6,15 +6,16 @@
     "item_price": ".a-price .a-offscreen"
   },
   "saved_items": {
-    "url": "https://www.amazon.com/fmc/saves/fresh",
+    "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",
+    "click_selector": "a:has-text('Saved Items')",
     "item_container": "[data-asin]:not([data-asin=''])",
     "item_name": "h2 span, .a-text-normal",
     "item_price": ".a-price .a-offscreen"
   },
   "search": {
     "url_template": "https://www.amazon.com/s?k={query}&i=amazonfresh",
-    "item_container": "div[data-component-type=\"s-search-result\"]",
-    "item_name": "[data-cy=\"title-recipe\"] h2",
-    "item_price": "[data-cy=\"price-recipe\"] .a-price .a-offscreen"
+    "item_container": "div[data-component-type=\"s-search-result\"][data-asin]",
+    "item_name": "h2[aria-label]",
+    "item_price": "div[data-cy=\"price-recipe\"] .a-offscreen"
   }
 }
