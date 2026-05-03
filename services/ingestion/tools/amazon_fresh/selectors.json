@@ -1,21 +1,21 @@
 {
   "past_purchases": {
     "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",
-    "item_container": "[data-asin]:not([data-asin=''])",
-    "item_name": "h2 span, .a-text-normal",
+    "item_container": "div[id^='gridElement-']",
+    "item_name": ".p13nTitle .a-truncate-full",
     "item_price": ".a-price .a-offscreen"
   },
   "saved_items": {
     "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",
     "click_selector": "text='Saved Items'",
-    "item_container": "[data-asin]:not([data-asin=''])",
-    "item_name": "h2 span, .a-text-normal",
+    "item_container": "div[id^='gridElement-']",
+    "item_name": ".p13nTitle .a-truncate-full",
     "item_price": ".a-price .a-offscreen"
   },
   "search": {
     "url_template": "https://www.amazon.com/s?k={query}&i=amazonfresh",
-    "item_container": "div[data-component-type=\"s-search-result\"]",
-    "item_name": "[data-cy=\"title-recipe\"] h2",
-    "item_price": "[data-cy=\"price-recipe\"] span[data-a-size=\"xl\"] .a-offscreen"
+    "item_container": "[data-component-type=\"s-search-result\"]",
+    "item_name": "h2",
+    "item_price": ".a-price .a-offscreen"
   }
 }

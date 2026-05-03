@@ -203,7 +203,22 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
     # Strip massive non-structural elements to save space before dumping
     try:
         page.evaluate('''() => {
-            document.querySelectorAll('script, style, svg, path, noscript, meta, link, iframe, img').forEach(e => e.remove());
+            const badSelectors = [
+                'script', 'style', 'svg', 'path', 'noscript', 'meta', 'link', 'iframe', 'img',
+                'header', 'footer', 'nav', 
+                '#navbar', '#nav-belt', '#nav-main', '#navFooter',
+                '[style*="display: none"]', '[style*="display:none"]', '.hidden'
+            ];
+            document.querySelectorAll(badSelectors.join(', ')).forEach(e => e.remove());
+            
+            // Also wipe out massive data attributes that Amazon uses for internal tracking
+            document.querySelectorAll('*').forEach(el => {
+                for (let attr of el.attributes) {
+                    if (attr.name.startsWith('data-') && attr.value.length > 100) {
+                        el.removeAttribute(attr.name);
+                    }
+                }
+            });
         }''')
     except Exception:
         pass

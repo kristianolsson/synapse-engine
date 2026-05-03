@@ -70,15 +70,12 @@ def merge_page_selectors(page_key: str, new_selectors: dict) -> None:
     all_selectors = load_selectors()
     existing = all_selectors.get(page_key, {})
 
-    # Preserve the URL
-    merged = {}
-    for url_key in ("url", "url_template"):
-        if url_key in existing:
-            merged[url_key] = existing[url_key]
+    # Preserve all existing config (url, url_template, click_selector, etc)
+    merged = existing.copy()
 
-    # Merge in new selector keys (skip URL keys from LLM response)
+    # Merge in new selector keys
     for k, v in new_selectors.items():
-        if k not in ("url", "url_template") and v:
+        if k not in ("url", "url_template", "click_selector") and v:
             merged[k] = v
 
     all_selectors[page_key] = merged
