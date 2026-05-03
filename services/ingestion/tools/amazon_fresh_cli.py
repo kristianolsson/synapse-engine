@@ -13,6 +13,7 @@ Error codes:
   auth_failed    — Could not complete browser login
   selector_error — Selectors missing or broken; run 'amazon-fresh heal'
   scrape_error   — Page loaded but scraping failed unexpectedly
+  not_found      — ASIN not found in Fresh catalog or item out of stock
   heal_error     — Heal failed (LLM or DOM issue)
   config_error   — Missing configuration
 
@@ -21,7 +22,8 @@ Usage:
   amazon-fresh past-purchases [--limit N]
   amazon-fresh saved-items [--limit N]
   amazon-fresh search <query> [--limit N]
-  amazon-fresh heal [--page {past-purchases,saved-items,search}]
+  amazon-fresh add <asin> [qty]
+  amazon-fresh heal [--page {past-purchases,saved-items,search,add}]
 
 Global flags:
   --headed        Open a visible browser window (always on for auth and heal)
@@ -40,12 +42,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 logger = logging.getLogger("amazon-fresh")
 
-PAGES = ["past-purchases", "saved-items", "search"]
+PAGES = ["past-purchases", "saved-items", "search", "add"]
 
 PAGE_KEY_MAP = {
     "past-purchases": "past_purchases",
     "saved-items": "saved_items",
     "search": "search",
+    "add": "add",
 }
 
 
@@ -191,6 +194,35 @@ def cmd_search(args) -> None:
         close_browser(p, context)
 
 
+def cmd_add(args) -> None:
+    """Add a product to the Amazon Fresh cart by ASIN."""
+    import urllib.parse
+    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
+    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
+    from services.ingestion.tools.amazon_fresh.scraper import add_to_cart
+
+    try:
+        sel = get_page_selectors("add")
+    except KeyError as e:
+        _err(str(e), "selector_error")
+
+    url = sel["search_url_template"].format(asin=urllib.parse.quote_plus(args.asin))
+
+    p, context = launch_browser(headed=args.headed)
+    try:
+        page = _open_page(context, url)
+        result = add_to_cart(page, args.asin, qty=args.qty, sel=sel)
+        _out(result)
+    except ValueError as e:
+        _err(str(e), "not_found")
+    except RuntimeError as e:
+        _err(str(e), "selector_error")
+    except Exception as e:
+        _err(f"Add failed: {e}", "scrape_error")
+    finally:
+        close_browser(p, context)
+
+
 def cmd_heal(args) -> None:
     """Discover/repair CSS selectors by loading the live page and calling an LLM.
 
@@ -207,10 +239,16 @@ def cmd_heal(args) -> None:
     search_template = config.get("search", {}).get("url_template", "https://www.amazon.com/s?k={query}&i=amazonfresh")
     search_url = search_template.format(query="bananas")
 
+    # Use a real Fresh ASIN (Organic Whole Milk) so the Add to cart button is
+    # definitely present in the DOM during heal — a text query like "bananas"
+    # might return sponsored/non-Fresh results without the button.
+    add_url = config.get("add", {}).get("search_url_template", "").format(asin="B07ZLF9G83")
+
     url_map = {
         "past-purchases": config.get("past_purchases", {}).get("url"),
         "saved-items": config.get("saved_items", {}).get("url"),
         "search": search_url,
+        "add": add_url or search_url,
     }
 
     # Ensure URLs exist in the config before trying to heal them
@@ -238,8 +276,15 @@ def cmd_heal(args) -> None:
             page.wait_for_timeout(2000)
             scroll_to_load(page, max_scrolls=3)
 
-            # Dump DOM for LLM analysis
-            html = dump_dom_for_heal(page)
+            # Dump DOM for LLM analysis.
+            # For the add page, scope to a few product cards only — the full
+            # search results page is far too large for the LLM and we only
+            # need to see the button structure inside one representative card.
+            if page_name == "add":
+                scope_sel = config.get("add", {}).get("item_container", "[data-component-type='s-search-result']")
+                html = dump_dom_for_heal(page, scope_selector=scope_sel, scope_limit=3)
+            else:
+                html = dump_dom_for_heal(page)
             print(json.dumps({"status": "dom_captured", "page": page_name, "chars": len(html)}), flush=True)
 
             # Call LLM to identify selectors
@@ -264,6 +309,20 @@ def _llm_identify_selectors(page_name: str, url: str, dom_html: str) -> Optional
 
     This is the single LLM call in the entire CLI. Returns selector dict or None.
     """
+    if page_name == "add":
+        keys_block = """{
+  "item_container": "<selector for each product card — the outermost element per product, e.g. [data-component-type='s-search-result']>",
+  "add_to_cart_button": "<selector for the 'Add to cart' button, relative to the item container>",
+  "qty_increment_button": "<selector for the '+' quantity increment button that appears inside the card after adding, or null if not visible in this DOM snapshot>",
+  "out_of_stock_indicator": "<selector for an out-of-stock badge/text element inside the card, or null>"
+}"""
+    else:
+        keys_block = """{
+  "item_container": "<selector for each product card — the outermost element per product>",
+  "item_name": "<selector for product name, relative to the container>",
+  "item_price": "<selector for product price, relative to the container>"
+}"""
+
     prompt = f"""You are analyzing HTML from an Amazon Fresh page to identify stable CSS selectors for product scraping.
 
 Page: {page_name}
@@ -274,11 +333,7 @@ Strongly prefer selectors using data-asin, data-component-type, aria-label, or s
 Avoid brittle class names that look like they could be auto-generated (e.g. long hashes).
 
 Return ONLY a valid JSON object with these exact keys (no explanation, no markdown fences):
-{{
-  "item_container": "<selector for each product card — the outermost element per product>",
-  "item_name": "<selector for product name, relative to the container>",
-  "item_price": "<selector for product price, relative to the container>"
-}}
+{keys_block}
 
 If you cannot identify a selector confidently, use null for that key.
 
@@ -350,6 +405,10 @@ def main():
     p_search.add_argument("query", help="Search query.")
     p_search.add_argument("--limit", type=int, default=10, help="Max results (default: 10).")
 
+    p_add = sub.add_parser("add", help="Add a product to the Amazon Fresh cart by ASIN.", parents=[parent_parser])
+    p_add.add_argument("asin", help="Product ASIN (from search or past-purchases output).")
+    p_add.add_argument("qty", nargs="?", type=int, default=1, help="Quantity to add (default: 1).")
+
     p_heal = sub.add_parser(
         "heal",
         help=(
@@ -367,6 +426,7 @@ def main():
         "past-purchases": cmd_past_purchases,
         "saved-items": cmd_saved_items,
         "search": cmd_search,
+        "add": cmd_add,
         "heal": cmd_heal,
     }
 

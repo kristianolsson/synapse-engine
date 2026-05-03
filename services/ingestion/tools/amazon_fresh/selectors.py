@@ -15,7 +15,14 @@ logger = logging.getLogger("amazon-fresh")
 
 SELECTORS_FILE = Path(__file__).parent / "selectors.json"
 
-REQUIRED_KEYS = ["item_container", "item_name", "item_price"]
+_SCRAPE_KEYS = ["item_container", "item_name", "item_price"]
+
+REQUIRED_KEYS_BY_PAGE = {
+    "past_purchases": _SCRAPE_KEYS,
+    "saved_items": _SCRAPE_KEYS,
+    "search": _SCRAPE_KEYS,
+    "add": ["item_container", "add_to_cart_button"],
+}
 
 
 def load_selectors() -> dict:
@@ -46,7 +53,8 @@ def get_page_selectors(page_key: str) -> dict:
             f"Run: amazon-fresh heal --page {page_key.replace('_', '-')}"
         )
     page = selectors[page_key]
-    missing = [k for k in REQUIRED_KEYS if k not in page]
+    required = REQUIRED_KEYS_BY_PAGE.get(page_key, _SCRAPE_KEYS)
+    missing = [k for k in required if k not in page]
     if missing:
         raise KeyError(
             f"Selectors for '{page_key}' incomplete (missing: {missing}). "
@@ -74,8 +82,9 @@ def merge_page_selectors(page_key: str, new_selectors: dict) -> None:
     merged = existing.copy()
 
     # Merge in new selector keys
+    _PRESERVE = {"url", "url_template", "search_url_template", "click_selector"}
     for k, v in new_selectors.items():
-        if k not in ("url", "url_template", "click_selector") and v:
+        if k not in _PRESERVE and v:
             merged[k] = v
 
     all_selectors[page_key] = merged

@@ -1,4 +1,11 @@
 {
+  "add": {
+    "search_url_template": "https://www.amazon.com/s?k={asin}&i=amazonfresh",
+    "item_container": "[data-component-type='s-search-result']",
+    "add_to_cart_button": "button[aria-label='Add to cart']",
+    "qty_increment_button": "button[data-action='a-stepper-increment']",
+    "out_of_stock_indicator": null
+  },
   "past_purchases": {
     "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",
     "item_container": "div[id^=\"closedCard-\"]",

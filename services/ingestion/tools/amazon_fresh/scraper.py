@@ -123,6 +123,101 @@ def _is_in_stock(element) -> bool:
         return True  # Assume in stock if we can't tell
 
 
+# ── Cart actions ──────────────────────────────────────────────────────────────
+
+def _card_name(card) -> str:
+    """Extract product name from a search result card, or empty string."""
+    try:
+        text = card.locator("h2 span").first.text_content(timeout=3000)
+        return text.strip() if text else ""
+    except Exception:
+        return ""
+
+
+def add_to_cart(page, asin: str, qty: int, sel: dict) -> dict:
+    """Add an item to the Amazon Fresh cart.
+
+    The page must already be navigated to the Fresh search URL for this ASIN
+    (caller handles navigation so auth check happens before we get here).
+    Uses selectors from selectors.json["add"] for all button interactions.
+
+    The search may return many unrelated items — we scope the item_container
+    selector to the specific data-asin so we always click the right card.
+
+    Returns {"asin", "name", "qty", "added": True}.
+    Raises ValueError if the ASIN isn't found or the item is out of stock.
+    Raises RuntimeError if the Add to cart button can't be clicked.
+    """
+    # Scope the configured container selector to the specific ASIN.
+    # data-asin on search result cards is stable regardless of result ordering.
+    card_sel = f'{sel["item_container"]}[data-asin="{asin}"]'
+    try:
+        page.wait_for_selector(card_sel, timeout=10000)
+    except Exception:
+        raise ValueError(
+            f"ASIN {asin} not found in Amazon Fresh — "
+            "item may not be available in your delivery area"
+        )
+
+    card = page.locator(card_sel).first
+    name = _card_name(card)
+
+    # Check for explicit out-of-stock indicator if a selector is configured
+    oos_sel = sel.get("out_of_stock_indicator")
+    if oos_sel:
+        try:
+            if card.locator(oos_sel).count() > 0:
+                raise ValueError(
+                    f"{'\"' + name + '\" ' if name else ''}({asin}) is out of stock on Amazon Fresh"
+                )
+        except ValueError:
+            raise
+        except Exception:
+            pass
+
+    add_btn_sel = sel["add_to_cart_button"]
+
+    # If no Add to cart button is present the item is likely out of stock / unavailable
+    try:
+        if card.locator(add_btn_sel).count() == 0:
+            raise ValueError(
+                f"{'\"' + name + '\" ' if name else ''}({asin}) is out of stock or unavailable on Amazon Fresh"
+            )
+    except ValueError:
+        raise
+    except Exception:
+        pass
+
+    try:
+        card.locator(add_btn_sel).first.click(timeout=6000)
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not click 'Add to cart' for ASIN {asin}: {e}. "
+            "Run 'amazon-fresh heal --page add' to repair selectors."
+        )
+
+    page.wait_for_timeout(1500)
+
+    # After the first add, Fresh replaces the button with a +/- stepper inline
+    # in the card. Increment (qty-1) times to reach the desired quantity.
+    actual_qty = 1
+    inc_sel = sel.get("qty_increment_button", "")
+    if qty > 1 and inc_sel:
+        for _ in range(qty - 1):
+            try:
+                card.locator(inc_sel).first.click(timeout=3000)
+                page.wait_for_timeout(400)
+                actual_qty += 1
+            except Exception:
+                logger.warning(
+                    "Could not increment qty for ASIN %s — added %d instead of %d",
+                    asin, actual_qty, qty,
+                )
+                break
+
+    return {"asin": asin, "name": name, "qty": actual_qty, "added": True}
+
+
 # ── Page scrapers ──────────────────────────────────────────────────────────────
 
 def scrape_items(page, sel: dict, limit: Optional[int] = None) -> list:
@@ -219,16 +314,44 @@ def scrape_search_results(page, sel: dict, limit: Optional[int] = None) -> list:
     return results
 
 
-def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
+def dump_dom_for_heal(page, max_chars: int = 300000, scope_selector: str = None, scope_limit: int = 3) -> str:
     """Dump a representative portion of the page HTML for LLM selector discovery.
 
     Called only by 'heal' — not used in normal scraping operations.
+
+    Args:
+        scope_selector: If set, extract only the outerHTML of the first
+            `scope_limit` matching elements instead of the whole page.
+            Use this for pages where the LLM only needs to see a few
+            representative cards (e.g. search results for the add page).
+        scope_limit: How many matching elements to include when scoping.
     """
+    if scope_selector:
+        # Extract just the outerHTML of the first N matching elements.
+        # Much cheaper than stripping the full page when we only care about
+        # a specific widget's structure.
+        fragments = []
+        try:
+            elements = page.locator(scope_selector).all()[:scope_limit]
+            for el in elements:
+                try:
+                    fragments.append(el.evaluate("el => el.outerHTML"))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        if fragments:
+            html = "\n".join(fragments)
+            # Still strip long data-* attributes
+            html = re.sub(r'\bdata-[a-zA-Z0-9_-]+=[\'"][^\'"]{100,}[\'"]', '', html)
+            if len(html) > max_chars:
+                html = html[:max_chars] + "\n<!-- TRUNCATED -->"
+            return html
+        # Fall through to full-page extraction if scoping found nothing
+
     # Grab the full HTML natively
     html = page.content()
-
-    # Bulletproof native Python stripping (JS evaluate often crashes on Amazon's weird DOM)
-    import re
 
     # 1. Strip massive non-structural tags entirely (along with their inner content)
     for tag in ["script", "style", "svg", "noscript", "meta", "link", "iframe", "header", "footer", "nav"]:
