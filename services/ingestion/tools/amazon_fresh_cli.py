@@ -239,11 +239,17 @@ def cmd_heal(args) -> None:
             scroll_to_load(page, max_scrolls=3)
 
             # Dump DOM for LLM analysis
-            dom_html = dump_dom_for_heal(page)
-            print(json.dumps({"status": "dom_captured", "page": page_name, "chars": len(dom_html)}), flush=True)
+            html, original_len, stripped_len = dump_dom_for_heal(page)
+            print(json.dumps({
+                "status": "dom_captured",
+                "page": page_name,
+                "original_chars": original_len,
+                "stripped_chars": stripped_len,
+                "final_chars": len(html)
+            }), flush=True)
 
             # Call LLM to identify selectors
-            new_selectors = _llm_identify_selectors(page_name, url, dom_html)
+            new_selectors = _llm_identify_selectors(page_name, url, html)
             if not new_selectors:
                 results[page_name] = {"status": "failed", "error": "LLM did not return valid selectors"}
                 print(json.dumps({"status": "failed", "page": page_name}), flush=True)

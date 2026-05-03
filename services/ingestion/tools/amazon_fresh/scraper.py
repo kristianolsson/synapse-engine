@@ -223,41 +223,32 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
     except Exception:
         pass
 
-    # Strip massive non-structural elements and return the HTML directly from JS
-    try:
-        html = page.evaluate('''() => {
-            const badSelectors = [
-                'script', 'style', 'svg', 'path', 'noscript', 'meta', 'link', 'iframe', 'img',
-                'header', 'footer', 'nav', '#navbar', '#nav-belt', '#nav-main', '#navFooter', '.hidden'
-            ];
-            document.querySelectorAll(badSelectors.join(', ')).forEach(e => e.remove());
-            
-            // Wip out massive data attributes
-            document.querySelectorAll('*').forEach(el => {
-                for (let attr of Array.from(el.attributes)) {
-                    if (attr.name.startsWith('data-') && attr.value.length > 100) {
-                        el.removeAttribute(attr.name);
-                    }
-                }
-            });
-            
-            // Try to find the grid container first
-            for (const sel of ["#gridlayout-main-grid", "#search", "main"]) {
-                const el = document.querySelector(sel);
-                if (el && el.innerHTML.length > 500) {
-                    return el.innerHTML;
-                }
-            }
-            return document.body.innerHTML;
-        }''')
-    except Exception as e:
-        logger.warning("Failed to strip DOM: %s", e)
-        html = page.content()
+    # Grab the full HTML natively
+    html = page.content()
+    original_len = len(html)
+
+    # Bulletproof native Python stripping (JS evaluate often crashes on Amazon's weird DOM)
+    import re
+
+    # 1. Strip massive non-structural tags entirely (along with their inner content)
+    for tag in ["script", "style", "svg", "noscript", "meta", "link", "iframe", "header", "footer", "nav"]:
+        html = re.sub(rf'<{tag}\b[^>]*>.*?</{tag}>', '', html, flags=re.IGNORECASE | re.DOTALL)
+        # Handle self-closing versions just in case
+        html = re.sub(rf'<{tag}\b[^>]*/>', '', html, flags=re.IGNORECASE)
+
+    # 2. Strip known Amazon massive header/footer divs
+    for a_id in ["navbar", "nav-belt", "nav-main", "navFooter"]:
+        html = re.sub(rf'<div[^>]*id=[\'"]{a_id}[\'"][^>]*>.*?</div>', '', html, flags=re.IGNORECASE | re.DOTALL)
+
+    # 3. Strip all massive data-* attributes to save tokens
+    html = re.sub(r'\bdata-[a-zA-Z0-9_-]+=[\'"][^\'"]{100,}[\'"]', '', html)
+
+    stripped_len = len(html)
 
     if len(html) > max_chars:
         html = html[:max_chars] + "\n<!-- TRUNCATED -->"
 
-    return html
+    return html, original_len, stripped_len
 
 
 def scroll_to_load(page, item_selector: str = None, max_items: int = 150, max_scrolls: int = 25) -> None:
