@@ -275,10 +275,10 @@ def scroll_to_load(page, item_selector: str = None, max_items: int = 150, max_sc
         max_scrolls: Hard limit on scroll attempts regardless of item count.
     """
     if not item_selector:
-        # Fast blind scrolls to trigger initial lazy-loaders for LLM heal
-        for _ in range(4):
-            page.evaluate("window.scrollBy(0, window.innerHeight * 1.5)")
-            page.wait_for_timeout(1000)
+        # Slow blind scrolls to trigger initial lazy-loaders for LLM heal
+        for _ in range(8):
+            page.evaluate("window.scrollBy(0, window.innerHeight * 0.5)")
+            page.wait_for_timeout(800)
         return
 
     previous_count = 0
@@ -290,9 +290,9 @@ def scroll_to_load(page, item_selector: str = None, max_items: int = 150, max_sc
             if count > 0:
                 items.nth(count - 1).scroll_into_view_if_needed()
             else:
-                page.evaluate("window.scrollBy(0, window.innerHeight * 0.8)")
+                page.evaluate("window.scrollBy(0, window.innerHeight * 0.3)")
         except Exception:
-            page.evaluate("window.scrollBy(0, window.innerHeight * 0.8)")
+            page.evaluate("window.scrollBy(0, window.innerHeight * 0.3)")
 
         page.wait_for_timeout(1500)  # Give lazy-load more time to fire
 
