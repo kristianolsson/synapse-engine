@@ -306,7 +306,10 @@ HTML:
 
         parsed = json.loads(json_match.group())
         # Filter out null values
-        return {k: v for k, v in parsed.items() if v is not None}
+        filtered = {k: v for k, v in parsed.items() if v is not None}
+        if not filtered:
+            logger.warning("LLM returned JSON, but all selector values were null. Raw output: %s", output[:500])
+        return filtered
 
     except subprocess.TimeoutExpired:
         logger.warning("Claude CLI timed out during heal")
