@@ -286,17 +286,17 @@ HTML:
 {dom_html}"""
 
     try:
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "text"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if result.returncode != 0:
-            logger.warning("Claude CLI error: %s", result.stderr[:200])
+        from services.ingestion.providers import get_provider
+        provider = get_provider()
+        
+        # Don't auto-retry with fallback models if it's just a selector task, keep it fast
+        result = provider.generate_response(prompt, auto_retry=False)
+        
+        if result.is_error:
+            logger.warning("Provider error: %s", result.text[:200])
             return None
 
-        output = result.stdout.strip()
+        output = result.text.strip()
 
         import re
         json_match = re.search(r'\{.*\}', output, re.DOTALL)

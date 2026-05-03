@@ -195,7 +195,7 @@ def scrape_search_results(page, sel: dict, limit: Optional[int] = None) -> list:
     return results
 
 
-def dump_dom_for_heal(page, max_chars: int = 100000) -> str:
+def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
     """Dump a representative portion of the page HTML for LLM selector discovery.
 
     Called only by 'heal' — not used in normal scraping operations.
@@ -203,7 +203,7 @@ def dump_dom_for_heal(page, max_chars: int = 100000) -> str:
     # Strip massive non-structural elements to save space before dumping
     try:
         page.evaluate('''() => {
-            document.querySelectorAll('script, style, svg, path, noscript, meta, link, iframe').forEach(e => e.remove());
+            document.querySelectorAll('script, style, svg, path, noscript, meta, link, iframe, img').forEach(e => e.remove());
         }''')
     except Exception:
         pass
