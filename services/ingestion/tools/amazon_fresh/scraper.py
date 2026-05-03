@@ -24,6 +24,15 @@ def _extract_price(element, price_selector: str) -> Optional[str]:
             return text.strip()
     except Exception:
         pass
+        
+    # If price is missing, check if it's explicitly out of stock
+    try:
+        html = element.inner_html(timeout=2000).lower()
+        if any(p in html for p in ["out of stock", "currently unavailable", "soldout"]):
+            return "Out of Stock"
+    except Exception:
+        pass
+        
     return None
 
 
@@ -219,23 +228,21 @@ def dump_dom_for_heal(page, max_chars: int = 300000) -> str:
         page.evaluate('''() => {
             const badSelectors = [
                 'script', 'style', 'svg', 'path', 'noscript', 'meta', 'link', 'iframe', 'img',
-                'header', 'footer', 'nav', 
-                '#navbar', '#nav-belt', '#nav-main', '#navFooter',
-                '[style*="display: none"]', '[style*="display:none"]', '.hidden'
+                'header', 'footer', 'nav', '#navbar', '#nav-belt', '#nav-main', '#navFooter', '.hidden'
             ];
             document.querySelectorAll(badSelectors.join(', ')).forEach(e => e.remove());
             
-            // Also wipe out massive data attributes that Amazon uses for internal tracking
+            // Wip out massive data attributes
             document.querySelectorAll('*').forEach(el => {
-                for (let attr of el.attributes) {
+                for (let attr of Array.from(el.attributes)) {
                     if (attr.name.startsWith('data-') && attr.value.length > 100) {
                         el.removeAttribute(attr.name);
                     }
                 }
             });
         }''')
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to strip DOM: %s", e)
 
     for selector in ["#gridlayout-main-grid", "#search", "#a-page", "main"]:
         try:
