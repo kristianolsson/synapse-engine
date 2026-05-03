@@ -14,8 +14,8 @@
   },
   "search": {
     "url_template": "https://www.amazon.com/s?k={query}&i=amazonfresh",
-    "item_container": "div[data-component-type=\"s-search-result\"][data-asin]",
-    "item_name": "h2[aria-label]",
-    "item_price": "div[data-cy=\"price-recipe\"] .a-offscreen"
+    "item_container": "div[data-component-type=\"s-search-result\"]",
+    "item_name": "[data-cy=\"title-recipe\"] h2",
+    "item_price": "[data-cy=\"price-recipe\"] span[data-a-size=\"xl\"] .a-offscreen"
   }
 }

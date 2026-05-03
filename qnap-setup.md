@@ -147,6 +147,8 @@ On QNAP:
 ```bash
 mkdir -p /share/CE_CACHEDEV2_DATA/synapse/credentials/amazon
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/amazon
+
+# Note: scp runs as admin, so we must re-chown selectors.json so the container can update it
 chown synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json
 ```
 
