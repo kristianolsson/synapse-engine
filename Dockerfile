@@ -28,11 +28,12 @@ COPY requirements.txt /tmp/requirements.txt
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Install Playwright Firefox for E*TRADE browser-based authentication (wetrade)
-# Matches options-bot pattern: fixed browser path, owned by synapse for runtime access
+# Install Playwright browsers with system deps
+# Firefox: E*TRADE browser-based authentication (wetrade / options-bot)
+# Chromium: Amazon Fresh CLI (headless scraping)
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN mkdir -p /ms-playwright && \
-    /app/venv/bin/playwright install --with-deps firefox && \
+    /app/venv/bin/playwright install --with-deps firefox chromium && \
     chown -R synapse:synapse /ms-playwright
 
 WORKDIR /app/synapse-engine

@@ -1,6 +1,6 @@
 """Browser lifecycle for Amazon Fresh CLI.
 
-Handles Firefox persistent context with profile reuse (same pattern as E*TRADE wetrade_auth).
+Handles Chromium persistent context with profile reuse.
 Profile directory: ~/.amazon-fresh-session/
 """
 
@@ -48,7 +48,7 @@ def launch_browser(headed: bool = False, profile_dir: Optional[Path] = None):
         from playwright.sync_api import sync_playwright
     except ImportError:
         raise ImportError(
-            "playwright not installed. Run: pip install playwright && playwright install firefox"
+            "playwright not installed. Run: pip install playwright && playwright install chromium"
         )
 
     profile = profile_dir or DEFAULT_PROFILE_DIR
@@ -56,20 +56,21 @@ def launch_browser(headed: bool = False, profile_dir: Optional[Path] = None):
     if not headed and not profile.exists():
         raise RuntimeError(
             f"Amazon Fresh session profile not found at {profile}. "
-            "Run 'amazon-fresh auth' on your Mac first, then transfer the profile to this machine."
+            "Run 'amazon-fresh auth' first to create a session."
         )
 
     profile.mkdir(parents=True, exist_ok=True)
 
     p = sync_playwright().start()
-    context = p.firefox.launch_persistent_context(
+    context = p.chromium.launch_persistent_context(
         user_data_dir=str(profile),
         headless=not headed,
         viewport={"width": 1280, "height": 900},
         user_agent=(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) "
-            "Gecko/20100101 Firefox/120.0"
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         ),
+        args=["--no-sandbox", "--disable-setuid-sandbox"],
     )
     return p, context
 

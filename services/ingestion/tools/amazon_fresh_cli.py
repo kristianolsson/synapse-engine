@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Amazon Fresh CLI — browse and manage Amazon Fresh via Playwright Firefox.
+"""Amazon Fresh CLI — browse and manage Amazon Fresh via Playwright Chromium.
 
 This CLI is a reusable tool for the Synapse ecosystem. All output is JSON to stdout.
 On error, outputs {"error": "<message>", "code": "<error_type>"} and exits non-zero.
@@ -338,7 +338,7 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("auth", help="One-time headed login — saves Firefox session for headless use.", parents=[parent_parser])
+    sub.add_parser("auth", help="One-time headed login — saves Chromium session for headless use.", parents=[parent_parser])
 
     p_pp = sub.add_parser("past-purchases", help="List past Amazon Fresh purchases.", parents=[parent_parser])
     p_pp.add_argument("--limit", type=int, default=None, help="Max items to return.")
