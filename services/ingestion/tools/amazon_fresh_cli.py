@@ -299,7 +299,7 @@ HTML:
         output = result.stdout.strip()
 
         import re
-        json_match = re.search(r'\{[^{}]+\}', output, re.DOTALL)
+        json_match = re.search(r'\{.*\}', output, re.DOTALL)
         if not json_match:
             logger.warning("No JSON found in LLM response: %s", output[:300])
             return None

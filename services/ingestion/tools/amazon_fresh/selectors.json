@@ -7,7 +7,7 @@
   },
   "saved_items": {
     "url": "https://www.amazon.com/afx/lists/pastpurchases/fresh",
-    "click_selector": "a:has-text('Saved Items')",
+    "click_selector": "text='Saved Items'",
     "item_container": "[data-asin]:not([data-asin=''])",
     "item_name": "h2 span, .a-text-normal",
     "item_price": ".a-price .a-offscreen"

@@ -231,17 +231,33 @@ def scroll_to_load(page, max_items: int = 150, max_scrolls: int = 25) -> None:
     """
     previous_count = 0
     for _ in range(max_scrolls):
-        page.evaluate("window.scrollBy(0, window.innerHeight * 1.5)")
-        page.wait_for_timeout(900)  # Give lazy-load time to fire
+        try:
+            # Scroll the last loaded item into view to cleanly trigger the next batch
+            items = page.locator("[data-asin]:not([data-asin=''])")
+            count = items.count()
+            if count > 0:
+                items.nth(count - 1).scroll_into_view_if_needed()
+            else:
+                page.evaluate("window.scrollBy(0, window.innerHeight * 0.8)")
+        except Exception:
+            page.evaluate("window.scrollBy(0, window.innerHeight * 0.8)")
+
+        page.wait_for_timeout(1500)  # Give lazy-load more time to fire
 
         try:
-            # Count elements that have a data-asin attribute
             current_count = page.locator("[data-asin]:not([data-asin=''])").count()
         except Exception:
             current_count = 0
 
         if current_count >= max_items:
             break
+            
         if current_count > 0 and current_count == previous_count:
-            break  # No new items loaded — page is fully loaded
+            # Try a small nudge scroll in case we missed the intersection observer
+            page.evaluate("window.scrollBy(0, 400)")
+            page.wait_for_timeout(1500)
+            current_count = page.locator("[data-asin]:not([data-asin=''])").count()
+            if current_count == previous_count:
+                break  # Definitely fully loaded
+                
         previous_count = current_count
