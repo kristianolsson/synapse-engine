@@ -26,6 +26,7 @@ Usage:
   amazon-fresh cart
   amazon-fresh remove <asin>
   amazon-fresh edit <asin> <qty>
+  amazon-fresh sync-history --history-file <path> [--force]
   amazon-fresh heal [--page {past-purchases,saved-items,search,add,cart}]
 
 Global flags:
@@ -35,6 +36,7 @@ Global flags:
 import argparse
 import json
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -301,6 +303,134 @@ def cmd_edit(args) -> None:
         close_browser(p, context)
 
 
+def _normalize(s: str) -> str:
+    """Lowercase and collapse non-alphanumeric chars to spaces."""
+    return re.sub(r'[^a-z0-9 ]', ' ', s.lower())
+
+
+def _significant_words(name: str) -> set:
+    """Return meaningful words from a product name — strip short words and stopwords."""
+    STOPWORDS = {"the", "a", "an", "of", "and", "or", "with", "in", "for", "oz", "lb", "ct"}
+    return {w for w in _normalize(name).split() if len(w) > 2 and w not in STOPWORDS}
+
+
+def _find_best_match(entry: dict, past_purchases: list, used_asins: set) -> Optional[dict]:
+    """Return the first past_purchase that matches a history entry, or None.
+
+    Matching priority:
+    1. All significant words from an option name appear in the past_purchase name.
+    2. Fallback: a significant keyword from generic_name appears in the name
+       (strips trailing 's' for basic singular/plural handling).
+
+    Takes the first match since Amazon orders past_purchases by recency/frequency.
+    Skips ASINs already assigned to another entry to avoid duplicates.
+    """
+    options = [o["name"] for o in entry.get("options", [])]
+    generic = entry["generic_name"]
+
+    for pp in past_purchases:
+        if pp.get("asin") in used_asins:
+            continue
+        pp_words = set(_normalize(pp["name"]).split())
+
+        # Strategy 1: all significant words from any option name must be present
+        for opt_name in options:
+            words = _significant_words(opt_name)
+            if words and words.issubset(pp_words):
+                return pp
+
+        # Strategy 2: generic name keyword match (handles "bananas" → "banana")
+        for raw_word in _normalize(generic).split():
+            if len(raw_word) <= 3:
+                continue
+            stem = raw_word.rstrip("s")  # basic singular
+            if stem in _normalize(pp["name"]):
+                return pp
+
+    return None
+
+
+def cmd_sync_history(args) -> None:
+    """Sync ASINs from past-purchases into grocery_history.json.
+
+    Matches each history entry (by option names then generic name) against
+    the past-purchases list and writes the best matching ASIN back to the
+    history file. Skips entries that already have an ASIN unless --force.
+    """
+    import json as _json
+    from pathlib import Path
+
+    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
+    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
+    from services.ingestion.tools.amazon_fresh.scraper import scrape_items, scroll_to_load
+
+    history_file = Path(args.history_file).expanduser().resolve()
+    if not history_file.exists():
+        _err(f"History file not found: {history_file}", "config_error")
+
+    with open(history_file) as f:
+        history = _json.load(f)
+
+    entries = history.get("items", [])
+    to_update = [e for e in entries if e.get("asin") is None] if not args.force else entries
+
+    if not to_update:
+        _out({
+            "status": "nothing_to_update",
+            "message": "All entries already have ASINs. Use --force to re-sync.",
+        })
+        return
+
+    print(_json.dumps({"status": "loading_past_purchases"}), flush=True)
+
+    try:
+        sel = get_page_selectors("past_purchases")
+    except KeyError as e:
+        _err(str(e), "selector_error")
+
+    p, context = launch_browser(headed=args.headed)
+    try:
+        page = _open_page(context, sel["url"])
+        scroll_to_load(page, item_selector=sel.get("item_container"), max_items=300)
+        past_purchases = scrape_items(page, sel)
+    except Exception as e:
+        _err(f"Failed to load past purchases: {e}", "scrape_error")
+    finally:
+        close_browser(p, context)
+
+    # Only work with past purchases that have a resolved ASIN
+    past_purchases = [pp for pp in past_purchases if pp.get("asin")]
+    print(_json.dumps({"status": "past_purchases_loaded", "count": len(past_purchases)}), flush=True)
+
+    updated = []
+    no_match = []
+    used_asins: set = {e["asin"] for e in entries if e.get("asin")}
+
+    for entry in to_update:
+        match = _find_best_match(entry, past_purchases, used_asins)
+        if match:
+            entry["asin"] = match["asin"]
+            used_asins.add(match["asin"])
+            updated.append({
+                "generic_name": entry["generic_name"],
+                "asin": match["asin"],
+                "matched_name": match["name"],
+            })
+        else:
+            no_match.append(entry["generic_name"])
+
+    with open(history_file, "w") as f:
+        _json.dump(history, f, indent=2)
+
+    _out({
+        "status": "done",
+        "updated": len(updated),
+        "no_match": len(no_match),
+        "items": updated,
+        "not_found_in_past_purchases": no_match,
+    })
+
+
 def cmd_heal(args) -> None:
     """Discover/repair CSS selectors by loading the live page and calling an LLM.
 
@@ -533,6 +663,23 @@ def main():
     p_edit.add_argument("asin", help="Product ASIN to update.")
     p_edit.add_argument("qty", type=_positive_int, help="New quantity (must be >= 1; use 'remove' to delete).")
 
+    p_sync = sub.add_parser(
+        "sync-history",
+        help="Sync ASINs from past-purchases into grocery_history.json.",
+        parents=[parent_parser],
+    )
+    p_sync.add_argument(
+        "--history-file",
+        required=True,
+        help="Path to grocery_history.json (e.g. ~/Documents/code/notes/groceries/grocery_history.json).",
+    )
+    p_sync.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Re-sync entries that already have an ASIN (overwrites existing).",
+    )
+
     p_heal = sub.add_parser(
         "heal",
         help=(
@@ -554,6 +701,7 @@ def main():
         "cart": cmd_cart,
         "remove": cmd_remove,
         "edit": cmd_edit,
+        "sync-history": cmd_sync_history,
         "heal": cmd_heal,
     }
 
