@@ -523,9 +523,15 @@ def main():
     p_remove = sub.add_parser("remove", help="Remove a product from the Amazon Fresh cart by ASIN.", parents=[parent_parser])
     p_remove.add_argument("asin", help="Product ASIN to remove.")
 
+    def _positive_int(value):
+        v = int(value)
+        if v < 1:
+            raise argparse.ArgumentTypeError("qty must be at least 1 — use 'remove' to delete an item")
+        return v
+
     p_edit = sub.add_parser("edit", help="Update quantity of a product in the Amazon Fresh cart.", parents=[parent_parser])
     p_edit.add_argument("asin", help="Product ASIN to update.")
-    p_edit.add_argument("qty", type=int, help="New quantity.")
+    p_edit.add_argument("qty", type=_positive_int, help="New quantity (must be >= 1; use 'remove' to delete).")
 
     p_heal = sub.add_parser(
         "heal",
