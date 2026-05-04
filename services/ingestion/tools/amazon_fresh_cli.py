@@ -303,66 +303,16 @@ def cmd_edit(args) -> None:
         close_browser(p, context)
 
 
-def _normalize(s: str) -> str:
-    """Lowercase and collapse non-alphanumeric chars to spaces."""
-    return re.sub(r'[^a-z0-9 ]', ' ', s.lower())
-
-
-def _significant_words(name: str) -> set:
-    """Return meaningful words from a product name — strip short words and stopwords."""
-    STOPWORDS = {"the", "a", "an", "of", "and", "or", "with", "in", "for", "oz", "lb", "ct"}
-    return {w for w in _normalize(name).split() if len(w) > 2 and w not in STOPWORDS}
-
-
-def _find_best_match(entry: dict, past_purchases: list, used_asins: set) -> Optional[dict]:
-    """Return the first past_purchase that matches a history entry, or None.
-
-    Matching priority:
-    1. All significant words from an option name appear in the past_purchase name.
-    2. Fallback: a significant keyword from generic_name appears in the name
-       (strips trailing 's' for basic singular/plural handling).
-
-    Takes the first match since Amazon orders past_purchases by recency/frequency.
-    Skips ASINs already assigned to another entry to avoid duplicates.
-    """
-    options = [o["name"] for o in entry.get("options", [])]
-    generic = entry["generic_name"]
-
-    for pp in past_purchases:
-        if pp.get("asin") in used_asins:
-            continue
-        pp_words = set(_normalize(pp["name"]).split())
-
-        # Strategy 1: all significant words from any option name must be present
-        for opt_name in options:
-            words = _significant_words(opt_name)
-            if words and words.issubset(pp_words):
-                return pp
-
-        # Strategy 2: generic name keyword match (handles "bananas" → "banana")
-        for raw_word in _normalize(generic).split():
-            if len(raw_word) <= 3:
-                continue
-            stem = raw_word.rstrip("s")  # basic singular
-            if stem in _normalize(pp["name"]):
-                return pp
-
-    return None
-
-
 def cmd_sync_history(args) -> None:
-    """Sync ASINs from past-purchases into grocery_history.json.
+    """Sync ASINs from past-purchases into grocery_history.json using an LLM.
 
-    Matches each history entry (by option names then generic name) against
-    the past-purchases list and writes the best matching ASIN back to the
-    history file. Skips entries that already have an ASIN unless --force.
+    Calls 'amazon-fresh past-purchases' as a subprocess, then asks the LLM
+    to map each history entry's generic_name to the best matching ASIN.
+    Skips entries that already have an ASIN unless --force.
     """
     import json as _json
+    import subprocess as _sp
     from pathlib import Path
-
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import scrape_items, scroll_to_load
 
     history_file = Path(args.history_file).expanduser().resolve()
     if not history_file.exists():
@@ -381,43 +331,89 @@ def cmd_sync_history(args) -> None:
         })
         return
 
+    # ── Step 1: fetch past purchases via the existing CLI command ──────────────
     print(_json.dumps({"status": "loading_past_purchases"}), flush=True)
 
-    try:
-        sel = get_page_selectors("past_purchases")
-    except KeyError as e:
-        _err(str(e), "selector_error")
+    cmd = [sys.executable, "-m", "services.ingestion.tools.amazon_fresh_cli", "past-purchases"]
+    if args.headed:
+        cmd.append("--headed")
 
-    p, context = launch_browser(headed=args.headed)
     try:
-        page = _open_page(context, sel["url"])
-        scroll_to_load(page, item_selector=sel.get("item_container"), max_items=300)
-        past_purchases = scrape_items(page, sel)
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=120)
+        past_purchases_data = _json.loads(result.stdout)
+        past_purchases = [p for p in past_purchases_data.get("items", []) if p.get("asin")]
     except Exception as e:
         _err(f"Failed to load past purchases: {e}", "scrape_error")
-    finally:
-        close_browser(p, context)
 
-    # Only work with past purchases that have a resolved ASIN
-    past_purchases = [pp for pp in past_purchases if pp.get("asin")]
+    if not past_purchases:
+        _err("No past purchases with ASINs found — run 'amazon-fresh heal' if selectors are broken.", "scrape_error")
+
     print(_json.dumps({"status": "past_purchases_loaded", "count": len(past_purchases)}), flush=True)
 
+    # ── Step 2: ask LLM to map generic names → ASINs ──────────────────────────
+    categories = [
+        {
+            "generic_name": e["generic_name"],
+            "options": [o["name"] for o in e.get("options", [])],
+        }
+        for e in to_update
+    ]
+
+    prompt = f"""You are mapping grocery category names to Amazon Fresh product ASINs.
+
+You have a list of past purchases (name + ASIN) and a list of grocery categories
+(generic_name + option names as hints). For each category, pick the single best
+matching ASIN from the past purchases list, or null if nothing fits.
+
+Rules:
+- Match semantically — e.g. "bananas" matches "Organic Banana Bunch (4-5 Count)"
+- The options list for each category is ordered most-frequently-purchased first —
+  prefer matching options[0] over options[1], options[1] over options[2], etc.
+- The past purchases list is also ordered most-recently/frequently-purchased first —
+  if multiple past purchases match a category equally well, prefer the one that
+  appears earlier in the list.
+- Each ASIN may only be assigned to ONE category — no duplicates
+- If a category has no reasonable match in the past purchases list, use null
+- Return ONLY a valid JSON object: keys are generic_name strings, values are ASIN strings or null
+- No explanation, no markdown fences
+
+Past purchases (ordered most frequent first):
+{_json.dumps([{"name": p["name"], "asin": p["asin"]} for p in past_purchases], indent=2)}
+
+Categories to match (options ordered most frequent first):
+{_json.dumps(categories, indent=2)}"""
+
+    try:
+        from services.ingestion.providers import get_provider
+        provider = get_provider()
+        llm_result = provider.generate_response(prompt, auto_retry=False)
+
+        if llm_result.is_error:
+            _err(f"LLM error: {llm_result.text[:200]}", "heal_error")
+
+        json_match = re.search(r'\{.*\}', llm_result.text.strip(), re.DOTALL)
+        if not json_match:
+            _err("LLM did not return valid JSON", "heal_error")
+
+        mapping = _json.loads(json_match.group())
+    except Exception as e:
+        _err(f"LLM mapping failed: {e}", "heal_error")
+
+    # ── Step 3: write ASINs back to history.json ───────────────────────────────
+    entry_index = {e["generic_name"]: e for e in entries}
     updated = []
     no_match = []
-    used_asins: set = {e["asin"] for e in entries if e.get("asin")}
 
-    for entry in to_update:
-        match = _find_best_match(entry, past_purchases, used_asins)
-        if match:
-            entry["asin"] = match["asin"]
-            used_asins.add(match["asin"])
-            updated.append({
-                "generic_name": entry["generic_name"],
-                "asin": match["asin"],
-                "matched_name": match["name"],
-            })
+    for generic_name, asin in mapping.items():
+        entry = entry_index.get(generic_name)
+        if not entry:
+            continue
+        if asin:
+            entry["asin"] = asin
+            matched_name = next((p["name"] for p in past_purchases if p["asin"] == asin), asin)
+            updated.append({"generic_name": generic_name, "asin": asin, "matched_name": matched_name})
         else:
-            no_match.append(entry["generic_name"])
+            no_match.append(generic_name)
 
     with open(history_file, "w") as f:
         _json.dump(history, f, indent=2)
@@ -434,7 +430,6 @@ def cmd_sync_history(args) -> None:
 def cmd_heal(args) -> None:
     """Discover/repair CSS selectors by loading the live page and calling an LLM.
 
-    This is the ONLY command that calls an LLM. Normal scraping uses selectors.json directly.
     Always runs headed so the page renders fully (Amazon uses heavy JS).
     """
     from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
