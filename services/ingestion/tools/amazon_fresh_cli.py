@@ -4,21 +4,16 @@
 This CLI is a reusable tool for the Synapse ecosystem. All output is JSON to stdout.
 On error, outputs {"error": "<message>", "code": "<error_type>"} and exits non-zero.
 
-Normal operation uses zero LLM calls — CSS selectors are read from selectors.json.
-The 'heal' command is the only operation that calls an LLM: it dumps the live page
-DOM and asks the LLM to discover/repair selectors, writing them back to selectors.json.
-
 Error codes:
-  auth_expired   — Amazon session expired; run 'amazon-fresh auth' on your Mac
+  auth_expired   — Amazon session expired (session needs renewal)
   auth_failed    — Could not complete browser login
-  selector_error — Selectors missing or broken; run 'amazon-fresh heal'
+  selector_error — Selectors missing or broken
   scrape_error   — Page loaded but scraping failed unexpectedly
   not_found      — ASIN not found in Fresh catalog or item out of stock
   heal_error     — Heal failed (LLM or DOM issue)
   config_error   — Missing configuration
 
 Usage:
-  amazon-fresh auth
   amazon-fresh past-purchases [--limit N]
   amazon-fresh saved-items [--limit N]
   amazon-fresh search <query> [--limit N]
@@ -26,11 +21,9 @@ Usage:
   amazon-fresh cart
   amazon-fresh remove <asin>
   amazon-fresh edit <asin> <qty>
-  amazon-fresh sync-history --history-file <path> [--force]
-  amazon-fresh heal [--page {past-purchases,saved-items,search,add,cart}]
 
 Global flags:
-  --headed        Open a visible browser window (always on for auth and heal)
+  --headed        Open a visible browser window
 """
 
 import argparse
@@ -620,14 +613,11 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog="amazon-fresh",
-        description=(
-            "Amazon Fresh CLI for Synapse. Uses CSS selectors from selectors.json "
-            "(zero LLM calls in normal operation). Run 'heal' first to bootstrap selectors."
-        ),
+        description="Amazon Fresh CLI for Synapse. All output is JSON to stdout.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("auth", help="One-time headed login — saves Firefox session for headless use.", parents=[parent_parser])
+    sub.add_parser("auth", help=argparse.SUPPRESS, parents=[parent_parser])
 
     p_pp = sub.add_parser("past-purchases", help="List past Amazon Fresh purchases.", parents=[parent_parser])
     p_pp.add_argument("--limit", type=int, default=None, help="Max items to return.")
@@ -660,7 +650,7 @@ def main():
 
     p_sync = sub.add_parser(
         "sync-history",
-        help="Sync ASINs from past-purchases into grocery_history.json.",
+        help=argparse.SUPPRESS,
         parents=[parent_parser],
     )
     p_sync.add_argument(
@@ -677,11 +667,8 @@ def main():
 
     p_heal = sub.add_parser(
         "heal",
-        help=(
-            "Bootstrap or repair selectors.json by loading live pages and calling an LLM. "
-            "Run this first after 'auth', or whenever scraping breaks."
-        ),
-        parents=[parent_parser]
+        help=argparse.SUPPRESS,
+        parents=[parent_parser],
     )
     p_heal.add_argument("--page", choices=PAGES, default=None, help="Page to heal (default: all).")
 
