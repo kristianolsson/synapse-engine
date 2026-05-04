@@ -268,8 +268,16 @@ def scrape_cart_items(page, sel: dict) -> dict:
         qty_sel = sel.get("item_qty", "")
         if qty_sel:
             try:
-                val = el.locator(qty_sel).first.input_value(timeout=2000)
-                qty = int(val) if val and val.strip().isdigit() else None
+                qty_el = el.locator(qty_sel).first
+                # Try input_value first (text inputs / selects), fall back to
+                # text_content for combobox buttons which display the current qty
+                try:
+                    val = qty_el.input_value(timeout=2000)
+                except Exception:
+                    val = qty_el.text_content(timeout=2000)
+                if val:
+                    m = re.search(r'\d+', val.strip())
+                    qty = int(m.group()) if m else None
             except Exception:
                 pass
 

@@ -1,14 +1,14 @@
 {
   "cart": {
     "url": "https://www.amazon.com/cart/localmarket?almBrandId=QW1hem9uIEZyZXNo",
-    "item_container": "div.sc-list-item[data-asin]",
-    "item_name": ".sc-product-title",
+    "item_container": ".sc-list-item[data-asin]",
+    "item_name": ".sc-product-title .a-truncate-full",
     "item_price": ".sc-product-price",
-    "item_qty": "button[id*='qs-widget-button'][id$='-announce']",
+    "item_qty": "button[role='combobox']",
     "delete_button": "input[data-action='delete']",
     "qty_input": "input.qs-widget-text-input",
-    "qty_increment_button": "span[id*='qs-widget-plus-button']",
-    "qty_decrement_button": "span[id*='qs-widget-minus-button']",
+    "qty_increment_button": "[data-action='qs-widget-increment-decl']",
+    "qty_decrement_button": "[data-action='qs-widget-decrement-decl']",
     "subtotal": null
   },
   "add": {

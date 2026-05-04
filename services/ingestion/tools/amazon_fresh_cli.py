@@ -363,12 +363,11 @@ def cmd_heal(args) -> None:
                 scope_sel = config.get("add", {}).get("item_container", "[data-component-type='s-search-result']")
                 html = dump_dom_for_heal(page, scope_selector=scope_sel, scope_limit=3)
             elif page_name == "cart":
-                # Scope to a couple of item cards so the LLM sees button structure
-                # without the surrounding page chrome. Cart must have items for this
-                # to be useful — heal will warn if the cart appears empty.
-                scope_sel = config.get("cart", {}).get("item_container", "[data-asin]")
-                html = dump_dom_for_heal(page, scope_selector=scope_sel, scope_limit=2)
-                if not html.strip():
+                # Full-page dump for cart: the page is small (~80K) and the
+                # subtotal lives outside item containers, so scoping would hide it.
+                # Cart must have items for the item selectors to be discoverable.
+                html = dump_dom_for_heal(page)
+                if page.locator(config.get("cart", {}).get("item_container", "[data-asin]")).count() == 0:
                     print(json.dumps({
                         "status": "warning", "page": "cart",
                         "message": "Cart appears empty — add items before healing the cart page.",
@@ -416,7 +415,7 @@ def _llm_identify_selectors(page_name: str, url: str, dom_html: str) -> Optional
   "qty_input": "<selector for a text input to type a new quantity, relative to the item container, or null>",
   "qty_increment_button": "<selector for the '+' stepper button, relative to the item container, or null>",
   "qty_decrement_button": "<selector for the '-' stepper button, relative to the item container, or null>",
-  "subtotal": "<page-level selector for the cart subtotal amount, or null>"
+  "subtotal": "<page-level selector (NOT relative to item container) for the cart subtotal/order total amount, or null>"
 }"""
     else:
         keys_block = """{
