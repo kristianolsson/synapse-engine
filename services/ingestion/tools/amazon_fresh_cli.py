@@ -430,8 +430,16 @@ Page: {page_name}
 URL: {url}
 
 Your task: identify the most stable CSS selectors for scraping product listings.
-Strongly prefer selectors using data-asin, data-component-type, aria-label, or semantic structure.
-Avoid brittle class names that look like they could be auto-generated (e.g. long hashes).
+
+Rules:
+- Prefer selectors using data-* attributes, aria-label, role, or semantic structure over class names.
+- Avoid class names that look auto-generated (long hashes, random strings).
+- For name/title fields: target the specific child element that contains ONLY the product name text.
+  Amazon often renders names inside a container that also holds links and hidden spans — avoid
+  selecting the container itself. Look for child spans like .a-truncate-full (the full visible text)
+  rather than the parent div/span which would capture all nested text including "Opens in a new tab".
+- For quantity fields: note whether the element is an <input>, <select>, or a <button role="combobox">
+  — use the most specific selector that identifies the element type.
 
 Return ONLY a valid JSON object with these exact keys (no explanation, no markdown fences):
 {keys_block}
