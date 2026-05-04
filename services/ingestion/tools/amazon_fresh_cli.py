@@ -23,7 +23,10 @@ Usage:
   amazon-fresh saved-items [--limit N]
   amazon-fresh search <query> [--limit N]
   amazon-fresh add <asin> [qty]
-  amazon-fresh heal [--page {past-purchases,saved-items,search,add}]
+  amazon-fresh cart
+  amazon-fresh remove <asin>
+  amazon-fresh edit <asin> <qty>
+  amazon-fresh heal [--page {past-purchases,saved-items,search,add,cart}]
 
 Global flags:
   --headed        Open a visible browser window (always on for auth and heal)
@@ -42,13 +45,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 logger = logging.getLogger("amazon-fresh")
 
-PAGES = ["past-purchases", "saved-items", "search", "add"]
+PAGES = ["past-purchases", "saved-items", "search", "add", "cart"]
 
 PAGE_KEY_MAP = {
     "past-purchases": "past_purchases",
     "saved-items": "saved_items",
     "search": "search",
     "add": "add",
+    "cart": "cart",
 }
 
 
@@ -223,6 +227,80 @@ def cmd_add(args) -> None:
         close_browser(p, context)
 
 
+def cmd_cart(args) -> None:
+    """View current Amazon Fresh cart contents."""
+    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
+    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
+    from services.ingestion.tools.amazon_fresh.scraper import scrape_cart_items
+
+    try:
+        sel = get_page_selectors("cart")
+    except KeyError as e:
+        _err(str(e), "selector_error")
+
+    p, context = launch_browser(headed=args.headed)
+    try:
+        page = _open_page(context, sel["url"])
+        result = scrape_cart_items(page, sel)
+        _out(result)
+    except Exception as e:
+        _err(f"Cart scrape failed: {e}", "scrape_error")
+    finally:
+        close_browser(p, context)
+
+
+def cmd_remove(args) -> None:
+    """Remove a product from the Amazon Fresh cart by ASIN."""
+    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
+    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
+    from services.ingestion.tools.amazon_fresh.scraper import remove_from_cart
+
+    try:
+        sel = get_page_selectors("cart")
+    except KeyError as e:
+        _err(str(e), "selector_error")
+
+    p, context = launch_browser(headed=args.headed)
+    try:
+        page = _open_page(context, sel["url"])
+        result = remove_from_cart(page, args.asin, sel)
+        _out(result)
+    except ValueError as e:
+        _err(str(e), "not_found")
+    except RuntimeError as e:
+        _err(str(e), "selector_error")
+    except Exception as e:
+        _err(f"Remove failed: {e}", "scrape_error")
+    finally:
+        close_browser(p, context)
+
+
+def cmd_edit(args) -> None:
+    """Update the quantity of a product in the Amazon Fresh cart by ASIN."""
+    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
+    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
+    from services.ingestion.tools.amazon_fresh.scraper import edit_cart_qty
+
+    try:
+        sel = get_page_selectors("cart")
+    except KeyError as e:
+        _err(str(e), "selector_error")
+
+    p, context = launch_browser(headed=args.headed)
+    try:
+        page = _open_page(context, sel["url"])
+        result = edit_cart_qty(page, args.asin, args.qty, sel)
+        _out(result)
+    except ValueError as e:
+        _err(str(e), "not_found")
+    except RuntimeError as e:
+        _err(str(e), "selector_error")
+    except Exception as e:
+        _err(f"Edit failed: {e}", "scrape_error")
+    finally:
+        close_browser(p, context)
+
+
 def cmd_heal(args) -> None:
     """Discover/repair CSS selectors by loading the live page and calling an LLM.
 
@@ -249,6 +327,7 @@ def cmd_heal(args) -> None:
         "saved-items": config.get("saved_items", {}).get("url"),
         "search": search_url,
         "add": add_url or search_url,
+        "cart": config.get("cart", {}).get("url"),
     }
 
     # Ensure URLs exist in the config before trying to heal them
@@ -283,6 +362,17 @@ def cmd_heal(args) -> None:
             if page_name == "add":
                 scope_sel = config.get("add", {}).get("item_container", "[data-component-type='s-search-result']")
                 html = dump_dom_for_heal(page, scope_selector=scope_sel, scope_limit=3)
+            elif page_name == "cart":
+                # Scope to a couple of item cards so the LLM sees button structure
+                # without the surrounding page chrome. Cart must have items for this
+                # to be useful — heal will warn if the cart appears empty.
+                scope_sel = config.get("cart", {}).get("item_container", "[data-asin]")
+                html = dump_dom_for_heal(page, scope_selector=scope_sel, scope_limit=2)
+                if not html.strip():
+                    print(json.dumps({
+                        "status": "warning", "page": "cart",
+                        "message": "Cart appears empty — add items before healing the cart page.",
+                    }), flush=True)
             else:
                 html = dump_dom_for_heal(page)
             print(json.dumps({"status": "dom_captured", "page": page_name, "chars": len(html)}), flush=True)
@@ -315,6 +405,18 @@ def _llm_identify_selectors(page_name: str, url: str, dom_html: str) -> Optional
   "add_to_cart_button": "<selector for the 'Add to cart' button, relative to the item container>",
   "qty_increment_button": "<selector for the '+' quantity increment button that appears inside the card after adding, or null if not visible in this DOM snapshot>",
   "out_of_stock_indicator": "<selector for an out-of-stock badge/text element inside the card, or null>"
+}"""
+    elif page_name == "cart":
+        keys_block = """{
+  "item_container": "<selector for each cart item row — the outermost element per item>",
+  "item_name": "<selector for product name, relative to the item container>",
+  "item_price": "<selector for item price, relative to the item container>",
+  "item_qty": "<selector for the quantity field (input or select) inside the item container>",
+  "delete_button": "<selector for the delete/remove button, relative to the item container>",
+  "qty_input": "<selector for a text input to type a new quantity, relative to the item container, or null>",
+  "qty_increment_button": "<selector for the '+' stepper button, relative to the item container, or null>",
+  "qty_decrement_button": "<selector for the '-' stepper button, relative to the item container, or null>",
+  "subtotal": "<page-level selector for the cart subtotal amount, or null>"
 }"""
     else:
         keys_block = """{
@@ -409,6 +511,15 @@ def main():
     p_add.add_argument("asin", help="Product ASIN (from search or past-purchases output).")
     p_add.add_argument("qty", nargs="?", type=int, default=1, help="Quantity to add (default: 1).")
 
+    sub.add_parser("cart", help="View current Amazon Fresh cart contents.", parents=[parent_parser])
+
+    p_remove = sub.add_parser("remove", help="Remove a product from the Amazon Fresh cart by ASIN.", parents=[parent_parser])
+    p_remove.add_argument("asin", help="Product ASIN to remove.")
+
+    p_edit = sub.add_parser("edit", help="Update quantity of a product in the Amazon Fresh cart.", parents=[parent_parser])
+    p_edit.add_argument("asin", help="Product ASIN to update.")
+    p_edit.add_argument("qty", type=int, help="New quantity.")
+
     p_heal = sub.add_parser(
         "heal",
         help=(
@@ -427,6 +538,9 @@ def main():
         "saved-items": cmd_saved_items,
         "search": cmd_search,
         "add": cmd_add,
+        "cart": cmd_cart,
+        "remove": cmd_remove,
+        "edit": cmd_edit,
         "heal": cmd_heal,
     }
 

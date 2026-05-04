@@ -215,6 +215,165 @@ def add_to_cart(page, asin: str, qty: int, sel: dict) -> dict:
     return {"asin": asin, "name": name, "qty": actual_qty, "added": True}
 
 
+# ── Cart read/write ────────────────────────────────────────────────────────────
+
+def _find_cart_item(page, asin: str, sel: dict):
+    """Return the cart item element for the given ASIN, or None.
+
+    Tries a direct data-asin attribute match first (fast), then falls back to
+    iterating all containers and extracting the ASIN from each (robust against
+    carts where data-asin lives on an inner element instead of the container).
+    """
+    container_sel = sel["item_container"]
+
+    direct = f'{container_sel}[data-asin="{asin}"]'
+    try:
+        if page.locator(direct).count() > 0:
+            return page.locator(direct).first
+    except Exception:
+        pass
+
+    try:
+        for el in page.locator(container_sel).all():
+            if _extract_asin(el) == asin:
+                return el
+    except Exception:
+        pass
+
+    return None
+
+
+def scrape_cart_items(page, sel: dict) -> dict:
+    """Scrape all items from the Amazon Fresh cart page.
+
+    Returns {"items": [{name, asin, qty, price}], "subtotal": str|None}.
+    An empty cart returns {"items": [], "subtotal": None} — not an error.
+    """
+    container_sel = sel["item_container"]
+    try:
+        page.wait_for_selector(container_sel, timeout=8000)
+    except Exception:
+        return {"items": [], "subtotal": None}
+
+    items = []
+    for el in page.locator(container_sel).all():
+        name = _extract_name(el, sel["item_name"])
+        if not name:
+            continue
+
+        asin = _extract_asin(el)
+        price = _extract_price(el, sel["item_price"])
+
+        qty = None
+        qty_sel = sel.get("item_qty", "")
+        if qty_sel:
+            try:
+                val = el.locator(qty_sel).first.input_value(timeout=2000)
+                qty = int(val) if val and val.strip().isdigit() else None
+            except Exception:
+                pass
+
+        items.append({"name": name, "asin": asin, "qty": qty, "price": price})
+
+    subtotal = None
+    subtotal_sel = sel.get("subtotal")
+    if subtotal_sel:
+        try:
+            text = page.locator(subtotal_sel).first.text_content(timeout=2000)
+            if text:
+                subtotal = text.strip()
+        except Exception:
+            pass
+
+    return {"items": items, "subtotal": subtotal}
+
+
+def remove_from_cart(page, asin: str, sel: dict) -> dict:
+    """Remove an item from the Amazon Fresh cart by ASIN.
+
+    Returns {"asin", "name", "removed": True}.
+    Raises ValueError if the ASIN is not in the cart.
+    Raises RuntimeError if the delete button can't be clicked.
+    """
+    card = _find_cart_item(page, asin, sel)
+    if card is None:
+        raise ValueError(f"ASIN {asin} not found in cart")
+
+    name = _extract_name(card, sel["item_name"]) or asin
+
+    try:
+        card.locator(sel["delete_button"]).first.click(timeout=6000)
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not click delete for ASIN {asin}: {e}. "
+            "Run 'amazon-fresh heal --page cart' to repair selectors."
+        )
+
+    page.wait_for_timeout(2000)
+    return {"asin": asin, "name": name, "removed": True}
+
+
+def edit_cart_qty(page, asin: str, qty: int, sel: dict) -> dict:
+    """Update the quantity of an item in the Amazon Fresh cart.
+
+    Tries a direct qty text input first (works for any target quantity),
+    then falls back to +/- stepper clicks.
+
+    Returns {"asin", "name", "qty", "updated": True}.
+    Raises ValueError if the ASIN is not in the cart.
+    Raises RuntimeError if quantity cannot be updated.
+    """
+    card = _find_cart_item(page, asin, sel)
+    if card is None:
+        raise ValueError(f"ASIN {asin} not found in cart — use 'add' to add new items")
+
+    name = _extract_name(card, sel["item_name"]) or asin
+
+    # Strategy 1: direct qty input (fastest, works for any number)
+    qty_input_sel = sel.get("qty_input", "")
+    if qty_input_sel:
+        try:
+            inp = card.locator(qty_input_sel).first
+            inp.triple_click(timeout=3000)
+            inp.type(str(qty))
+            inp.press("Enter")
+            page.wait_for_timeout(1500)
+            return {"asin": asin, "name": name, "qty": qty, "updated": True}
+        except Exception:
+            pass
+
+    # Strategy 2: stepper — read current qty then increment/decrement to target
+    current_qty = 1
+    item_qty_sel = sel.get("item_qty", "")
+    if item_qty_sel:
+        try:
+            val = card.locator(item_qty_sel).first.input_value(timeout=2000)
+            if val and val.strip().isdigit():
+                current_qty = int(val)
+        except Exception:
+            pass
+
+    delta = qty - current_qty
+    if delta == 0:
+        return {"asin": asin, "name": name, "qty": qty, "updated": True}
+
+    btn_sel = sel.get("qty_increment_button" if delta > 0 else "qty_decrement_button", "")
+    if not btn_sel:
+        raise RuntimeError(
+            f"Cannot update qty for ASIN {asin} — no input or stepper selector available. "
+            "Run 'amazon-fresh heal --page cart'."
+        )
+
+    for _ in range(abs(delta)):
+        try:
+            card.locator(btn_sel).first.click(timeout=3000)
+            page.wait_for_timeout(400)
+        except Exception:
+            break
+
+    return {"asin": asin, "name": name, "qty": qty, "updated": True}
+
+
 # ── Page scrapers ──────────────────────────────────────────────────────────────
 
 def scrape_items(page, sel: dict, limit: Optional[int] = None) -> list:

@@ -22,6 +22,7 @@ REQUIRED_KEYS_BY_PAGE = {
     "saved_items": _SCRAPE_KEYS,
     "search": _SCRAPE_KEYS,
     "add": ["item_container", "add_to_cart_button"],
+    "cart": ["item_container", "item_name", "item_price", "delete_button"],
 }
 
 

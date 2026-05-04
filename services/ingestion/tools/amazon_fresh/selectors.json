@@ -1,4 +1,16 @@
 {
+  "cart": {
+    "url": "https://www.amazon.com/cart/localmarket?almBrandId=QW1hem9uIEZyZXNo",
+    "item_container": "[data-asin]",
+    "item_name": ".a-truncate-full",
+    "item_price": ".a-price .a-offscreen",
+    "item_qty": "input[name*='quantity'], select[name*='quantity']",
+    "delete_button": "input[value='Delete'], button:has-text('Delete')",
+    "qty_input": "input[name*='quantity']",
+    "qty_increment_button": "button[data-action='a-stepper-increment']",
+    "qty_decrement_button": "button[data-action='a-stepper-decrement']",
+    "subtotal": null
+  },
   "add": {
     "search_url_template": "https://www.amazon.com/s?k={asin}&i=amazonfresh",
     "item_container": "[data-component-type='s-search-result']",
