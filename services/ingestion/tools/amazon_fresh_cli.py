@@ -600,8 +600,31 @@ HTML:
 
 # ── CLI entrypoint ─────────────────────────────────────────────────────────────
 
+def _run_human_command(cmd: str, argv: list) -> None:
+    """Parse and dispatch a human-only command (invisible to --help)."""
+    p = argparse.ArgumentParser(prog=f"amazon-fresh {cmd}")
+    p.add_argument("--headed", action="store_true", default=False, help="Open a visible browser window.")
+    if cmd == "auth":
+        cmd_auth(p.parse_args(argv))
+    elif cmd == "heal":
+        p.add_argument("--page", choices=PAGES, default=None, help="Page to heal (default: all).")
+        cmd_heal(p.parse_args(argv))
+    elif cmd == "sync-history":
+        p.add_argument("--history-file", required=True,
+                       help="Path to grocery_history.json.")
+        p.add_argument("--force", action="store_true", default=False,
+                       help="Re-sync entries that already have an ASIN.")
+        cmd_sync_history(p.parse_args(argv))
+
+
 def main():
     logging.basicConfig(level=logging.WARNING)
+
+    # Human-only commands parsed before argparse so they never appear in --help
+    _HUMAN_COMMANDS = {"auth", "heal", "sync-history"}
+    if len(sys.argv) > 1 and sys.argv[1] in _HUMAN_COMMANDS:
+        _run_human_command(sys.argv[1], sys.argv[2:])
+        return
 
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
@@ -616,8 +639,6 @@ def main():
         description="Amazon Fresh CLI for Synapse. All output is JSON to stdout.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-
-    sub.add_parser("auth", help=argparse.SUPPRESS, parents=[parent_parser])
 
     p_pp = sub.add_parser("past-purchases", help="List past Amazon Fresh purchases.", parents=[parent_parser])
     p_pp.add_argument("--limit", type=int, default=None, help="Max items to return.")
@@ -648,34 +669,9 @@ def main():
     p_edit.add_argument("asin", help="Product ASIN to update.")
     p_edit.add_argument("qty", type=_positive_int, help="New quantity (must be >= 1; use 'remove' to delete).")
 
-    p_sync = sub.add_parser(
-        "sync-history",
-        help=argparse.SUPPRESS,
-        parents=[parent_parser],
-    )
-    p_sync.add_argument(
-        "--history-file",
-        required=True,
-        help="Path to grocery_history.json (e.g. ~/Documents/code/notes/groceries/grocery_history.json).",
-    )
-    p_sync.add_argument(
-        "--force",
-        action="store_true",
-        default=False,
-        help="Re-sync entries that already have an ASIN (overwrites existing).",
-    )
-
-    p_heal = sub.add_parser(
-        "heal",
-        help=argparse.SUPPRESS,
-        parents=[parent_parser],
-    )
-    p_heal.add_argument("--page", choices=PAGES, default=None, help="Page to heal (default: all).")
-
     args = parser.parse_args()
 
     dispatch = {
-        "auth": cmd_auth,
         "past-purchases": cmd_past_purchases,
         "saved-items": cmd_saved_items,
         "search": cmd_search,
@@ -683,8 +679,6 @@ def main():
         "cart": cmd_cart,
         "remove": cmd_remove,
         "edit": cmd_edit,
-        "sync-history": cmd_sync_history,
-        "heal": cmd_heal,
     }
 
     try:
