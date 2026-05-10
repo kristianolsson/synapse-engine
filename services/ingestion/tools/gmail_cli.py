@@ -27,11 +27,13 @@ import argparse
 import base64
 import fcntl
 import os
+import re
 import sys
+from datetime import date
 from email.mime.text import MIMEText
 from io import StringIO
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -49,6 +51,8 @@ DEFAULT_CREDENTIALS_PATH = _ROOT / "credentials.json"
 
 _ALLOW_ARCHIVE = os.getenv("GMAIL_ALLOW_ARCHIVE", "").lower() in ("1", "true", "yes")
 _ALLOW_SEND = os.getenv("GMAIL_ALLOW_SEND", "").lower() in ("1", "true", "yes")
+
+VAULT_PATH = Path(os.getenv("VAULT_PATH", str(_ROOT / "notes")))
 
 
 def get_credentials(token_path: Path, credentials_path: Path) -> Credentials:
@@ -124,6 +128,66 @@ def _extract_body(payload: dict) -> str:
             if text:
                 return text
     return ""
+
+
+def _find_attachments(payload: dict, message_id: str) -> list[dict]:
+    """Recursively find attachment parts in a message payload.
+
+    Returns a list of dicts with filename, mime_type, size, message_id, attachment_id.
+    attachment_id is None for small inline attachments whose data is already present.
+    """
+    results = []
+    mime_type = payload.get("mimeType", "")
+    filename = payload.get("filename", "")
+    body = payload.get("body", {})
+
+    if filename and mime_type not in ("text/plain", "text/html"):
+        attachment_id = body.get("attachmentId")
+        size = body.get("size", 0)
+        results.append({
+            "filename": filename,
+            "mime_type": mime_type,
+            "size": size,
+            "message_id": message_id,
+            "attachment_id": attachment_id,
+            "inline_data": body.get("data") if not attachment_id else None,
+        })
+
+    for part in payload.get("parts", []):
+        results.extend(_find_attachments(part, message_id))
+
+    return results
+
+
+def _format_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+def _sanitize_filename(name: str) -> str:
+    return re.sub(r"[^\w.\-]", "_", name)
+
+
+def _save_attachment(data: bytes, filename: str) -> Path:
+    """Save attachment bytes to assets/ingestion/ following the existing naming pattern."""
+    assets_dir = VAULT_PATH / "assets" / "ingestion"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+
+    today = date.today().isoformat()
+    stem = Path(_sanitize_filename(filename)).stem
+    ext = Path(_sanitize_filename(filename)).suffix
+    out_path = assets_dir / f"{today}_{stem}{ext}"
+
+    counter = 1
+    while out_path.exists():
+        out_path = assets_dir / f"{today}_{stem}_{counter}{ext}"
+        counter += 1
+
+    out_path.write_bytes(data)
+    return out_path
 
 
 # --- Commands -----------------------------------------------------------------------
@@ -206,7 +270,15 @@ def cmd_read_thread(service, thread_id: str) -> str:
         out.write("\n")
         body = _extract_body(payload)
         out.write(body.strip() if body else "(no text content)")
-        out.write("\n\n")
+        out.write("\n")
+
+        attachments = _find_attachments(payload, msg["id"])
+        if attachments:
+            out.write("\nAttachments:\n")
+            for a in attachments:
+                out.write(f"  - {a['filename']} ({a['mime_type']}, {_format_size(a['size'])})\n")
+                out.write(f"    message-id: {a['message_id']}  attachment-id: {a['attachment_id'] or '(inline)'}\n")
+        out.write("\n")
 
     return out.getvalue()
 
@@ -345,7 +417,24 @@ def cmd_read_draft(service, draft_id: str) -> str:
     out.write(body.strip() if body else "(no text content)")
     out.write("\n")
 
+    message_id = msg.get("id", "")
+    attachments = _find_attachments(payload, message_id)
+    if attachments:
+        out.write("\nAttachments:\n")
+        for a in attachments:
+            out.write(f"  - {a['filename']} ({a['mime_type']}, {_format_size(a['size'])})\n")
+            out.write(f"    message-id: {a['message_id']}  attachment-id: {a['attachment_id'] or '(inline)'}\n")
+
     return out.getvalue()
+
+
+def cmd_get_attachment(service, message_id: str, attachment_id: str, filename: str) -> str:
+    result = service.users().messages().attachments().get(
+        userId="me", messageId=message_id, id=attachment_id
+    ).execute()
+    data = base64.urlsafe_b64decode(result["data"] + "==")
+    saved = _save_attachment(data, filename)
+    return f"Attachment saved to: {saved}"
 
 
 def cmd_archive_thread(service, thread_id: str) -> str:
@@ -416,6 +505,11 @@ def main(argv: Optional[list[str]] = None) -> None:
     p = sub.add_parser("read-draft", help="Read the full content of a draft")
     p.add_argument("draft_id", help="Draft ID (from list-drafts output)")
 
+    p = sub.add_parser("get-attachment", help="Download an attachment to assets/ingestion/ in the vault")
+    p.add_argument("message_id", help="Message ID (from read-thread attachment info)")
+    p.add_argument("attachment_id", help="Attachment ID (from read-thread attachment info)")
+    p.add_argument("--filename", required=True, help="Original filename (used for naming the saved file)")
+
     # Gated: only registered (and visible in --help) when env flag is set
     if _ALLOW_ARCHIVE:
         p = sub.add_parser("archive-thread", help="Remove a thread from inbox")
@@ -452,6 +546,8 @@ def main(argv: Optional[list[str]] = None) -> None:
             result = cmd_list_drafts(service, limit=args.limit)
         elif args.command == "read-draft":
             result = cmd_read_draft(service, args.draft_id)
+        elif args.command == "get-attachment":
+            result = cmd_get_attachment(service, args.message_id, args.attachment_id, args.filename)
         elif args.command == "archive-thread":
             result = cmd_archive_thread(service, args.thread_id)
         elif args.command == "send-draft":
