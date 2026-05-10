@@ -7,6 +7,7 @@ Shares token.json and credentials.json with calendar_cli — one auth covers bot
 
 Usage:
     python gmail_cli.py list-inbox [--limit N] [--query Q]
+    python gmail_cli.py search <query> [--limit N]
     python gmail_cli.py read-thread <thread-id>
     python gmail_cli.py list-labels
     python gmail_cli.py apply-label <thread-id> <label>
@@ -14,6 +15,8 @@ Usage:
     python gmail_cli.py create-label <name>
     python gmail_cli.py create-draft --to <email> --subject <subject> --body <body>
     python gmail_cli.py reply-draft <thread-id> --body <body>
+    python gmail_cli.py list-drafts [--limit N]
+    python gmail_cli.py read-draft <draft-id>
 
 Gated commands (disabled unless env flag is set):
     GMAIL_ALLOW_ARCHIVE=true  →  archive-thread <thread-id>
@@ -126,9 +129,12 @@ def _extract_body(payload: dict) -> str:
 # --- Commands -----------------------------------------------------------------------
 
 
-def cmd_list_inbox(service, limit: int = 20, query: str = "") -> str:
+def _list_threads(service, limit: int, query: str = "", label_ids: list = None) -> str:
+    """Shared implementation for listing threads, with optional label and query filters."""
     out = StringIO()
-    params: dict = {"userId": "me", "labelIds": ["INBOX"], "maxResults": limit}
+    params: dict = {"userId": "me", "maxResults": limit}
+    if label_ids:
+        params["labelIds"] = label_ids
     if query:
         params["q"] = query
 
@@ -161,6 +167,14 @@ def cmd_list_inbox(service, limit: int = 20, query: str = "") -> str:
         out.write(f"  Snippet: {snippet[:120]}\n\n")
 
     return out.getvalue()
+
+
+def cmd_list_inbox(service, limit: int = 20, query: str = "") -> str:
+    return _list_threads(service, limit=limit, query=query, label_ids=["INBOX"])
+
+
+def cmd_search(service, query: str, limit: int = 20) -> str:
+    return _list_threads(service, limit=limit, query=query)
 
 
 def cmd_read_thread(service, thread_id: str) -> str:
@@ -278,6 +292,62 @@ def cmd_reply_draft(service, thread_id: str, body: str) -> str:
     return f"Reply draft created (id: {draft['id']}) in thread {thread_id}."
 
 
+def cmd_list_drafts(service, limit: int = 20) -> str:
+    out = StringIO()
+    result = service.users().drafts().list(userId="me", maxResults=limit).execute()
+    drafts = result.get("drafts", [])
+
+    if not drafts:
+        out.write("No drafts found.\n")
+        return out.getvalue()
+
+    for d in drafts:
+        draft = service.users().drafts().get(
+            userId="me", id=d["id"], format="metadata",
+            metadataHeaders=["Subject", "To", "Date"],
+        ).execute()
+        msg = draft.get("message", {})
+        hdrs = msg.get("payload", {}).get("headers", [])
+        subject = _get_header(hdrs, "Subject") or "(no subject)"
+        to = _get_header(hdrs, "To")
+        date = _get_header(hdrs, "Date")
+        snippet = msg.get("snippet", "")
+
+        out.write(f"Draft: {d['id']}\n")
+        out.write(f"  To:      {to}\n")
+        out.write(f"  Date:    {date}\n")
+        out.write(f"  Subject: {subject}\n")
+        out.write(f"  Snippet: {snippet[:120]}\n\n")
+
+    return out.getvalue()
+
+
+def cmd_read_draft(service, draft_id: str) -> str:
+    out = StringIO()
+    draft = service.users().drafts().get(
+        userId="me", id=draft_id, format="full"
+    ).execute()
+    msg = draft.get("message", {})
+    payload = msg.get("payload", {})
+    hdrs = payload.get("headers", [])
+
+    out.write(f"Draft ID: {draft_id}\n")
+    out.write(f"To:      {_get_header(hdrs, 'To')}\n")
+    out.write(f"Date:    {_get_header(hdrs, 'Date')}\n")
+    subject = _get_header(hdrs, "Subject")
+    if subject:
+        out.write(f"Subject: {subject}\n")
+    thread_id = msg.get("threadId")
+    if thread_id:
+        out.write(f"Thread:  {thread_id}\n")
+    out.write("\n")
+    body = _extract_body(payload)
+    out.write(body.strip() if body else "(no text content)")
+    out.write("\n")
+
+    return out.getvalue()
+
+
 def cmd_archive_thread(service, thread_id: str) -> str:
     service.users().threads().modify(
         userId="me", id=thread_id, body={"removeLabelIds": ["INBOX"]}
@@ -311,8 +381,12 @@ def main(argv: Optional[list[str]] = None) -> None:
     p.add_argument("--limit", type=int, default=20, help="Max threads to return (default: 20)")
     p.add_argument("--query", default="", help="Gmail search query (e.g. 'is:unread', 'from:someone@example.com')")
 
+    p = sub.add_parser("search", help="Search all mail (not limited to inbox)")
+    p.add_argument("query", help="Gmail search query (e.g. 'from:boss@example.com is:unread')")
+    p.add_argument("--limit", type=int, default=20, help="Max threads to return (default: 20)")
+
     p = sub.add_parser("read-thread", help="Read all messages in a thread")
-    p.add_argument("thread_id", help="Thread ID (from list-inbox output)")
+    p.add_argument("thread_id", help="Thread ID (from list-inbox or search output)")
 
     sub.add_parser("list-labels", help="List all Gmail labels")
 
@@ -336,6 +410,12 @@ def main(argv: Optional[list[str]] = None) -> None:
     p.add_argument("thread_id", help="Thread ID to reply to")
     p.add_argument("--body", required=True, help="Reply body text")
 
+    p = sub.add_parser("list-drafts", help="List draft emails")
+    p.add_argument("--limit", type=int, default=20, help="Max drafts to return (default: 20)")
+
+    p = sub.add_parser("read-draft", help="Read the full content of a draft")
+    p.add_argument("draft_id", help="Draft ID (from list-drafts output)")
+
     # Gated: only registered (and visible in --help) when env flag is set
     if _ALLOW_ARCHIVE:
         p = sub.add_parser("archive-thread", help="Remove a thread from inbox")
@@ -352,6 +432,8 @@ def main(argv: Optional[list[str]] = None) -> None:
 
         if args.command == "list-inbox":
             result = cmd_list_inbox(service, limit=args.limit, query=args.query)
+        elif args.command == "search":
+            result = cmd_search(service, query=args.query, limit=args.limit)
         elif args.command == "read-thread":
             result = cmd_read_thread(service, args.thread_id)
         elif args.command == "list-labels":
@@ -366,6 +448,10 @@ def main(argv: Optional[list[str]] = None) -> None:
             result = cmd_create_draft(service, to=args.to, subject=args.subject, body=args.body)
         elif args.command == "reply-draft":
             result = cmd_reply_draft(service, thread_id=args.thread_id, body=args.body)
+        elif args.command == "list-drafts":
+            result = cmd_list_drafts(service, limit=args.limit)
+        elif args.command == "read-draft":
+            result = cmd_read_draft(service, args.draft_id)
         elif args.command == "archive-thread":
             result = cmd_archive_thread(service, args.thread_id)
         elif args.command == "send-draft":
