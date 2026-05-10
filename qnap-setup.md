@@ -163,6 +163,11 @@ scp ~/Documents/code/synapse-engine/calendars.json \
     admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/synapse-engine/
 ```
 
+> **Note:** `token.json` covers both Google Calendar and Gmail (single shared OAuth token).
+> If you have just added Gmail to an existing setup, delete the old `token.json` first and
+> re-run `python -m services.ingestion.tools.setup_google` on your Mac to get a token with
+> both scopes before copying it to QNAP.
+
 On QNAP:
 ```bash
 sed -i 's|VAULT_PATH=.*|VAULT_PATH=/app/notes|' /share/CE_CACHEDEV2_DATA/synapse/.env
@@ -206,3 +211,17 @@ docker compose logs --tail=100
 **Claude:** Re-run step 5.
 
 **Gemini:** Re-auth on Mac, re-run scp from step 6, then `docker compose restart`.
+
+**Google (Calendar + Gmail):** Re-auth on Mac, then copy the fresh token to QNAP and restart:
+```bash
+# On Mac — delete old token to force re-auth
+rm ~/Documents/code/synapse-engine/token.json
+python -m services.ingestion.tools.setup_google
+
+# Copy fresh token to QNAP
+scp ~/Documents/code/synapse-engine/token.json \
+    admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/synapse-engine/
+
+# On QNAP
+docker compose restart
+```

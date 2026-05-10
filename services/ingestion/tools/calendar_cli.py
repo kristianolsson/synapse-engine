@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import fcntl
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -27,8 +28,10 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# Scopes needed for read + write access to calendars
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/gmail.modify",
+]
 
 # Local timezone for display — all events are normalized to this
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
@@ -72,37 +75,45 @@ def load_calendars(config_path: Path) -> list[dict]:
 
 
 def get_credentials(token_path: Path, credentials_path: Path) -> Credentials:
-    """Load or refresh OAuth2 credentials.
+    """Load or refresh OAuth2 credentials, serialized via a lockfile.
 
     Raises:
         FileNotFoundError: If credentials.json is missing and no valid token exists.
         RuntimeError: If credentials cannot be obtained.
     """
-    creds = None
+    lock_path = token_path.with_suffix(".json.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        try:
+            creds = None
+            if token_path.exists():
+                creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+                # Force re-auth if the token is missing any required scope
+                if creds and creds.valid and creds.scopes and not set(SCOPES).issubset(creds.scopes):
+                    creds = None
 
-    if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    if not credentials_path.exists():
+                        raise FileNotFoundError(
+                            f"OAuth credentials not found at {credentials_path}\n"
+                            "Download credentials.json from Google Cloud Console,\n"
+                            "then run setup_calendar.py to authenticate."
+                        )
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        str(credentials_path), SCOPES
+                    )
+                    creds = flow.run_local_server(port=0)
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not credentials_path.exists():
-                raise FileNotFoundError(
-                    f"OAuth credentials not found at {credentials_path}\n"
-                    "Download credentials.json from Google Cloud Console,\n"
-                    "then run setup_calendar.py to authenticate."
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(credentials_path), SCOPES
-            )
-            creds = flow.run_local_server(port=0)
+                with open(token_path, "w") as f:
+                    f.write(creds.to_json())
 
-        # Save refreshed/new token
-        with open(token_path, "w") as f:
-            f.write(creds.to_json())
-
-    return creds
+            return creds
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
 
 
 def build_service(token_path: Path, credentials_path: Path):

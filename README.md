@@ -32,8 +32,8 @@ The service is organized into four layers under `services/ingestion/`:
 | | `core/session_manager.py` | Per-user session state (TTL-based) |
 | **Providers** | `providers/` | Pluggable AI backends (`gemini`, `claude`, `echo`) |
 | **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
-| | `tools/calendar_mcp.py` | MCP server exposing calendar tools |
-| | `tools/setup_calendar.py` | One-time OAuth2 setup |
+| | `tools/gmail_cli.py` | Gmail CLI (inbox, labels, drafts) |
+| | `tools/setup_google.py` | One-time OAuth2 setup for Calendar + Gmail |
 | **Utils** | `utils/stats_formatter.py` | Channel-specific stats formatters |
 
 
@@ -77,23 +77,28 @@ The service is organized into four layers under `services/ingestion/`:
     3. Get your Telegram user ID (message [@userinfobot](https://t.me/userinfobot)) and add it to `TELEGRAM_ALLOWED_USER_IDS`.
     4. Set `ENABLED_CHANNELS=email,telegram` (or `telegram` for Telegram only).
 
-    **Calendar Setup (Google Calendar):**
-    1. Create a project in [Google Cloud Console](https://console.cloud.google.com/), enable the **Google Calendar API**.
-    2. Create an OAuth 2.0 Client ID (type: Desktop), download the JSON as `credentials.json` into the project root.
-    3. Add your email as a test user under **OAuth consent screen → Test users**.
-    4. Run the setup script:
+    **Google API Setup (Calendar + Gmail):**
+
+    Calendar and Gmail share a single OAuth2 credential and token. You only authenticate once.
+
+    1. Create a project in [Google Cloud Console](https://console.cloud.google.com/).
+    2. Enable both the **Google Calendar API** and the **Gmail API**.
+    3. Create an OAuth 2.0 Client ID (type: Desktop app), download the JSON as `credentials.json` into the project root.
+    4. Add your email as a test user under **OAuth consent screen → Test users**.
+    5. Run the setup script (opens a browser to grant Calendar + Gmail scopes at once):
        ```bash
-       python -m services.ingestion.tools.setup_calendar
+       python -m services.ingestion.tools.setup_google
        ```
-    5. Copy `calendars.json.example` to `calendars.json` and fill in your calendar IDs from the setup output:
+    6. Copy `calendars.json.example` to `calendars.json` and fill in your calendar IDs from the setup output:
        ```bash
        cp calendars.json.example calendars.json
        ```
-    6. Test:
+    7. Test both CLIs:
        ```bash
        python -m services.ingestion.tools.calendar_cli list-events --days 7
+       python -m services.ingestion.tools.gmail_cli list-inbox --limit 5
        ```
-    7. The calendar integration is automatically injected as a global `calendar` command to AI providers, so you don't need any additional configuration for the bots to use it.
+    8. Both integrations are automatically injected as global `calendar` and `gmail` commands to AI providers — no additional configuration needed.
 
 ## Telegram Commands
 
