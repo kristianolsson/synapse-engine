@@ -274,7 +274,14 @@ def cmd_accounts(args, env: dict) -> None:
 
 # ── CLI entrypoint ─────────────────────────────────────────────────────────────
 
+# Lock file path — serializes all etrade CLI invocations to prevent race
+# conditions when parallel calls try to authenticate/refresh the same token.
+LOCK_FILE = "/tmp/etrade.lock"
+
+
 def main():
+    import fcntl
+
     logging.basicConfig(level=logging.WARNING)  # Suppress INFO noise; errors go to stderr
 
     parser = argparse.ArgumentParser(
@@ -315,12 +322,17 @@ def main():
         "accounts": cmd_accounts,
     }
 
-    try:
-        dispatch[args.command](args, env)
-    except SystemExit:
-        raise
-    except Exception as e:
-        _err(f"Unexpected error: {e}", "api_error")
+    # Acquire exclusive file lock to serialize all etrade CLI calls.
+    # The `with` block guarantees the lock is released on success, exception,
+    # or crash (OS releases flock when the file descriptor is closed).
+    with open(LOCK_FILE, "w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            dispatch[args.command](args, env)
+        except SystemExit:
+            raise
+        except Exception as e:
+            _err(f"Unexpected error: {e}", "api_error")
 
 
 if __name__ == "__main__":
