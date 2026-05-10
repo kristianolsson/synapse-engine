@@ -2,6 +2,7 @@ FROM node:20-slim
 
 # System deps
 RUN apt-get update && apt-get install -y \
+    tini \
     git \
     openssh-client \
     python3 \
@@ -49,4 +50,5 @@ RUN git config --global gpg.format ssh && \
 
 ENV PATH="/app/venv/bin:$PATH"
 
+ENTRYPOINT ["tini", "--"]
 CMD ["python3", "-m", "services.ingestion.main"]
