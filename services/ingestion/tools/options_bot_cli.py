@@ -172,9 +172,9 @@ def _build_markdown(
             direction_str = f"▲ {_format_pct(abs(price_change_pct))}" if price_change_pct >= 0 else f"▼ {_format_pct(abs(price_change_pct))}"
 
         lines.append(f"### {ticker} @ {_format_currency(current_price)} {direction_str}")
-        lines.append(f"<!-- TICKER_CONTEXT:{ticker} -->\n")
 
         if opps:
+            lines.append(f"<!-- TICKER_CONTEXT:{ticker} -->\n")
             for i, opp in enumerate(opps):
                 rank_badge = "🥇" if i == 0 else ("🥈" if i == 1 else ("🥉" if i == 2 else "  "))
                 iv_str = _format_pct(opp.contract.implied_volatility) if opp.contract.implied_volatility else "N/A"
@@ -293,10 +293,9 @@ def _build_html(
         else:
             direction_html = ""
 
-        # TICKER_CONTEXT merge field — LLM replaces this with stock-researcher output
-        merge_field = f"<!-- TICKER_CONTEXT:{ticker} -->"
-
         if opps:
+            # TICKER_CONTEXT merge field — LLM replaces this with stock-researcher output (only for tickers with opportunities)
+            merge_field = f"<!-- TICKER_CONTEXT:{ticker} -->"
             rows = []
             for i, opp in enumerate(opps):
                 delta_str = f"{abs(opp.contract.delta):.2f}" if opp.contract.delta else "N/A"
@@ -335,14 +334,18 @@ def _build_html(
                     {"".join(rows)}
                 </tbody>
             </table>"""
-        else:
-            opps_html = '<p style="color: #888; font-style: italic; margin-bottom: 20px;">No opportunities met your thresholds.</p>'
-
-        ticker_sections.append(f"""
+            ticker_sections.append(f"""
         <h3 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 5px;">
             {ticker} @ {_format_currency(current_price)} {direction_html}
         </h3>
         {merge_field}
+        {opps_html}""")
+        else:
+            opps_html = '<p style="color: #888; font-style: italic; margin-bottom: 20px;">No opportunities met your thresholds.</p>'
+            ticker_sections.append(f"""
+        <h3 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 5px;">
+            {ticker} @ {_format_currency(current_price)} {direction_html}
+        </h3>
         {opps_html}""")
 
     return f"""<!DOCTYPE html>
