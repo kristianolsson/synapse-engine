@@ -89,11 +89,18 @@ chmod 755 /share/CE_CACHEDEV2_DATA/synapse/credentials/claude
 chmod 644 /share/CE_CACHEDEV2_DATA/synapse/credentials/claude/.credentials.json
 ```
 
-## 6. Set up Gemini credentials
+## 6. Set up Gemini and Antigravity (agy) credentials
+
+Gemini CLI and Antigravity CLI (agy) both store configuration and authentication data under `~/.gemini`.
 
 On Mac:
 ```bash
+# Transfer Gemini OAuth credentials
 scp ~/.gemini/oauth_creds.json ~/.gemini/google_accounts.json ~/.gemini/settings.json \
+  admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/gemini/
+
+# (Optional) Seed Antigravity CLI configuration and project cache
+scp -r ~/.gemini/antigravity-cli \
   admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/gemini/
 ```
 
@@ -172,6 +179,7 @@ On QNAP:
 ```bash
 sed -i 's|VAULT_PATH=.*|VAULT_PATH=/app/notes|' /share/CE_CACHEDEV2_DATA/synapse/.env
 sed -i 's|CLAUDE_CMD=.*|CLAUDE_CMD=/usr/local/bin/claude|' /share/CE_CACHEDEV2_DATA/synapse/.env
+echo "AGY_CMD=/home/synapse/.local/bin/agy" >> /share/CE_CACHEDEV2_DATA/synapse/.env
 echo "SESSION_STORAGE_PATH=/app/data/sessions.json" >> /share/CE_CACHEDEV2_DATA/synapse/.env
 echo "REMINDERS_JSON_PATH=/app/notes/reminders/reminders.json" >> /share/CE_CACHEDEV2_DATA/synapse/.env
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine

@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code and Gemini CLIs globally
@@ -39,6 +41,9 @@ RUN mkdir -p /ms-playwright && \
 WORKDIR /app/synapse-engine
 USER synapse
 
+# Install Antigravity CLI (agy)
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
+
 # Configure git signing, identity, and safe directories
 RUN git config --global gpg.format ssh && \
     git config --global user.signingkey /home/synapse/.ssh/id_ed25519.pub && \
@@ -48,7 +53,7 @@ RUN git config --global gpg.format ssh && \
     git config --global --add safe.directory /app/synapse-engine && \
     git config --global --add safe.directory /app/notes
 
-ENV PATH="/app/venv/bin:$PATH"
+ENV PATH="/app/venv/bin:/home/synapse/.local/bin:$PATH"
 
 ENTRYPOINT ["tini", "--"]
 CMD ["python3", "-m", "services.ingestion.main"]

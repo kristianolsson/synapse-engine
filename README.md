@@ -6,7 +6,7 @@ backend — capturing messages, standardizing them into a structured format, and
 routing them to the configured AI provider for autonomous processing of the
 **Synapse Vault**.
 
-> **Supported providers:** Gemini CLI, Claude Code CLI
+> **Supported providers:** Gemini CLI, Claude Code CLI, Antigravity CLI (agy)
 
 ## How It Works
 
@@ -41,7 +41,7 @@ The service is organized into four layers under `services/ingestion/`:
 
 1.  **Prerequisites:**
     -   Python 3.10+
-    -   At least one AI CLI installed: [Gemini CLI](https://github.com/google-gemini/gemini-cli) or [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code).
+    -   At least one AI CLI installed: [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), or [Antigravity CLI (agy)](https://antigravity.google/cli/install.sh).
     -   A dedicated Gmail account for ingestion (with App Password).
     -   (Recommended) A Telegram bot token from [@BotFather](https://t.me/BotFather).
 
@@ -61,10 +61,12 @@ The service is organized into four layers under `services/ingestion/`:
 
     **Key Configuration:**
     - `ENABLED_CHANNELS`: Comma-separated list of channels to run (`email`, `telegram`, or `email,telegram`).
-    - `AI_PROVIDER`: The AI backend to use (`gemini`, `claude`, or `echo`). Defaults to `gemini`.
+    - `AI_PROVIDER`: The AI backend to use (`gemini`, `claude`, `agy`, or `echo`). Defaults to `gemini`.
     - `CLAUDE_CMD`: (Optional) Explicit path to `claude` binary. Auto-detected if omitted.
     - `CLAUDE_TIMEOUT_SECONDS`: Max execution time for Claude CLI (default: `300`).
     - `CLAUDE_MAX_BUDGET_USD`: (Optional) Per-request cost cap for Claude.
+    - `AGY_CMD`: (Optional) Explicit path to `agy` binary. Auto-detected if omitted.
+    - `AGY_TIMEOUT_SECONDS`: Max execution time for Antigravity CLI (default: `300`).
     - `EMAIL_ADDRESS`: The account to ingest from (and reply from).
     - `ALLOWED_SENDERS`: Whitelist of email addresses authorized to send tasks.
     - `REPLY_TO_ADDRESS`: (Optional) Redirect all system replies to this address.

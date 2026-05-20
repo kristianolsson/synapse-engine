@@ -485,7 +485,7 @@ class TestTaskButtons:
     @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
     async def test_callback_query_completes_task(self, mock_pipe, mock_config):
         """Tapping a ✅ button pipes completion to Gemini and removes the button."""
-        from services.ingestion.channels.telegram.task_buttons import _hash_task
+        from services.ingestion.utils.task_formatter import _hash_task
 
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
 
@@ -542,7 +542,7 @@ class TestTaskButtons:
 
     @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
     async def test_callback_query_undo_task(self, mock_pipe, mock_config):
-        from services.ingestion.channels.telegram.task_buttons import _hash_task
+        from services.ingestion.utils.task_formatter import _hash_task
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
 
         task_hash = _hash_task("Buy groceries")
@@ -591,7 +591,7 @@ class TestTaskButtons:
     @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
     async def test_callback_query_rollback_on_error(self, mock_pipe, mock_config):
         """If Gemini fails, the optimistic UI update should be rolled back."""
-        from services.ingestion.channels.telegram.task_buttons import _hash_task
+        from services.ingestion.utils.task_formatter import _hash_task
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
 
         task_hash = _hash_task("Buy groceries")

@@ -35,3 +35,7 @@ sessions.json
 .coverage
 .pytest_cache/
 htmlcov/
+
+# Antigravity CLI
+.antigravitycli/
+

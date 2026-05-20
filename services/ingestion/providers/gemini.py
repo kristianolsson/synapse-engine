@@ -75,7 +75,7 @@ class GeminiProvider(AIProvider):
 
         # Build env with the Gemini CLI's directory and our custom bin in PATH (needed for nvm-managed node)
         env = os.environ.copy()
-        custom_bin = "/app/synapse-engine/bin"
+        custom_bin = config.CUSTOM_BIN_PATH
         gemini_dir = os.path.dirname(config.GEMINI_CMD)
         if gemini_dir:
             env["PATH"] = custom_bin + ":" + gemini_dir + ":" + env.get("PATH", "")
@@ -237,7 +237,7 @@ class GeminiProvider(AIProvider):
         cmd = [config.GEMINI_CMD, "--delete-session", session_id]
 
         env = os.environ.copy()
-        custom_bin = "/app/synapse-engine/bin"
+        custom_bin = config.CUSTOM_BIN_PATH
         gemini_dir = os.path.dirname(config.GEMINI_CMD)
         if gemini_dir:
             env["PATH"] = custom_bin + ":" + gemini_dir + ":" + env.get("PATH", "")

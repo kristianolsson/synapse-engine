@@ -76,6 +76,9 @@ def set_ai_provider(provider: str) -> None:
     global _ai_provider
     _ai_provider = provider.strip().lower()
 
+# Central bin folder where CLI engines are placed or softlinked (e.g. in container)
+CUSTOM_BIN_PATH = os.getenv("CUSTOM_BIN_PATH", "/app/synapse-engine/bin").strip()
+
 def _resolve_gemini_cmd() -> str:
     """Resolve the gemini CLI path, auto-detecting from the login shell if needed."""
     explicit = os.getenv("GEMINI_CMD", "").strip()
@@ -143,6 +146,33 @@ CLAUDE_FALLBACK_MODELS = [
     if m.strip()
 ]
 CLAUDE_MAX_BUDGET_USD = os.getenv("CLAUDE_MAX_BUDGET_USD", "").strip() or None
+
+# --- Antigravity CLI (agy) ---
+def _resolve_agy_cmd() -> str:
+    """Resolve the agy CLI path, auto-detecting from the login shell if needed."""
+    explicit = os.getenv("AGY_CMD", "").strip()
+    if explicit:
+        return explicit
+    import subprocess
+    import shutil
+    found = shutil.which("agy")
+    if found:
+        return found
+    try:
+        result = subprocess.run(
+            ["bash", "-lc", "which agy"],
+            capture_output=True, text=True, timeout=5,
+        )
+        path = result.stdout.strip()
+        if path and result.returncode == 0:
+            return path
+    except Exception:
+        pass
+    return "agy"
+
+AGY_CMD = _resolve_agy_cmd()
+AGY_TIMEOUT_SECONDS = int(os.getenv("AGY_TIMEOUT_SECONDS", "300"))
+AGY_MAX_RETRIES = int(os.getenv("AGY_MAX_RETRIES", "3"))
 
 # --- Telegram Settings ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")

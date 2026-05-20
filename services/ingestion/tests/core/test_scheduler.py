@@ -416,7 +416,7 @@ class TestFireReminder:
         now = datetime.now(LOCAL_TZ)
         reminder = {"id": "test-1", "type": "message", "channel": "telegram", "task": "Buy milk", "recurring": "daily", "time": "07:00"}
         scheduler._fire_reminder(reminder, now)
-        mock_handle.assert_called_once_with("telegram", "Buy milk", is_missed=False)
+        mock_handle.assert_called_once_with("telegram", "Buy milk", is_missed=False, subject_override=None)
 
     @patch.object(ReminderScheduler, "_handle_work_reminder")
     def test_fire_work_reminder(self, mock_handle, scheduler):
@@ -435,7 +435,7 @@ class TestFireReminder:
         old_time = datetime.now(LOCAL_TZ) - timedelta(seconds=MISSED_THRESHOLD_SECONDS + 60)
         reminder = {"id": "test-3", "type": "message", "channel": "telegram", "task": "Buy milk", "recurring": "daily", "time": "07:00"}
         scheduler._fire_reminder(reminder, old_time)
-        mock_handle.assert_called_once_with("telegram", "Buy milk", is_missed=True)
+        mock_handle.assert_called_once_with("telegram", "Buy milk", is_missed=True, subject_override=None)
 
     @patch.object(ReminderScheduler, "_handle_message_reminder")
     def test_fire_slightly_late_not_missed(self, mock_handle, scheduler):
@@ -443,7 +443,7 @@ class TestFireReminder:
         slightly_old = datetime.now(LOCAL_TZ) - timedelta(seconds=10)
         reminder = {"id": "test-4", "type": "message", "channel": "telegram", "task": "Buy milk", "recurring": "daily", "time": "07:00"}
         scheduler._fire_reminder(reminder, slightly_old)
-        mock_handle.assert_called_once_with("telegram", "Buy milk", is_missed=False)
+        mock_handle.assert_called_once_with("telegram", "Buy milk", is_missed=False, subject_override=None)
 
     @patch.object(ReminderScheduler, "_remove_from_json")
     @patch.object(ReminderScheduler, "_handle_message_reminder")

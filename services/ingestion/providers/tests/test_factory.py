@@ -3,6 +3,7 @@ from services.ingestion.providers import get_provider
 from services.ingestion.providers.gemini import GeminiProvider
 from services.ingestion.providers.claude import ClaudeProvider
 from services.ingestion.providers.echo import EchoProvider
+from services.ingestion.providers.agy import AgyProvider
 
 def test_get_provider_invalid():
     with pytest.raises(ValueError, match="Unknown AI provider"):
@@ -25,3 +26,6 @@ def test_get_provider_explicit():
 
     provider = get_provider("echo")
     assert isinstance(provider, EchoProvider)
+
+    provider = get_provider("agy")
+    assert isinstance(provider, AgyProvider)

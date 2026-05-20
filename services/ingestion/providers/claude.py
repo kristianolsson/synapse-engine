@@ -24,7 +24,7 @@ class ClaudeProvider(AIProvider):
 
         # Build env with the Claude CLI's directory and our custom bin in PATH
         env = os.environ.copy()
-        custom_bin = "/app/synapse-engine/bin"
+        custom_bin = config.CUSTOM_BIN_PATH
         claude_dir = os.path.dirname(config.CLAUDE_CMD)
         if claude_dir:
             env["PATH"] = custom_bin + ":" + claude_dir + ":" + env.get("PATH", "")

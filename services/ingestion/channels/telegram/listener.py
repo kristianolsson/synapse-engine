@@ -153,7 +153,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             "/stats on|off — Toggles the display of token usage and request stats.\n"
             "/update — Pulls the latest code via git and restarts the bot.\n"
             "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
-            "/provider <gemini|claude> — Switches the active AI provider.\n"
+            "/provider <gemini|claude|agy> — Switches the active AI provider.\n"
             "/help — Shows this help message."
         )
         await message.reply_text(help_text, parse_mode='Markdown')
@@ -238,14 +238,14 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         parts = stripped.split()
         if len(parts) == 2:
             requested = parts[1]
-            if requested in ("gemini", "claude", "echo"):
+            if requested in ("gemini", "claude", "agy", "echo"):
                 config.set_ai_provider(requested)
                 await message.reply_text(f"Switched to {requested} provider.")
             else:
-                await message.reply_text(f"Unknown provider: {requested}. Options: gemini, claude")
+                await message.reply_text(f"Unknown provider: {requested}. Options: gemini, claude, agy")
         else:
             current = config.get_ai_provider()
-            await message.reply_text(f"Current provider: {current}. Usage: /provider <gemini|claude>")
+            await message.reply_text(f"Current provider: {current}. Usage: /provider <gemini|claude|agy>")
         return
 
     attachment_paths = await extract_attachments(update)

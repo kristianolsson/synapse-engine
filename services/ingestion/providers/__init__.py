@@ -5,6 +5,7 @@ from .base import AIProvider
 from .gemini import GeminiProvider
 from .claude import ClaudeProvider
 from .echo import EchoProvider
+from .agy import AgyProvider
 
 logger = logging.getLogger(__name__)
 
@@ -32,5 +33,7 @@ def get_provider(provider_name: Optional[str] = None) -> AIProvider:
         return ClaudeProvider()
     if provider_name == "echo":
         return EchoProvider()
+    if provider_name == "agy":
+        return AgyProvider()
     
     raise ValueError(f"Unknown AI provider: {provider_name}")
