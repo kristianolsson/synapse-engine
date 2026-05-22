@@ -171,8 +171,8 @@ class ReminderScheduler:
         # Set by scan loop to wake up dispatch loop
         self._wake_event = threading.Event()
 
-        # Track which reminder IDs are currently in the heap (with their fire times)
-        self._scheduled_ids: dict[str, datetime] = {}
+        # Track which reminder IDs are currently in the heap (with their fire times and snapshots)
+        self._scheduled_ids: dict[str, tuple[datetime, dict]] = {}
 
     # ── JSON I/O ─────────────────────────────────────────────────────────
 
@@ -321,8 +321,9 @@ class ReminderScheduler:
                     continue
 
                 if rid in self._scheduled_ids:
-                    # Check if anything changed
-                    if self._scheduled_ids[rid] == fire_time:
+                    # Check if anything changed (fire time or content)
+                    old_fire_time, old_reminder = self._scheduled_ids[rid]
+                    if old_fire_time == fire_time and old_reminder == reminder:
                         continue
                     # Remove old entry and re-add
                     self._heap = [
@@ -335,7 +336,7 @@ class ReminderScheduler:
                     new_count += 1
 
                 heapq.heappush(self._heap, (fire_time, rid, reminder))
-                self._scheduled_ids[rid] = fire_time
+                self._scheduled_ids[rid] = (fire_time, reminder)
 
             if new_count > 0:
                 logger.info("Scheduled %d new reminder(s).", new_count)
@@ -585,7 +586,7 @@ class ReminderScheduler:
             if next_fire:
                 with self._heap_lock:
                     heapq.heappush(self._heap, (next_fire, rid, reminder))
-                    self._scheduled_ids[rid] = next_fire
+                    self._scheduled_ids[rid] = (next_fire, reminder)
                 logger.info("Rescheduled recurring reminder %s for %s", rid, next_fire.isoformat())
 
     def _dispatch_loop(self) -> None:
