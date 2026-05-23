@@ -152,6 +152,7 @@ def cmd_list_events(days: int = None, date: str = "", calendar: str = "",
         ValueError: If date format is invalid or calendar label not found.
     """
     out = StringIO()
+    out.write("# Dates: local time. Event ID timestamps are UTC — use section headers for the event's local date.\n")
 
     actual_days = days if days is not None else (1 if date else 7)
 
