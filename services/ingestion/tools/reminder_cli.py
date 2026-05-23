@@ -200,6 +200,8 @@ def cmd_add(args, reminders_path: Path) -> str:
 
     if args.day:
         reminder["day"] = args.day.lower()
+    if args.subject:
+        reminder["subject"] = args.subject
     if args.source:
         reminder["source"] = args.source
 
@@ -213,6 +215,8 @@ def cmd_add(args, reminders_path: Path) -> str:
     out.write(f"Reminder created: {reminder['id']}\n")
     out.write(f"  Type: {reminder['type']}\n")
     out.write(f"  Channel: {reminder['channel']}\n")
+    if "subject" in reminder:
+        out.write(f"  Subject: {reminder['subject']}\n")
     out.write(f"  Task: {reminder['task']}\n")
     out.write(f"  Time: {reminder['time']}")
     if args.day:
@@ -256,6 +260,11 @@ def cmd_edit(args, reminders_path: Path) -> str:
         if args.day:
             _validate_day(args.day, target["recurring"])
             target["day"] = args.day.lower()
+        if args.subject is not None:
+            if args.subject:
+                target["subject"] = args.subject
+            else:
+                target.pop("subject", None)
         if args.source is not None:
             if args.source:
                 target["source"] = args.source
@@ -271,6 +280,8 @@ def cmd_edit(args, reminders_path: Path) -> str:
     out.write(f"Reminder updated: {edited_target['id']}\n")
     out.write(f"  Type: {edited_target['type']}\n")
     out.write(f"  Channel: {edited_target['channel']}\n")
+    if "subject" in edited_target:
+        out.write(f"  Subject: {edited_target['subject']}\n")
     out.write(f"  Task: {edited_target['task']}\n")
     out.write(f"  Time: {edited_target['time']}")
     if "day" in edited_target:
@@ -311,7 +322,8 @@ def cmd_list(args, reminders_path: Path) -> str:
             time_display += f" ({r['day']})"
 
         out.write(f"  {icon} [{r['recurring']}] {time_display} — {r['task'][:80]}\n")
-        out.write(f"    ID: {r['id']} | Type: {r['type']} | Channel: {r['channel']}\n")
+        subject_display = f" | Subject: {r['subject']}" if "subject" in r else ""
+        out.write(f"    ID: {r['id']} | Type: {r['type']} | Channel: {r['channel']}{subject_display}\n")
 
     return out.getvalue()
 
@@ -342,6 +354,8 @@ def main(argv: Optional[list[str]] = None) -> None:
                             "For monthly: day number (1-31) or 'last'. Not used for daily/weekdays/none.")
     p_add.add_argument("--channel", default="telegram",
                        help="Delivery channel: telegram or email (default: telegram)")
+    p_add.add_argument("--subject", default="",
+                       help="Optional subject/title. For email: used as the subject line. For telegram: rendered as a bold header. Supports {date} merge field (replaced with YYYY-MM-DD at send time).")
     p_add.add_argument("--source", default="",
                        help="Optional vault source reference (e.g., daily/2026-04-12)")
 
@@ -354,6 +368,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     p_edit.add_argument("--recurring", default="", help="New recurrence: none, hourly, daily, weekly, weekdays, monthly")
     p_edit.add_argument("--day", default="", help="New day context")
     p_edit.add_argument("--channel", default="", help="New channel: telegram or email")
+    p_edit.add_argument("--subject", default=None, help="New subject/title; supports {date} merge field. Pass empty string to clear.")
     p_edit.add_argument("--source", default=None, help="New source reference (empty string to clear)")
 
     # remove

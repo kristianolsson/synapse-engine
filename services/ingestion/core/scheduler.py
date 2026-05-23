@@ -388,6 +388,8 @@ class ReminderScheduler:
     def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None, reply_markup=None) -> bool:
         """Deliver a message via the specified channel. Returns True on success."""
         if channel == "telegram":
+            if subject:
+                text = f"<b>{subject}</b>\n\n{text}"
             msg_id = self._send_telegram(text, reply_markup=reply_markup)
             if msg_id and session_id:
                 self.session_manager.save_message_session(msg_id, session_id)
