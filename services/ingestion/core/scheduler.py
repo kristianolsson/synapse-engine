@@ -439,12 +439,11 @@ class ReminderScheduler:
         # Determine sender identity based on channel
         if channel == "telegram":
             sender = str(config.TELEGRAM_ALLOWED_USER_IDS[0]) if config.TELEGRAM_ALLOWED_USER_IDS else "system"
-            source_type = "telegram"
         else:
             sender = config.REPLY_TO_ADDRESS or (
                 config.ALLOWED_SENDERS[0] if config.ALLOWED_SENDERS else "system"
             )
-            source_type = "email"
+        source_type = "scheduled_work"
 
         incoming = IncomingMessage(
             source_type=source_type,
