@@ -407,8 +407,11 @@ class ReminderScheduler:
         prefix = "⏰ Missed reminder: " if is_missed else "Reminder: " if channel == "telegram" else ""
         text = f"{prefix}{task}"
 
-        subject = subject_override or self._make_subject(task, prefix="⏰ Missed Reminder" if is_missed else "Reminder")
-        
+        if channel == "email":
+            subject = subject_override or self._make_subject(task, prefix="⏰ Missed Reminder" if is_missed else "Reminder")
+        else:
+            subject = subject_override or ""
+
         success = self._deliver(
             channel,
             text,
@@ -498,7 +501,11 @@ class ReminderScheduler:
             response_text, tasks = format_message_with_tasks(response_text)
             keyboard = build_task_keyboard(tasks)
 
-        subject = subject_override or self._make_subject(task, prefix="Synapse")
+        if channel == "email":
+            subject = subject_override or self._make_subject(task, prefix="Synapse")
+        else:
+            subject = subject_override or ""
+
         success = self._deliver(
             channel,
             response_text,

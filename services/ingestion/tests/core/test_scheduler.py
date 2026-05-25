@@ -317,7 +317,7 @@ class TestWorkReminder:
         mock_pipe.assert_called_once()
         prompt_arg = mock_pipe.call_args[0][0]
         assert "Research stocks" in prompt_arg
-        assert "telegram" in prompt_arg.lower()
+        assert "scheduled_work" in prompt_arg.lower()
 
         # Should deliver the result
         assert mock_deliver.call_count == 1
