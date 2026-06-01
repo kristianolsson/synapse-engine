@@ -475,7 +475,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     p.add_argument("--limit", type=int, default=20, help="Max threads to return (default: 20)")
 
     p = sub.add_parser("read-thread", help="Read all messages in a thread")
-    p.add_argument("thread_id", help="Thread ID (from list-inbox or search output)")
+    p.add_argument("thread_id", nargs="?", help="Thread ID (from list-inbox or search output)")
+    p.add_argument("--thread-id", dest="thread_id", help="Thread ID (alias for positional argument)")
 
     sub.add_parser("list-labels", help="List all Gmail labels")
 
@@ -529,6 +530,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         elif args.command == "search":
             result = cmd_search(service, query=args.query, limit=args.limit)
         elif args.command == "read-thread":
+            if not args.thread_id:
+                parser.error("read-thread requires a thread ID (positional or --thread-id)")
             result = cmd_read_thread(service, args.thread_id)
         elif args.command == "list-labels":
             result = cmd_list_labels(service)
