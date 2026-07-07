@@ -13,6 +13,7 @@ from services.ingestion.channels.email.listener import (
     extract_text_body,
     extract_attachments,
     process_email,
+    _send_reply_with_retry,
 )
 from services.ingestion.core.session_manager import SessionManager
 from services.ingestion.core.rate_limiter import RateLimiter
@@ -209,6 +210,80 @@ class TestProcessEmail:
         assert mock_pipe.call_count == 1
         args = mock_pipe.call_args[0]
         assert "Mark the following task as NOT completed (undo): Fix the fence" in args[0]
+
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_process_done_subject_hardwrapped_body(self, mock_config, mock_pipe):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
+
+        # Mail clients hard-wrap long plain-text lines (e.g. a long URL inside
+        # a mailto body), splitting the task text across physical lines. The
+        # hash won't match (no ☐/✅ prefix in a mailto-tap body), so this must
+        # fall back to the whole body, not just its first line.
+        body = (
+            '<a href="\n'
+            'https://example.com/post?xmt=abc&slof=1">Todd\n'
+            'Mitchell on Threads</a> - A fun project.'
+        )
+        raw = _make_simple_email(from_addr="user@example.com", subject="DONE:deadbeef", body=body)
+        sm = MagicMock(spec=SessionManager)
+
+        should_reply, text, stats = process_email(raw, sm)
+
+        assert should_reply is False
+        args = mock_pipe.call_args[0]
+        assert (
+            'Mark the following task as completed: <a href=" '
+            'https://example.com/post?xmt=abc&slof=1">Todd '
+            'Mitchell on Threads</a> - A fun project.'
+        ) in args[0]
+
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_process_done_requires_reply_relays_message(self, mock_config, mock_pipe):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=True, output="Which task did you mean?", session_id="", stats=None
+        )
+        raw = _make_simple_email(from_addr="user@example.com", subject="DONE:deadbeef", body="Buy milk")
+        sm = MagicMock(spec=SessionManager)
+
+        should_reply, text, stats = process_email(raw, sm)
+
+        assert should_reply is True
+        assert text == "Which task did you mean?"
+
+
+class TestSendReplyWithRetry:
+    @patch("services.ingestion.channels.email.reply.send_reply")
+    def test_succeeds_on_first_try(self, mock_send_reply):
+        mock_send_reply.return_value = True
+
+        result = _send_reply_with_retry(to_addr="a@b.com", subject="s", body="b")
+
+        assert result is True
+        assert mock_send_reply.call_count == 1
+
+    @patch("services.ingestion.channels.email.reply.send_reply")
+    def test_retries_once_then_succeeds(self, mock_send_reply):
+        mock_send_reply.side_effect = [False, True]
+
+        result = _send_reply_with_retry(to_addr="a@b.com", subject="s", body="b")
+
+        assert result is True
+        assert mock_send_reply.call_count == 2
+
+    @patch("services.ingestion.channels.email.listener.logger")
+    @patch("services.ingestion.channels.email.reply.send_reply")
+    def test_logs_critical_when_both_attempts_fail(self, mock_send_reply, mock_logger):
+        mock_send_reply.return_value = False
+
+        result = _send_reply_with_retry(to_addr="a@b.com", subject="s", body="b")
+
+        assert result is False
+        assert mock_send_reply.call_count == 2
+        mock_logger.critical.assert_called_once()
 
 
 class TestEmailReplyLogic:

@@ -110,6 +110,26 @@ def extract_attachments(msg: EmailMessage) -> list[str]:
     return paths
 
 
+def _send_reply_with_retry(**kwargs) -> bool:
+    """Send an email reply, retrying once so a transient SMTP blip doesn't
+    silently drop it. Logs at CRITICAL if both attempts fail, since that
+    means the reply is lost with no other notification channel."""
+    from .reply import send_reply
+
+    if send_reply(**kwargs):
+        return True
+
+    logger.warning("Reply send failed, retrying once...")
+    if send_reply(**kwargs):
+        return True
+
+    logger.critical(
+        "Reply delivery FAILED after retry — to=%s subject=%r body=%.500r",
+        kwargs.get("to_addr"), kwargs.get("subject"), kwargs.get("body"),
+    )
+    return False
+
+
 # ── Message Processing ──────────────────────────────────────────────
 
 
@@ -146,9 +166,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     if sender not in config.ALLOWED_SENDERS:
         logger.warning("Rejected email from unauthorized sender: %s", sender)
         if config.REPLY_TO_ADDRESS:
-            from .reply import send_reply
-
-            send_reply(
+            _send_reply_with_retry(
                 to_addr=config.REPLY_TO_ADDRESS,
                 subject="Synapse: Rejected email",
                 body=f"Rejected email from unauthorized sender.\n\nFrom: {sender}\nSubject: {subject}",
@@ -163,19 +181,19 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     if subject.startswith("DONE:") or subject.startswith("UNDO:"):
         is_done = subject.startswith("DONE:")
         task_hash = subject.split(":", 1)[1].strip()
-        
-        # In a mailto link, we encoded the exact task text into the email body.
-        # However, users might also reply normally and edit the subject. 
-        # So we first attempt to recover the task text using the hash.
+
+        # Manual replies that keep the DONE/UNDO subject but add free text
+        # above quoted history: recover the exact task line by hash match.
         from ...utils.task_formatter import recover_task_from_callback
         task_text = recover_task_from_callback(body, task_hash)
-        
+
         if not task_text:
-            # Assume it's a drafted mailto where the body is just the task text
-            lines = [line.strip() for line in body.splitlines() if line.strip()]
-            if lines:
-                task_text = lines[0]
-                
+            # Mailto-link taps: the body is just the task text. Mail clients
+            # hard-wrap long plain-text lines (e.g. long URLs), splitting it
+            # across multiple physical lines, so collapse all whitespace/
+            # newlines back into a single line instead of taking line one.
+            task_text = re.sub(r"\s+", " ", body).strip()
+
         if not task_text:
             return True, "⚠️ Could not identify this task from the email payload. Please complete it manually.", None
             
@@ -205,7 +223,10 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         if result.is_error:
             logger.error("Task completion failed for '%s': %s", task_text, result.output)
             return True, f"⚠️ Failed to complete task: {task_text}\n\nError: {result.output}", stats_to_return
-            
+
+        if result.requires_reply:
+            return True, result.output, stats_to_return
+
         # Success - no need to reply to a button click
         return False, "", stats_to_return
 
@@ -341,8 +362,7 @@ class EmailListener:
                     raw_msg = email.message_from_bytes(
                         raw_bytes, policy=email.policy.default
                     )
-                    from .reply import send_reply
-                    send_reply(
+                    _send_reply_with_retry(
                         to_addr=config.REPLY_TO_ADDRESS,
                         subject=raw_msg.get("Subject", ""),
                         body="⚠️ Rate limit reached. Please try again in a minute.",
@@ -360,12 +380,10 @@ class EmailListener:
                 should_reply, reply_text, stats = process_email(raw_bytes, self.session_manager)
 
                 if should_reply and reply_text:
-                    from .reply import send_reply
-
                     raw_msg = email.message_from_bytes(
                         raw_bytes, policy=email.policy.default
                     )
-                    send_reply(
+                    _send_reply_with_retry(
                         to_addr=config.REPLY_TO_ADDRESS,
                         subject=raw_msg.get("Subject", ""),
                         body=reply_text,
