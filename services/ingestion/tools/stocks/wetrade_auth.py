@@ -145,7 +145,9 @@ class BrowserAuth:
             logger.info("Access token renewed successfully")
             return True
         except Exception as e:
-            logger.warning(f"Token renewal failed: {e}")
+            # Expected daily occurrence (E*TRADE tokens expire at midnight ET);
+            # authenticate() falls back to a fresh browser auth automatically.
+            logger.info(f"Token renewal failed, will re-authenticate: {e}")
             return False
     
     def authenticate(self, headless: bool = False) -> Tuple[str, str]:
