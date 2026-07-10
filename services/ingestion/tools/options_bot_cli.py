@@ -121,38 +121,71 @@ def _format_pct(val) -> str:
     return f"{val * 100:.2f}%"
 
 
+def _position_metrics(position) -> dict:
+    """Compute switch-comparison metrics for an open short-put position."""
+    qty = abs(position.quantity) or 1
+    collateral = position.strike_price * 100 * qty
+    cost_to_close = position.current_price * 100 * qty
+    fwd_yield = None
+    if position.days_to_expiry > 0 and position.strike_price > 0:
+        fwd_yield = (position.current_price / position.strike_price) * (365 / position.days_to_expiry)
+    return {
+        "credit": position.original_credit,
+        "cost_to_close": cost_to_close,
+        "collateral": collateral,
+        "fwd_yield": fwd_yield,
+    }
+
+
+def _collateral_cell(strike: float, cash_bp: Optional[float]) -> str:
+    """Collateral (per contract) with an affordability flag against buying power."""
+    collateral = strike * 100
+    if cash_bp is None:
+        return _format_currency(collateral)
+    flag = "✓" if collateral <= cash_bp else "✗"
+    return f"{_format_currency(collateral)} {flag}"
+
+
 def _build_markdown(
     tickers: list[str],
     by_ticker: dict,
     buying_power: Optional[dict],
     position_recommendations: list,
     ticker_quotes: dict,
+    switch_pts: float = 5.0,
 ) -> str:
     """Build a text-friendly Markdown report for Telegram/CLI viewing."""
     scan_time = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"## 🎯 Options Trading Opportunities\n_{scan_time}_\n"]
 
+    cash_bp = (buying_power or {}).get("cash_buying_power")
+
     # Account status section
     if buying_power:
-        margin_bp = buying_power.get("margin_buying_power", 0) or 0
-        cash_bp = buying_power.get("cash_buying_power", 0) or 0
         account_val = buying_power.get("account_value", 0) or 0
         lines.append("### Account Status")
-        lines.append(f"- **Margin Buying Power:** {_format_currency(margin_bp)}")
-        lines.append(f"- **Cash Buying Power:** {_format_currency(cash_bp)}")
+        lines.append(f"- **Buying Power:** {_format_currency(cash_bp or 0)}")
         lines.append(f"- **Account Value:** {_format_currency(account_val)}\n")
 
     # Open positions section
     if position_recommendations:
         lines.append("### 📊 Open Position Recommendations")
         for rec in position_recommendations:
-            pnl_pct = rec.profit_loss_pct
-            pnl_str = f"{pnl_pct:+.1%}"
-            lines.append(f"- **{rec.action_emoji} {rec.action}** {rec.position.underlying} ${rec.position.strike_price:.0f}P exp {rec.position.expiration_date} (DTE: {rec.position.days_to_expiry}d) | P/L: {pnl_str} | _{rec.reason}_")
-        lines.append("")
+            pos = rec.position
+            m = _position_metrics(pos)
+            pnl_str = f"{rec.profit_loss_pct:+.1%}"
+            fwd_str = _format_pct(m["fwd_yield"]) if m["fwd_yield"] is not None else "N/A"
+            lines.append(
+                f"- **{rec.action_emoji} {rec.action}** {pos.underlying} ${pos.strike_price:.0f}P exp {pos.expiration_date} (DTE: {pos.days_to_expiry}d) | P/L: {pnl_str}"
+                f" | Credit: {_format_currency(m['credit'])} → Close: {_format_currency(m['cost_to_close'])}"
+                f" | Collateral: {_format_currency(m['collateral'])} | Fwd Yld (Ann.): {fwd_str} | _{rec.reason}_"
+            )
+        lines.append(f"\n_Switch rule: a new opportunity must beat an open position's Fwd Yld (Ann.) by ≥ {switch_pts:.0f} pts to justify closing early._\n")
 
-    lines.append("### 💡 Portfolio Analysis & Action Plan")
+    lines.append("### 💡 Portfolio Analysis")
     lines.append("<!-- PORTFOLIO_ANALYSIS -->\n")
+    lines.append("### ✅ Action Plan")
+    lines.append("<!-- ACTION_PLAN -->\n")
 
     all_opps = [opp for opps in by_ticker.values() for opp in opps]
     tickers_with_opps = sorted(by_ticker.keys(), key=lambda t: max(o.score for o in by_ticker[t]), reverse=True)
@@ -178,7 +211,7 @@ def _build_markdown(
             for i, opp in enumerate(opps):
                 rank_badge = "🥇" if i == 0 else ("🥈" if i == 1 else ("🥉" if i == 2 else "  "))
                 iv_str = _format_pct(opp.contract.implied_volatility) if opp.contract.implied_volatility else "N/A"
-                lines.append(f"- {rank_badge} {opp.score:.0f} | **${opp.contract.strike_price:.2f}** | {opp.contract.expiration_date} ({opp.contract.days_to_expiry}d) | Bid: {_format_currency(opp.contract.bid)} | Yld: {_format_pct(opp.annualized_yield)} | Prot: {_format_pct(opp.downside_protection)} | IV: {iv_str}")
+                lines.append(f"- {rank_badge} {opp.score:.0f} | **${opp.contract.strike_price:.2f}** | {opp.contract.expiration_date} ({opp.contract.days_to_expiry}d) | Bid: {_format_currency(opp.contract.bid)} | Yld: {_format_pct(opp.annualized_yield)} | Prot: {_format_pct(opp.downside_protection)} | IV: {iv_str} | Collateral: {_collateral_cell(opp.contract.strike_price, cash_bp)}")
             lines.append("")
         else:
             lines.append("_No opportunities met your thresholds._\n")
@@ -192,28 +225,25 @@ def _build_html(
     buying_power: Optional[dict],
     position_recommendations: list,
     ticker_quotes: dict,
+    switch_pts: float = 5.0,
 ) -> str:
     """Build the full HTML report with TICKER_CONTEXT merge fields."""
 
     scan_time = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+    cash_bp = (buying_power or {}).get("cash_buying_power")
+
     # Account status section
     bp_html = ""
     if buying_power:
-        margin_bp = buying_power.get("margin_buying_power", 0) or 0
-        cash_bp = buying_power.get("cash_buying_power", 0) or 0
         account_val = buying_power.get("account_value", 0) or 0
         bp_html = f"""
         <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
             <h4 style="margin: 0 0 10px 0; color: #333;">Account Status</h4>
             <table style="width: 100%;">
                 <tr>
-                    <td style="padding: 4px 0;"><strong>Margin Buying Power:</strong></td>
-                    <td style="padding: 4px 0; text-align: right; color: #28a745; font-weight: bold;">{_format_currency(margin_bp)}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 4px 0;"><strong>Cash Buying Power:</strong></td>
-                    <td style="padding: 4px 0; text-align: right;">{_format_currency(cash_bp)}</td>
+                    <td style="padding: 4px 0;"><strong>Buying Power:</strong></td>
+                    <td style="padding: 4px 0; text-align: right; color: #28a745; font-weight: bold;">{_format_currency(cash_bp or 0)}</td>
                 </tr>
                 <tr>
                     <td style="padding: 4px 0;"><strong>Account Value:</strong></td>
@@ -228,9 +258,12 @@ def _build_html(
     if position_recommendations:
         rows = []
         for rec in position_recommendations:
+            pos = rec.position
+            m = _position_metrics(pos)
             pnl_pct = rec.profit_loss_pct
             pnl_color = "#28a745" if pnl_pct >= 0 else "#dc3545"
             pnl_str = f"{pnl_pct:+.1%}"
+            fwd_str = _format_pct(m["fwd_yield"]) if m["fwd_yield"] is not None else "N/A"
             action_colors = {
                 "CLOSE": ("#dc3545", "#fff"),
                 "HOLD": ("#28a745", "#fff"),
@@ -244,17 +277,20 @@ def _build_html(
                         {rec.action_emoji} {rec.action}
                     </span>
                 </td>
-                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">{rec.position.underlying}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eee;">${rec.position.strike_price:.0f}P</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eee;">{rec.position.expiration_date}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eee;">{rec.position.days_to_expiry}d</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">{pos.underlying}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">${pos.strike_price:.0f}P</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">{pos.expiration_date}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">{pos.days_to_expiry}d</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eee; color: {pnl_color}; font-weight: bold;">{pnl_str}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">{_format_currency(m['credit'])} → {_format_currency(m['cost_to_close'])}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">{_format_currency(m['collateral'])}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">{fwd_str}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eee; font-size: 12px; color: #666;">{rec.reason}</td>
             </tr>""")
         pos_html = f"""
         <div style="margin-bottom: 20px;">
             <h3 style="color: #333; border-bottom: 2px solid #6c757d; padding-bottom: 5px;">📊 Open Position Recommendations</h3>
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px;">
                 <thead>
                     <tr style="background: #f8f9fa;">
                         <th style="padding: 8px; text-align: left;">Action</th>
@@ -263,6 +299,9 @@ def _build_html(
                         <th style="padding: 8px; text-align: left;">Expiry</th>
                         <th style="padding: 8px; text-align: left;">DTE</th>
                         <th style="padding: 8px; text-align: left;">P/L</th>
+                        <th style="padding: 8px; text-align: left;">Credit → Close</th>
+                        <th style="padding: 8px; text-align: left;">Collateral</th>
+                        <th style="padding: 8px; text-align: left;">Fwd Yld (Ann.)</th>
                         <th style="padding: 8px; text-align: left;">Reason</th>
                     </tr>
                 </thead>
@@ -270,6 +309,10 @@ def _build_html(
                     {"".join(rows)}
                 </tbody>
             </table>
+            <p style="color: #888; font-size: 12px; font-style: italic; margin: 0 0 20px 0;">
+                Fwd Yld (Ann.) = annualized return of holding this position to expiry from today.
+                Switch rule: a new opportunity must beat it by ≥ {switch_pts:.0f} pts to justify closing early.
+            </p>
         </div>"""
 
     # Ticker sections
@@ -313,6 +356,7 @@ def _build_html(
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">{delta_str}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">{iv_str}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">{opp.contract.open_interest}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; white-space: nowrap;">{_collateral_cell(opp.contract.strike_price, cash_bp)}</td>
                 </tr>""")
             opps_html = f"""
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
@@ -328,6 +372,7 @@ def _build_html(
                         <th style="padding: 8px; text-align: left;">Delta</th>
                         <th style="padding: 8px; text-align: left;">IV</th>
                         <th style="padding: 8px; text-align: left;">OI</th>
+                        <th style="padding: 8px; text-align: left;">Collateral</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -358,9 +403,14 @@ def _build_html(
 
     {pos_html}
 
-    <div style="margin-bottom: 24px; padding: 14px 16px; background: #f5f0ff; border-left: 4px solid #6f42c1; border-radius: 4px;">
-        <h4 style="margin: 0 0 8px 0; color: #4a235a;">💡 Portfolio Analysis &amp; Action Plan</h4>
+    <div style="margin-bottom: 16px; padding: 14px 16px; background: #f5f0ff; border-left: 4px solid #6f42c1; border-radius: 4px;">
+        <h4 style="margin: 0 0 8px 0; color: #4a235a;">💡 Portfolio Analysis</h4>
         <!-- PORTFOLIO_ANALYSIS -->
+    </div>
+
+    <div style="margin-bottom: 24px; padding: 14px 16px; background: #f0fff4; border-left: 4px solid #28a745; border-radius: 4px;">
+        <h4 style="margin: 0 0 8px 0; color: #1e4620;">✅ Action Plan</h4>
+        <!-- ACTION_PLAN -->
     </div>
 
     <p>Found <strong>{len(all_opps)}</strong> opportunities across <strong>{len(tickers_with_opps)}</strong> tickers.</p>
@@ -466,6 +516,8 @@ def cmd_scan(args) -> None:
             logger.warning("Error scanning %s: %s", ticker, e)
             ticker_quotes[ticker] = {"current_price": None, "price_change_pct": None}
 
+    switch_pts = cfg.get("switch_yield_advantage_pts", 5)
+
     if getattr(args, "format", "html") == "markdown":
         output = _build_markdown(
             tickers=tickers,
@@ -473,6 +525,7 @@ def cmd_scan(args) -> None:
             buying_power=buying_power,
             position_recommendations=position_recommendations,
             ticker_quotes=ticker_quotes,
+            switch_pts=switch_pts,
         )
     else:
         output = _build_html(
@@ -481,6 +534,7 @@ def cmd_scan(args) -> None:
             buying_power=buying_power,
             position_recommendations=position_recommendations,
             ticker_quotes=ticker_quotes,
+            switch_pts=switch_pts,
         )
     print(output)
 
