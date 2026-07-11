@@ -360,6 +360,24 @@ class TestWorkReminder:
         assert "⏰" in text
         assert "Missed" in text
 
+    @patch.object(ReminderScheduler, "_deliver")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.core.scheduler.config")
+    def test_work_reminder_synapse_ok_skips_delivery(self, mock_config, mock_pipe, mock_deliver, scheduler):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.REPLY_TO_ADDRESS = "user@example.com"
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False,
+            requires_reply=False,
+            output="",
+        )
+
+        scheduler._handle_work_reminder("telegram", "Check Redfin listing")
+
+        mock_deliver.assert_not_called()
+
 
 # ── Delivery Failure ─────────────────────────────────────────────────
 

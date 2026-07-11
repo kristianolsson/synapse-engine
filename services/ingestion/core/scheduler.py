@@ -472,9 +472,13 @@ class ReminderScheduler:
             self._handle_delivery_failure(task)
             return
 
+        if not result.requires_reply:
+            logger.info("Work reminder completed silently (no reply required): %s", task)
+            return
+
         response_text = result.output
         if not response_text:
-            response_text = "✓ Scheduled task completed."
+            response_text = f"✓ Scheduled task completed: {task}"
 
         if is_missed:
             response_text = f"⏰ _Missed reminder (firing late):_\n\n{response_text}"
