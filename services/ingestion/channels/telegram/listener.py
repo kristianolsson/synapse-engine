@@ -138,7 +138,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     text = message.text or message.caption or ""
     user_key = str(user.id)
 
-    if text.strip() == "/new":
+    if text.strip() in ("/new", "/clear"):
         if session_manager.clear_session(user_key):
             await message.reply_text("Session cleared. Starting a fresh context.")
         else:
@@ -149,7 +149,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     if text.strip() == "/help":
         help_text = (
             "🤖 **Synapse Engine Commands**\n\n"
-            "/new — Clears the current session and starts a fresh context.\n"
+            "/new, /clear — Clears the current session and starts a fresh context.\n"
             "/stats on|off — Toggles the display of token usage and request stats.\n"
             "/update — Pulls the latest code via git and restarts the bot.\n"
             "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
@@ -186,7 +186,10 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         except Exception as e:
             await message.reply_text(f"Update failed: {e}")
             return
-        os.kill(1, signal.SIGTERM)
+        # Kill our own process rather than PID 1: in Docker this exits tini
+        # (PID 1), which the container's `restart: always` policy brings back;
+        # locally, launchd's KeepAlive does the same for our own exit.
+        os.kill(os.getpid(), signal.SIGTERM)
 
     # /update-cli command — update Claude and Gemini CLI tools locally
     if stripped == "/update-cli":

@@ -230,7 +230,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         # Success - no need to reply to a button click
         return False, "", stats_to_return
 
-    if body.strip() == "/new":
+    if body.strip() in ("/new", "/clear"):
         if session_manager.clear_session(session_key):
             return True, "Session cleared. Starting a fresh context.", None
         else:
