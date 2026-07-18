@@ -77,7 +77,7 @@ def set_ai_provider(provider: str) -> None:
     _ai_provider = provider.strip().lower()
 
 # Central bin folder where CLI engines are placed or softlinked (e.g. in container)
-CUSTOM_BIN_PATH = os.getenv("CUSTOM_BIN_PATH", "/app/synapse-engine/bin").strip()
+CUSTOM_BIN_PATH = os.getenv("CUSTOM_BIN_PATH", str(Path(__file__).resolve().parent.parent.parent / "bin")).strip()
 
 def _resolve_gemini_cmd() -> str:
     """Resolve the gemini CLI path, auto-detecting from the login shell if needed."""

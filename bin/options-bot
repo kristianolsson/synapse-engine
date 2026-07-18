@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 # Options Bot CLI — weekday options opportunity scan.
-export PYTHONPATH="/app/synapse-engine:$PYTHONPATH"
-python3 -m services.ingestion.tools.options_bot_cli "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
+PYTHON="python3"
+[ -x "$SCRIPT_DIR/venv/bin/python3" ] && PYTHON="$SCRIPT_DIR/venv/bin/python3"
+"$PYTHON" -m services.ingestion.tools.options_bot_cli "$@"
