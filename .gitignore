@@ -10,6 +10,9 @@ calendars.json
 token.json
 credentials.json
 
+# Advisory lockfiles (fcntl.flock sidecars for reminders.json, token.json, etc.)
+*.json.lock
+
 # Python
 __pycache__/
 *.pyc
