@@ -10,6 +10,7 @@ from typing import Optional
 
 from .. import config
 from ..providers import get_provider, AIProvider
+from ..providers.base import GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
 
@@ -27,26 +28,36 @@ class IncomingMessage:
 def _sync_git() -> str:
     """
     Attempt to run git pull on the vault directory.
-    If it fails, return an instruction for the LLM to handle it manually.
+    Returns plain status text; the required response to a failure (retry,
+    then halt if it still fails) is defined once in the vault's Mandate 4
+    (Git Sync), not repeated here.
+
+    Acquires GLOBAL_PROVIDER_LOCK, since a provider session (run under the same
+    lock) may run its own git commands against the vault at any point via its
+    shell tool. Serializing against that same lock prevents this pull from
+    racing another thread's pull or a provider's in-session git usage.
     """
     import subprocess
-    try:
-        result = subprocess.run(
-            ["git", "pull", "--rebase"],
-            cwd=config.VAULT_PATH,
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode == 0:
-            return "Git Context: Automatically synced and up to date"
-        else:
-            err_msg = result.stderr.strip().replace('\n', ' ')[:200]
-            logger.warning("Automatic git pull failed: %s", err_msg)
-            return f"Git Context: AUTOMATIC PULL FAILED. Error: '{err_msg}'. Always execute `git pull` at the start of a session or before reading files to ensure the local context matches the remote repository. If your manual pull also fails, YOU MUST notify the user about the exact git error before answering their request."
-    except Exception as e:
-        logger.warning("Automatic git pull exception: %s", e)
-        return f"Git Context: AUTOMATIC PULL FAILED. Exception: '{e}'. Always execute `git pull` at the start of a session or before reading files to ensure the local context matches the remote repository. If your manual pull also fails, YOU MUST notify the user about the exact git error before answering their request."
+    logger.debug("Waiting for GLOBAL_PROVIDER_LOCK for git pull...")
+    with GLOBAL_PROVIDER_LOCK:
+        logger.debug("Acquired GLOBAL_PROVIDER_LOCK for git pull.")
+        try:
+            result = subprocess.run(
+                ["git", "pull", "--rebase"],
+                cwd=config.VAULT_PATH,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                return "Git Context: OK"
+            else:
+                err_msg = result.stderr.strip().replace('\n', ' ')[:200]
+                logger.warning("Automatic git pull failed: %s", err_msg)
+                return f"Git Context: FAILED - {err_msg}"
+        except Exception as e:
+            logger.warning("Automatic git pull exception: %s", e)
+            return f"Git Context: FAILED - {e}"
 
 
 def build_prompt(msg: IncomingMessage) -> str:
