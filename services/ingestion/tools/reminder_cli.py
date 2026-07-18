@@ -25,11 +25,17 @@ from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+# Resolve package path so `services.ingestion` is importable when run standalone
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+from services.ingestion import config as syn_config
+
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
-# Default path — overridden by REMINDERS_JSON_PATH env var or --config flag
-_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-DEFAULT_REMINDERS_PATH = _ROOT / "notes" / "reminders" / "reminders.json"
+# Default path — overridden by REMINDERS_JSON_PATH env var or --config flag.
+# Falls back to syn_config.REMINDERS_JSON_PATH (VAULT_PATH-relative, .env-aware)
+# rather than a path relative to this repo, which is wrong whenever the vault
+# isn't nested inside the synapse-engine checkout (e.g. local Mac dev).
+DEFAULT_REMINDERS_PATH = Path(syn_config.REMINDERS_JSON_PATH)
 
 VALID_RECURRING = {"none", "hourly", "daily", "weekly", "weekdays", "monthly"}
 VALID_TYPES = {"message", "work"}
