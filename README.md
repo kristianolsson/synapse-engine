@@ -23,12 +23,6 @@ routing them to the configured AI provider for autonomous processing of the
 flowchart TB
     subgraph top[" "]
         direction LR
-        subgraph inputs["Input Sources — threads"]
-            direction TB
-            EM["📧 Email listener<br/>IMAP IDLE"]
-            TG["💬 Telegram listener<br/>long-polling"]
-            SC["⏰ Reminder scheduler<br/>heapq two-tier queue"]
-        end
         subgraph core["Core Pipeline (core/)"]
             direction TB
             RL["RateLimiter<br/>sliding window"]
@@ -36,6 +30,12 @@ flowchart TB
             SM["SessionManager<br/>TTL sessions<br/>per user / provider"]
             RL --> PIPE
             PIPE <--> SM
+        end
+        subgraph inputs["Input Sources — threads"]
+            direction TB
+            EM["📧 Email listener<br/>IMAP IDLE"]
+            TG["💬 Telegram listener<br/>long-polling"]
+            SC["⏰ Reminder scheduler<br/>heapq two-tier queue"]
         end
     end
 
@@ -47,6 +47,7 @@ flowchart TB
         CLA["Claude Code CLI"]
         AGY["Antigravity CLI"]
         ECHO["Echo (test stub)"]
+        GEM ~~~ CLA ~~~ AGY ~~~ ECHO
     end
 
     subgraph exec["Agent Execution — serialized by GLOBAL_PROVIDER_LOCK"]
@@ -61,9 +62,9 @@ flowchart TB
     EM --> RL
     TG --> RL
     SC -. "bypasses limiter" .-> PIPE
-    PIPE --> FACT
-    FACT --> GEM & CLA & AGY & ECHO
-    GEM & CLA & AGY --> VAULT
+    core --> FACT
+    FACT --> prov
+    prov --> exec
     TOOLS --> EXT
     PIPE -. "reply: SMTP / Bot API" .-> EM & TG
 ```
