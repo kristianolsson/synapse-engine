@@ -73,22 +73,30 @@ flowchart TB
 
 ## Modules
 
-The service is organized into four layers under `services/ingestion/`:
+The service is organized into the following layers under `services/ingestion/`:
 
 | Layer | Path | Responsibility |
 |---|---|---|
-| **Entry Point** | `main.py` | Starts enabled channels in threads |
-| **Config** | `config.py` | Loads environment variables |
+| **Entry Point** | `main.py` | Starts enabled channels + the reminder scheduler in daemon threads |
+| **Config** | `config.py` | Env-driven configuration, provider selection and fallback rotation |
 | **Channels** | `channels/email/` | IMAP IDLE listener + SMTP reply |
-| | `channels/telegram/` | Telegram bot long-polling |
-| **Core** | `core/pipe.py` | Prompt formatting + AI provider dispatch |
-| | `core/rate_limiter.py` | Sliding-window rate limiter |
-| | `core/session_manager.py` | Per-user session state (TTL-based) |
-| **Providers** | `providers/` | Pluggable AI backends (`gemini`, `claude`, `echo`) |
+| | `channels/telegram/` | Long-polling bot: listener, standalone sender, inline task buttons |
+| **Core** | `core/pipe.py` | Prompt standardization + Vault git sync + provider dispatch |
+| | `core/scheduler.py` | Reminder scheduler (heapq two-tier queue; recurring + one-shot) |
+| | `core/session_manager.py` | Per-user/provider session state (TTL + midnight reset) |
+| | `core/rate_limiter.py` | Shared sliding-window rate limiter |
+| **Providers** | `providers/` | Pluggable AI backends via `AIProvider` ABC + factory (`gemini`, `claude`, `agy`, `echo`) |
 | **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
-| | `tools/gmail_cli.py` | Gmail CLI (inbox, labels, drafts) |
+| _(injected onto the_ | `tools/calendar_mcp.py` | Same calendar functions exposed over MCP |
+| _agent's `PATH`_ | `tools/gmail_cli.py` | Gmail CLI (inbox, labels, drafts) |
+| _via `bin/`)_ | `tools/reminder_cli.py` | Reminder CRUD backing the scheduler |
+| | `tools/etrade_cli.py` + `tools/stocks/` | E\*TRADE quotes, options, and positions (Playwright auth) |
+| | `tools/options_bot_cli.py` | Weekday options-opportunity scan → HTML report |
+| | `tools/amazon_fresh_cli.py` + `tools/amazon_fresh/` | Amazon Fresh grocery browsing (Playwright) |
 | | `tools/setup_google.py` | One-time OAuth2 setup for Calendar + Gmail |
-| **Utils** | `utils/stats_formatter.py` | Channel-specific stats formatters |
+| **Utils** | `utils/stats_formatter.py` | Per-channel token/cost/usage stats formatting |
+| | `utils/task_formatter.py` | Two-way task-completion parsing and formatting |
+| | `utils/html_utils.py` | Telegram HTML sanitization |
 
 
 ## Setup
