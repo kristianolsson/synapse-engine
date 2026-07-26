@@ -17,6 +17,54 @@ routing them to the configured AI provider for autonomous processing of the
    - **Email:** Silent on success. Replies only on error or clarification.
    - **Telegram:** Always replies with a concise confirmation or response.
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph inputs["Input Sources (threads, shared RateLimiter)"]
+        EM["📧 Email listener<br/>IMAP IDLE"]
+        TG["💬 Telegram listener<br/>long-polling"]
+        SC["⏰ Reminder scheduler<br/>heapq two-tier queue"]
+    end
+
+    subgraph core["Core Pipeline (core/)"]
+        RL["RateLimiter<br/>sliding window"]
+        PIPE["pipe.py<br/>build_prompt + dispatch<br/>+ vault git sync"]
+        SM["SessionManager<br/>TTL sessions, per user/provider"]
+    end
+
+    FACT{{"get_provider()<br/>factory"}}
+
+    subgraph prov["Provider Layer — Strategy (providers/)"]
+        GEM["Gemini CLI"]
+        CLA["Claude Code CLI"]
+        AGY["Antigravity CLI"]
+        ECHO["Echo (test stub)"]
+    end
+
+    subgraph exec["Agent Execution — serialized by GLOBAL_PROVIDER_LOCK"]
+        VAULT[("Synapse Vault<br/>git-backed notes repo")]
+        TOOLS["Injected tool CLIs (bin/)<br/>calendar · gmail · etrade<br/>options-bot · amazon-fresh · reminder"]
+    end
+
+    EXT["External APIs<br/>Google · E*TRADE · Amazon"]
+
+    EM --> RL
+    TG --> RL
+    RL --> PIPE
+    SC --> PIPE
+    PIPE <--> SM
+    PIPE --> FACT
+    FACT --> GEM & CLA & AGY & ECHO
+    GEM & CLA & AGY --> VAULT
+    VAULT --> TOOLS
+    TOOLS --> EXT
+    PIPE -. "reply: SMTP" .-> EM
+    PIPE -. "reply: Bot API" .-> TG
+```
+
+**Flow:** each input source normalizes its message into an `IncomingMessage`, `pipe.py` wraps it in a YAML metadata block (and syncs the Vault via `git pull`), then dispatches to the provider chosen by the `get_provider()` factory. The provider shells out to an AI CLI running inside the Vault — where the injected tool CLIs on `PATH` let the agent act on Calendar, Gmail, brokerage, and groceries. A single `GLOBAL_PROVIDER_LOCK` serializes all agent/git activity so concurrent channels never race the shared Vault.
+
 ## Modules
 
 The service is organized into four layers under `services/ingestion/`:
