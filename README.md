@@ -20,47 +20,50 @@ routing them to the configured AI provider for autonomous processing of the
 ## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph inputs["Input Sources (threads, shared RateLimiter)"]
+flowchart LR
+    subgraph inputs["Input Sources — threads"]
+        direction TB
         EM["📧 Email listener<br/>IMAP IDLE"]
         TG["💬 Telegram listener<br/>long-polling"]
         SC["⏰ Reminder scheduler<br/>heapq two-tier queue"]
     end
 
     subgraph core["Core Pipeline (core/)"]
+        direction TB
         RL["RateLimiter<br/>sliding window"]
         PIPE["pipe.py<br/>build_prompt + dispatch<br/>+ vault git sync"]
-        SM["SessionManager<br/>TTL sessions, per user/provider"]
+        SM["SessionManager<br/>TTL sessions<br/>per user / provider"]
+        RL --> PIPE
+        PIPE <--> SM
     end
 
     FACT{{"get_provider()<br/>factory"}}
 
     subgraph prov["Provider Layer — Strategy (providers/)"]
+        direction TB
         GEM["Gemini CLI"]
         CLA["Claude Code CLI"]
         AGY["Antigravity CLI"]
         ECHO["Echo (test stub)"]
     end
 
-    subgraph exec["Agent Execution — serialized by GLOBAL_PROVIDER_LOCK"]
+    subgraph exec["Agent Execution<br/>serialized by GLOBAL_PROVIDER_LOCK"]
+        direction TB
         VAULT[("Synapse Vault<br/>git-backed notes repo")]
         TOOLS["Injected tool CLIs (bin/)<br/>calendar · gmail · etrade<br/>options-bot · amazon-fresh · reminder"]
+        VAULT --> TOOLS
     end
 
     EXT["External APIs<br/>Google · E*TRADE · Amazon"]
 
     EM --> RL
     TG --> RL
-    RL --> PIPE
-    SC --> PIPE
-    PIPE <--> SM
+    SC -. "bypasses limiter" .-> PIPE
     PIPE --> FACT
     FACT --> GEM & CLA & AGY & ECHO
     GEM & CLA & AGY --> VAULT
-    VAULT --> TOOLS
     TOOLS --> EXT
-    PIPE -. "reply: SMTP" .-> EM
-    PIPE -. "reply: Bot API" .-> TG
+    PIPE -. "reply: SMTP / Bot API" .-> EM & TG
 ```
 
 **Flow:** each input source normalizes its message into an `IncomingMessage`, `pipe.py` wraps it in a YAML metadata block (and syncs the Vault via `git pull`), then dispatches to the provider chosen by the `get_provider()` factory. The provider shells out to an AI CLI running inside the Vault — where the injected tool CLIs on `PATH` let the agent act on Calendar, Gmail, brokerage, and groceries. A single `GLOBAL_PROVIDER_LOCK` serializes all agent/git activity so concurrent channels never race the shared Vault.
