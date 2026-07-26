@@ -10,8 +10,8 @@ routing them to the configured AI provider for autonomous processing of the
 
 ## How It Works
 
-1. **Listen** — Monitors incoming messages via IMAP IDLE (Email) and long-polling (Telegram).
-2. **Standardize** — Wraps content in a YAML metadata block (`Type`, `Sender`, `Context`).
+1. **Listen** — Monitors incoming messages via IMAP IDLE (Email) and long-polling (Telegram), plus a built-in scheduler that fires recurring and one-shot reminders.
+2. **Standardize** — Wraps content in a YAML metadata block (`Type`, `Sender`, `Context`, `Current Time`, and Vault git-sync status).
 3. **Dispatch** — Sends the formatted prompt to the configured AI provider.
 4. **Respond**
    - **Email:** Silent on success. Replies only on error or clarification.
@@ -121,9 +121,10 @@ The service is organized into the following layers under `services/ingestion/`:
     nano .env
     ```
 
-    **Key Configuration:**
+    **Key Configuration** (see `.env.example` for the full list, including model, timeout, retry, and E\*TRADE options):
     - `ENABLED_CHANNELS`: Comma-separated list of channels to run (`email`, `telegram`, or `email,telegram`).
-    - `AI_PROVIDER`: The AI backend to use (`gemini`, `claude`, `agy`, or `echo`). Defaults to `gemini`.
+    - `AI_PROVIDERS`: Ordered, comma-separated provider list — the first is the default, the rest are fallbacks on quota errors (e.g. `claude,gemini`). Valid values: `gemini`, `claude`, `agy`, `echo`.
+    - `AI_PROVIDER`: Legacy single-provider variable (still honored if `AI_PROVIDERS` is unset). Defaults to `gemini`.
     - `CLAUDE_CMD`: (Optional) Explicit path to `claude` binary. Auto-detected if omitted.
     - `CLAUDE_TIMEOUT_SECONDS`: Max execution time for Claude CLI (default: `300`).
     - `CLAUDE_MAX_BUDGET_USD`: (Optional) Per-request cost cap for Claude.
@@ -168,28 +169,57 @@ The service is organized into the following layers under `services/ingestion/`:
 
 When interacting with the bot via Telegram, the following commands are available:
 
-- `/new` — Clears the current session and starts a fresh context.
+- `/new` | `/clear` — Clears the current session and starts a fresh context.
 - `/stats on` | `/stats off` — Toggles the display of token usage and request stats after responses.
 - `/update` — Pulls the latest code via git and gracefully restarts the service.
 - `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
-- `/provider <gemini|claude>` — Switches the active AI provider. Without an argument, shows the current provider.
+- `/provider <gemini|claude|agy>` — Switches the active AI provider. Without an argument, shows the current provider.
+- `/amazon heal` — Re-bootstraps the Amazon Fresh CSS selectors from the live pages when the scraper breaks.
 - `/help` — Shows the available Telegram commands.
 
-## Deployment (macOS)
+## Deployment
 
-Run as a background service using `launchd`.
+There are two supported ways to run Synapse Engine as a long-lived service.
+
+### Option A — macOS (`launchd`)
+
+Best for running on a personal Mac. Runs the service in the background via a `launchd` agent.
 
 1.  **Install & Start:**
     ```bash
     ./install.sh
     ```
-    This auto-detects your paths, generates the plist, and installs the service.
+    This auto-detects your paths, generates the plist from
+    `com.synapse.ingestion.plist.template`, and installs the service.
+    Use `./stop.sh` to stop it and `./update.sh` to pull + restart.
 
 2.  **Logs:**
     ```bash
     tail -f /tmp/synapse-ingestion.out.log
     tail -f /tmp/synapse-ingestion.err.log
     ```
+
+### Option B — Docker / QNAP NAS
+
+Best for always-on, headless operation. The `Dockerfile` bundles the Gemini,
+Claude, and Antigravity CLIs plus a Playwright Firefox (for E\*TRADE and Amazon
+Fresh browser auth), and `docker-compose.yml` mounts the Vault, CLI credentials,
+and SSH key from persistent storage.
+
+```bash
+docker compose build
+docker compose up -d
+docker compose logs -f
+```
+
+The compose file expects an `.env` and mounted credential directories on the
+host. For a full walkthrough on the QNAP TS-264 (creating the `synapse` user,
+folder layout, seeding Claude/Gemini/Antigravity/E\*TRADE/Amazon credentials,
+and the OAuth token), see **[`qnap-setup.md`](qnap-setup.md)**.
+
+**Updating:** send `/update` via Telegram (git pull + graceful restart — the
+container's `restart: always` brings it back). For `Dockerfile`/`requirements.txt`
+changes, rebuild with `docker compose build && docker compose up -d`.
 
 ## Development
 
