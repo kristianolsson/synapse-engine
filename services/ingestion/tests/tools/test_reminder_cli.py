@@ -64,6 +64,10 @@ class _MockArgs:
     """Helper to create mock argparse Namespace-like objects."""
 
     def __init__(self, **kwargs):
+        # Mirror argparse defaults for optional flags the tests don't set,
+        # so command handlers can read them unconditionally. None is falsy
+        # for cmd_add's `if args.subject` and skips cmd_edit's `is not None`.
+        kwargs.setdefault("subject", None)
         for k, v in kwargs.items():
             setattr(self, k, v)
 
