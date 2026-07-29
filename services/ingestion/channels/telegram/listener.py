@@ -11,10 +11,12 @@ import os
 import re
 import signal
 import subprocess
+import time
 from datetime import date
 from pathlib import Path
 from typing import Optional
 
+import pexpect
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 from telegram.ext import (
@@ -37,10 +39,46 @@ from .task_buttons import build_task_keyboard
 logger = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = config.TELEGRAM_MAX_FILE_SIZE_MB * 1024 * 1024
+CLAUDE_AUTH_TIMEOUT_SECONDS = 300
 
 # Pending retry context: maps bot message_id → {prompt, session_id, user_key}
 # so quota retry/switch callbacks can re-execute without reply_to_message.
 _pending_retries: dict[int, dict] = {}
+
+# Pending Claude re-auth: maps user_key → {child, created_at} between the
+# "/update-claude-auth" URL reply and the user pasting back the OAuth code.
+_pending_claude_auth: dict[str, dict] = {}
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
+
+def _start_claude_auth() -> tuple[pexpect.spawn, str]:
+    """Spawn `claude auth login` and block until it prints the OAuth URL."""
+    child = pexpect.spawn(
+        "claude", ["auth", "login"], timeout=30, encoding="utf-8", dimensions=(24, 250)
+    )
+    idx = child.expect([r"https://[^\s\x1b]+", pexpect.EOF, pexpect.TIMEOUT])
+    if idx != 0:
+        output = _strip_ansi(child.before or "").strip()
+        child.close(force=True)
+        raise RuntimeError(output or "no output before the process exited")
+    return child, child.match.group(0)
+
+
+def _finish_claude_auth(child: pexpect.spawn, code: str) -> tuple[bool, str]:
+    """Send the pasted OAuth code and wait for success/failure."""
+    child.sendline(code)
+    idx = child.expect(
+        ["(?i)success", "(?i)error|invalid|failed", pexpect.EOF, pexpect.TIMEOUT],
+        timeout=30,
+    )
+    output = _strip_ansi((child.before or "") + (child.after if isinstance(child.after, str) else "")).strip()
+    child.close(force=True)
+    return idx == 0, output
 
 
 # ── Attachment Handling ─────────────────────────────────────────────
@@ -138,6 +176,31 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     text = message.text or message.caption or ""
     user_key = str(user.id)
 
+    # Pending Claude re-auth: a plain-text reply while a login is in flight
+    # is treated as the pasted OAuth code, not a normal prompt.
+    pending_auth = _pending_claude_auth.get(user_key)
+    if pending_auth and not text.strip().startswith("/"):
+        if time.time() - pending_auth["created_at"] > CLAUDE_AUTH_TIMEOUT_SECONDS:
+            pending_auth["child"].close(force=True)
+            del _pending_claude_auth[user_key]
+            await message.reply_text("Claude login expired. Run /update-claude-auth again.")
+            return
+        del _pending_claude_auth[user_key]
+        await message.reply_text("Completing login...")
+        loop = asyncio.get_running_loop()
+        try:
+            ok, output = await loop.run_in_executor(
+                None, _finish_claude_auth, pending_auth["child"], text.strip()
+            )
+        except Exception as e:
+            await message.reply_text(f"Claude login failed: {e}")
+            return
+        if ok:
+            await message.reply_text("✅ Claude login successful.")
+        else:
+            await message.reply_text(f"❌ Claude login failed:\n{output[-1500:]}")
+        return
+
     if text.strip() in ("/new", "/clear"):
         if session_manager.clear_session(user_key):
             await message.reply_text("Session cleared. Starting a fresh context.")
@@ -153,6 +216,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             "/stats on|off — Toggles the display of token usage and request stats.\n"
             "/update — Pulls the latest code via git and restarts the bot.\n"
             "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
+            "/update-claude-auth — Re-authenticates the Claude CLI (OAuth login).\n"
             "/provider <gemini|claude|agy> — Switches the active AI provider.\n"
             "/help — Shows this help message."
         )
@@ -208,6 +272,27 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         except Exception as e:
             await message.reply_text(f"CLI update failed: {e}")
             return
+        return
+
+    # /update-claude-auth command — re-run Claude OAuth login in place.
+    # ~/.claude is bind-mounted straight to the host credentials dir, so this
+    # writes credentials directly without needing SSH or a temp container.
+    if stripped == "/update-claude-auth":
+        if user_key in _pending_claude_auth:
+            _pending_claude_auth[user_key]["child"].close(force=True)
+            del _pending_claude_auth[user_key]
+        await message.reply_text("Starting Claude login...")
+        loop = asyncio.get_running_loop()
+        try:
+            child, url = await loop.run_in_executor(None, _start_claude_auth)
+        except Exception as e:
+            await message.reply_text(f"Failed to start Claude login:\n{e}")
+            return
+        _pending_claude_auth[user_key] = {"child": child, "created_at": time.time()}
+        await message.reply_text(
+            "Open this URL, sign in, and reply here with the code it gives you "
+            f"(expires in {CLAUDE_AUTH_TIMEOUT_SECONDS // 60} min):\n{url}"
+        )
         return
 
     # /amazon command — interact with Amazon Fresh CLI

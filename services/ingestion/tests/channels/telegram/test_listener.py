@@ -1,6 +1,7 @@
 """Tests for the Telegram listener module."""
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from services.ingestion import config
 from services.ingestion.core.rate_limiter import RateLimiter
 from services.ingestion.core.session_manager import SessionManager
+from services.ingestion.channels.telegram import listener
 from services.ingestion.channels.telegram.listener import (
     handle_message,
     handle_callback_query,
@@ -674,3 +676,123 @@ class TestTaskButtons:
         update.callback_query.answer.assert_called_once()
         call_args = update.callback_query.answer.call_args
         assert "Unauthorized" in call_args[0][0]
+
+
+# ── Claude re-auth tests ────────────────────────────────────────────
+
+
+class TestTelegramClaudeAuth:
+    def setup_method(self):
+        listener._pending_claude_auth.clear()
+
+    def teardown_method(self):
+        listener._pending_claude_auth.clear()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener._start_claude_auth")
+    async def test_update_claude_auth_replies_with_url(self, mock_start, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_start.return_value = (MagicMock(), "https://claude.ai/oauth/authorize?code=abc")
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-claude-auth")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        assert "12345" in listener._pending_claude_auth
+        reply = update.message.reply_text.call_args[0][0]
+        assert "https://claude.ai/oauth/authorize?code=abc" in reply
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener._start_claude_auth")
+    async def test_update_claude_auth_start_failure(self, mock_start, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_start.side_effect = RuntimeError("boom")
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-claude-auth")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        assert "12345" not in listener._pending_claude_auth
+        reply = update.message.reply_text.call_args[0][0]
+        assert "Failed to start Claude login" in reply
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener._finish_claude_auth")
+    async def test_pasted_code_completes_login(self, mock_finish, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_finish.return_value = (True, "Login successful")
+        listener._pending_claude_auth["12345"] = {
+            "child": MagicMock(),
+            "created_at": time.time(),
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="123456")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_finish.assert_called_once()
+        assert "12345" not in listener._pending_claude_auth
+        replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+        assert any("successful" in r.lower() for r in replies)
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener._finish_claude_auth")
+    async def test_pasted_code_reports_failure(self, mock_finish, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_finish.return_value = (False, "invalid code")
+        listener._pending_claude_auth["12345"] = {
+            "child": MagicMock(),
+            "created_at": time.time(),
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="wrong-code")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        assert "12345" not in listener._pending_claude_auth
+        replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+        assert any("failed" in r.lower() for r in replies)
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener._finish_claude_auth")
+    async def test_expired_pending_auth_is_rejected(self, mock_finish, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_child = MagicMock()
+        listener._pending_claude_auth["12345"] = {
+            "child": mock_child,
+            "created_at": time.time() - listener.CLAUDE_AUTH_TIMEOUT_SECONDS - 1,
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="123456")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_finish.assert_not_called()
+        mock_child.close.assert_called_once_with(force=True)
+        assert "12345" not in listener._pending_claude_auth
+        reply = update.message.reply_text.call_args[0][0]
+        assert "expired" in reply.lower()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    async def test_pending_auth_ignored_for_slash_commands(self, mock_pipe, mock_config):
+        """A slash command while a login is pending should not be swallowed as the code."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        listener._pending_claude_auth["12345"] = {
+            "child": MagicMock(),
+            "created_at": time.time(),
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/stats on")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        # Pending auth should be untouched, and /stats should have run normally.
+        assert "12345" in listener._pending_claude_auth
+        update.message.reply_text.assert_called_once_with("Stats display turned on.")

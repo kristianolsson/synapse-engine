@@ -89,6 +89,8 @@ chmod 755 /share/CE_CACHEDEV2_DATA/synapse/credentials/claude
 chmod 644 /share/CE_CACHEDEV2_DATA/synapse/credentials/claude/.credentials.json
 ```
 
+This one-off bootstrap is only needed before the main `synapse` container exists. Once it's running, use `/update-claude-auth` in Telegram to re-auth (see [Token refresh](#token-refresh)) — no SSH or temp container required, since the running container already bind-mounts `~/.claude` to this same credentials directory.
+
 ## 6. Set up Gemini and Antigravity (agy) credentials
 
 Gemini CLI and Antigravity CLI (agy) both store configuration and authentication data under `~/.gemini`.
@@ -216,7 +218,7 @@ docker compose logs --tail=100
 
 ## Token refresh
 
-**Claude:** Re-run step 5.
+**Claude:** Send `/update-claude-auth` to the bot in Telegram. It replies with an OAuth URL; open it, sign in, and reply with the code it gives you — the bot finishes the login and writes credentials straight to `/share/CE_CACHEDEV2_DATA/synapse/credentials/claude/` (no SSH needed). Falls back to re-running step 5 manually if the bot itself is down or unreachable.
 
 **Gemini:** Re-auth on Mac, re-run scp from step 6, then `docker compose restart`.
 

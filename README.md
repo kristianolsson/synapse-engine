@@ -173,6 +173,7 @@ When interacting with the bot via Telegram, the following commands are available
 - `/stats on` | `/stats off` — Toggles the display of token usage and request stats after responses.
 - `/update` — Pulls the latest code via git and gracefully restarts the service.
 - `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
+- `/update-claude-auth` — Re-authenticates the Claude CLI: replies with an OAuth URL, then completes login once you reply with the code (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
 - `/provider <gemini|claude|agy>` — Switches the active AI provider. Without an argument, shows the current provider.
 - `/amazon heal` — Re-bootstraps the Amazon Fresh CSS selectors from the live pages when the scraper breaks.
 - `/help` — Shows the available Telegram commands.
