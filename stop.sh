@@ -15,7 +15,7 @@ if [[ "${1:-}" == "--persist" ]]; then
     launchctl load -w "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null || true
     launchctl unload -w "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null || true
     echo "Service stopped and disabled — it will not restart on login/reboot."
-    echo "(Re-enable with: launchctl enable gui/\$(id -u)/$LABEL, then ./install.sh)"
+    echo "(Re-enable with: ./install.sh)"
 else
     if launchctl unload "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null; then
         echo "Service stopped."

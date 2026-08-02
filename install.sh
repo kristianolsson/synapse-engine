@@ -9,6 +9,7 @@ TEMPLATE="$PROJECT_DIR/com.synapse.ingestion.plist.template"
 PLIST_NAME="com.synapse.ingestion.plist"
 PLIST_OUT="$PROJECT_DIR/$PLIST_NAME"
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
+LABEL="com.synapse.ingestion"
 
 # --- Detect node bin directory ---
 NODE_BIN=""
@@ -61,7 +62,12 @@ sleep 2 # Add a sleep to ensure the old process has fully exited
 
 mkdir -p "$LAUNCH_AGENTS"
 cp "$PLIST_OUT" "$LAUNCH_AGENTS/$PLIST_NAME"
-launchctl load "$LAUNCH_AGENTS/$PLIST_NAME"
+
+# A prior `./stop.sh --persist` marks the job disabled in launchd's
+# per-user override db, independent of the plist file. Plain `load`
+# fails silently against a disabled job, so clear that first.
+launchctl enable "gui/$(id -u)/$LABEL" 2>/dev/null || true
+launchctl load -w "$LAUNCH_AGENTS/$PLIST_NAME"
 
 echo "✅ Service installed and started."
 echo "   Logs: tail -f /tmp/synapse-ingestion.err.log"
