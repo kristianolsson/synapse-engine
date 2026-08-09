@@ -385,15 +385,19 @@ class ReminderScheduler:
             first_line = first_line[:57] + "..."
         return f"{prefix}: {first_line}"
 
-    def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None, reply_markup=None) -> bool:
-        """Deliver a message via the specified channel. Returns True on success."""
+    def _deliver(self, channel: str, text: str, subject: str = "", session_id: str = None, reply_markup=None):
+        """Deliver a message via the specified channel.
+
+        Returns the Telegram message_id on success for that channel (so callers
+        can attach it to Actionable Form state), or a bool for other channels.
+        """
         if channel == "telegram":
             if subject:
                 text = f"<b>{subject}</b>\n\n{text}"
             msg_id = self._send_telegram(text, reply_markup=reply_markup)
             if msg_id and session_id:
                 self.session_manager.save_message_session(msg_id, session_id)
-            return bool(msg_id)
+            return msg_id
         elif channel == "email":
             return self._send_email(text, subject=subject, session_id=session_id)
         else:
@@ -497,28 +501,57 @@ class ReminderScheduler:
             session_key = f"<{result.session_id}@synapse.local>"
             self.session_manager.save_session(session_key, result.session_id)
 
-        # Parse tasks from the response, add numbers to text, and build inline keyboard
-        keyboard = None
-        if channel == "telegram":
-            from ..utils.task_formatter import format_message_with_tasks
-            from ..channels.telegram.task_buttons import build_task_keyboard
-            response_text, tasks = format_message_with_tasks(response_text)
-            keyboard = build_task_keyboard(tasks)
-
         if channel == "email":
             subject = subject_override or self._make_subject(task, prefix="Synapse")
         else:
             subject = subject_override or ""
 
-        success = self._deliver(
+        # Check for an Actionable Form first; otherwise fall back to a plain
+        # task checklist. Mirrors the same dispatch in the Telegram listener's
+        # handle_message — this is a separate delivery path for scheduled
+        # reminders, so it needs its own copy of the same logic.
+        keyboard = None
+        form_id = None
+        deliver_subject = subject
+        if channel == "telegram":
+            from ..core import form_state
+            from ..utils.form_formatter import format_message_with_form
+            from ..channels.telegram.form_buttons import build_form_keyboard
+
+            response_text, form_fields = format_message_with_form(response_text)
+            if form_fields:
+                intro_text = response_text or "Tap to answer, then hit Submit."
+                if subject:
+                    # _deliver() only prefixes the subject onto the text it sends —
+                    # form_state's cached copy needs it baked in too, since later
+                    # edits (as fields get answered) re-render from that copy, not
+                    # from re-reading the live Telegram message.
+                    intro_text = f"<b>{subject}</b>\n\n{intro_text}"
+                    deliver_subject = ""
+                chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0] if config.TELEGRAM_ALLOWED_USER_IDS else None
+                form_id = form_state.create_form(chat_id, sender, form_fields, intro_text)
+                response_text = intro_text
+                keyboard = build_form_keyboard(form_id, form_fields, {})
+            else:
+                from ..utils.task_formatter import format_message_with_tasks
+                from ..channels.telegram.task_buttons import build_task_keyboard
+                response_text, tasks = format_message_with_tasks(response_text)
+                keyboard = build_task_keyboard(tasks)
+
+        msg_id = self._deliver(
             channel,
             response_text,
-            subject=subject,
+            subject=deliver_subject,
             session_id=result.session_id,
             reply_markup=keyboard,
         )
-        if not success:
+        if not msg_id:
             self._handle_delivery_failure(task)
+        elif form_id and channel == "telegram":
+            from ..core import form_state
+            form_state.set_message_id(form_id, msg_id)
+            if result.session_id:
+                form_state.set_session_id(form_id, result.session_id)
 
     def _handle_delivery_failure(self, task: str) -> None:
         """Fallback: ask AI to log the failed reminder to master_todos.

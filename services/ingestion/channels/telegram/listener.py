@@ -689,18 +689,32 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
             
         if len(reply_text) > 4096:
             reply_text = reply_text[:4093] + "..."
-            
-        reply_text, tasks = format_message_with_tasks(reply_text)
-        keyboard = build_task_keyboard(tasks)
-        
+
+        # Check if response contains an Actionable Form — attach yes/no + submit keyboard
+        reply_text, form_fields = format_message_with_form(reply_text)
+        form_id = None
+        if form_fields:
+            intro_text = reply_text or "Tap to answer, then hit Submit."
+            form_id = form_state.create_form(query.message.chat.id, user_key, form_fields, intro_text)
+            reply_text = intro_text
+            keyboard = build_form_keyboard(form_id, form_fields, {})
+        else:
+            reply_text, tasks = format_message_with_tasks(reply_text)
+            keyboard = build_task_keyboard(tasks)
+
         # Sanitize HTML for Telegram
         reply_text = sanitize_telegram_html(reply_text)
 
         await query.message.edit_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
-        
+
+        if form_id:
+            form_state.set_message_id(form_id, query.message.message_id)
+            if result.session_id:
+                form_state.set_session_id(form_id, result.session_id)
+
         if result.session_id:
             session_manager.save_message_session(query.message.message_id, result.session_id)
-            
+
         return
 
     # Recover task text from the original message
