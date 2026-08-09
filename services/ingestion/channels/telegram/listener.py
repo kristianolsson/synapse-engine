@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 import pexpect
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply, ReplyKeyboardRemove
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
@@ -35,7 +35,7 @@ from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
 from ...utils.task_formatter import format_message_with_tasks, recover_task_from_callback
-from ...utils.form_formatter import format_message_with_form
+from ...utils.form_formatter import format_message_with_form, render_form_display
 from .task_buttons import build_task_keyboard
 from .form_buttons import build_form_keyboard
 
@@ -184,6 +184,9 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         pending_field = form_state.pop_field_prompt(message.reply_to_message.message_id)
         if pending_field:
             form_id, field_key = pending_field
+            if not form_state.get_form(form_id):
+                await message.reply_text("That check-in was already submitted.", reply_markup=ReplyKeyboardRemove())
+                return
             answer = text.strip()
             form_state.apply_answer(form_id, field_key, answer, answer)
             await _refresh_form_message(context.bot, form_id)
@@ -441,7 +444,9 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     reply_text, form_fields = format_message_with_form(reply_text)
     form_id = None
     if form_fields:
-        form_id = form_state.create_form(chat.id, user_key, form_fields, reply_text)
+        intro_text = reply_text or "Tap to answer, then hit Submit."
+        form_id = form_state.create_form(chat.id, user_key, form_fields, intro_text)
+        reply_text = intro_text
         keyboard = build_form_keyboard(form_id, form_fields, {})
     else:
         # Otherwise check if response contains actionable tasks — attach inline keyboard
@@ -484,7 +489,8 @@ async def _refresh_form_message(bot, form_id: str) -> None:
     if not form or not form["message_id"]:
         return
     keyboard = build_form_keyboard(form_id, form["fields"], form["answers"])
-    text = sanitize_telegram_html(form["display_text"])
+    text = render_form_display(form["intro_text"], form["fields"], form["answers"], form["answer_display"])
+    text = sanitize_telegram_html(text)
     try:
         await bot.edit_message_text(
             chat_id=form["chat_id"],
@@ -582,16 +588,21 @@ async def _handle_form_submit(query, context, session_manager: SessionManager) -
         reply_text = reply_text[:4093] + "..."
     reply_text = sanitize_telegram_html(reply_text)
 
-    final_text = sanitize_telegram_html(form["display_text"]) + "\n\n<i>Submitted.</i>"
+    rendered = render_form_display(form["intro_text"], form["fields"], form["answers"], form["answer_display"])
+    final_text = sanitize_telegram_html(rendered) + "\n\n<i>Submitted.</i>"
     try:
         await query.message.edit_text(final_text, parse_mode='HTML')
     except Exception as e:
         logger.warning("Could not finalize form message %s: %s", form_id, e)
 
-    sent = await query.message.reply_text(reply_text, parse_mode='HTML')
+    # Reset the compose box: a ForceReply prompt left unanswered otherwise keeps
+    # the client stuck showing its placeholder, since there's no way to retract
+    # a ForceReply itself once sent.
+    sent = await query.message.reply_text(reply_text, parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
     if result.session_id and sent:
         session_manager.save_message_session(sent.message_id, result.session_id)
 
+    form_state.clear_field_prompts_for_form(form_id)
     form_state.delete_form(form_id)
 
 

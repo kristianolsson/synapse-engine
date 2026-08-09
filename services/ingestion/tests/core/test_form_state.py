@@ -5,32 +5,34 @@ from services.ingestion.core import form_state
 
 class TestFormState:
     def test_create_and_get_form(self):
-        fields = [{"type": "yn", "key": "protein", "label": "Protein?", "number": 1}]
-        form_id = form_state.create_form(123, "user1", fields, "[1] ☐ Protein?")
+        fields = [{"type": "yn", "key": "protein", "label": "Protein?"}]
+        form_id = form_state.create_form(123, "user1", fields, "Tap to answer.")
         form = form_state.get_form(form_id)
         assert form is not None
         assert form["chat_id"] == 123
         assert form["user_key"] == "user1"
+        assert form["intro_text"] == "Tap to answer."
         assert form["answers"] == {}
+        assert form["answer_display"] == {}
         form_state.delete_form(form_id)
 
-    def test_apply_answer_updates_display_text(self):
-        fields = [{"type": "yn", "key": "protein", "label": "Protein?", "number": 1}]
-        form_id = form_state.create_form(123, "user1", fields, "Check-in:\n[1] ☐ Protein?\nThanks.")
+    def test_apply_answer_records_raw_and_display_values(self):
+        fields = [{"type": "yn", "key": "protein", "label": "Protein?"}]
+        form_id = form_state.create_form(123, "user1", fields, "Tap to answer.")
         form_state.apply_answer(form_id, "protein", "Yes", "Y")
         form = form_state.get_form(form_id)
         assert form["answers"] == {"protein": "Y"}
-        assert "[1] ✅ Protein? → Yes" in form["display_text"]
-        assert "[1] ☐ Protein?" not in form["display_text"]
+        assert form["answer_display"] == {"protein": "Yes"}
         form_state.delete_form(form_id)
 
     def test_apply_answer_ignores_already_answered_field(self):
-        fields = [{"type": "yn", "key": "protein", "label": "Protein?", "number": 1}]
-        form_id = form_state.create_form(123, "user1", fields, "[1] ☐ Protein?")
+        fields = [{"type": "yn", "key": "protein", "label": "Protein?"}]
+        form_id = form_state.create_form(123, "user1", fields, "Tap to answer.")
         form_state.apply_answer(form_id, "protein", "Yes", "Y")
         form_state.apply_answer(form_id, "protein", "No", "N")
         form = form_state.get_form(form_id)
         assert form["answers"]["protein"] == "Y"
+        assert form["answer_display"]["protein"] == "Yes"
         form_state.delete_form(form_id)
 
     def test_apply_answer_missing_form_is_noop(self):
@@ -40,6 +42,17 @@ class TestFormState:
         form_state.register_field_prompt(999, "form1", "sleep")
         assert form_state.pop_field_prompt(999) == ("form1", "sleep")
         assert form_state.pop_field_prompt(999) is None
+
+    def test_clear_field_prompts_for_form_only_drops_matching_form(self):
+        form_state.register_field_prompt(101, "formA", "sleep")
+        form_state.register_field_prompt(102, "formA", "weight")
+        form_state.register_field_prompt(103, "formB", "walks")
+
+        form_state.clear_field_prompts_for_form("formA")
+
+        assert form_state.pop_field_prompt(101) is None
+        assert form_state.pop_field_prompt(102) is None
+        assert form_state.pop_field_prompt(103) == ("formB", "walks")
 
     def test_delete_form(self):
         form_id = form_state.create_form(123, "user1", [], "text")
