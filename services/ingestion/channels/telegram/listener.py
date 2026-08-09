@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 import pexpect
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
@@ -28,13 +28,16 @@ from telegram.ext import (
 
 from ... import config
 from ...config import get_next_provider
+from ...core import form_state
 from ...core.pipe import IncomingMessage, build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
 from ...utils.task_formatter import format_message_with_tasks, recover_task_from_callback
+from ...utils.form_formatter import format_message_with_form
 from .task_buttons import build_task_keyboard
+from .form_buttons import build_form_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +178,17 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # Extract content
     text = message.text or message.caption or ""
     user_key = str(user.id)
+
+    # A reply to a form field's ForceReply prompt is a form answer, not a normal prompt
+    if message.reply_to_message and text.strip():
+        pending_field = form_state.pop_field_prompt(message.reply_to_message.message_id)
+        if pending_field:
+            form_id, field_key = pending_field
+            answer = text.strip()
+            form_state.apply_answer(form_id, field_key, answer, answer)
+            await _refresh_form_message(context.bot, form_id)
+            await message.reply_text(f"Saved: {answer}")
+            return
 
     # Pending Claude re-auth: a plain-text reply while a login is in flight
     # is treated as the pasted OAuth code, not a normal prompt.
@@ -423,9 +437,16 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     if len(reply_text) > 4096:
         reply_text = reply_text[:4093] + "..."
 
-    # Check if response contains actionable tasks — attach inline keyboard
-    reply_text, tasks = format_message_with_tasks(reply_text)
-    keyboard = build_task_keyboard(tasks)
+    # Check if response contains an Actionable Form — attach yes/no + submit keyboard
+    reply_text, form_fields = format_message_with_form(reply_text)
+    form_id = None
+    if form_fields:
+        form_id = form_state.create_form(chat.id, user_key, form_fields, reply_text)
+        keyboard = build_form_keyboard(form_id, form_fields, {})
+    else:
+        # Otherwise check if response contains actionable tasks — attach inline keyboard
+        reply_text, tasks = format_message_with_tasks(reply_text)
+        keyboard = build_task_keyboard(tasks)
 
     # Sanitize HTML for Telegram
     reply_text = sanitize_telegram_html(reply_text)
@@ -439,7 +460,12 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             sent_message = await message.reply_text(reply_text, reply_markup=keyboard)
         else:
             raise
-    
+
+    if form_id and sent_message:
+        form_state.set_message_id(form_id, sent_message.message_id)
+        if result.session_id:
+            form_state.set_session_id(form_id, result.session_id)
+
     # Save the new message ID tied to this session so the user can keep replying
     if result.session_id and sent_message:
         session_manager.save_message_session(sent_message.message_id, result.session_id)
@@ -449,9 +475,129 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         session_manager.save_message_session(reply_to_id, result.session_id)
 
 
+# ── Actionable Forms ────────────────────────────────────────────────
+
+
+async def _refresh_form_message(bot, form_id: str) -> None:
+    """Re-render a form's message text and keyboard to reflect current answers."""
+    form = form_state.get_form(form_id)
+    if not form or not form["message_id"]:
+        return
+    keyboard = build_form_keyboard(form_id, form["fields"], form["answers"])
+    text = sanitize_telegram_html(form["display_text"])
+    try:
+        await bot.edit_message_text(
+            chat_id=form["chat_id"],
+            message_id=form["message_id"],
+            text=text,
+            parse_mode='HTML',
+            reply_markup=keyboard,
+        )
+    except BadRequest as e:
+        logger.warning("Failed to refresh form message %s: %s", form_id, e)
+
+
+async def _handle_form_yn(query, context) -> None:
+    """Handle a Yes/No button tap: record the answer, no LLM round-trip."""
+    try:
+        _, form_id, field_key, value = query.data.split(":", 3)
+    except ValueError:
+        await query.answer("⚠️ Malformed form action.", show_alert=True)
+        return
+
+    if not form_state.get_form(form_id):
+        await query.answer("⚠️ Form expired.", show_alert=True)
+        return
+
+    await query.answer("Saved.")
+    display_value = "Yes" if value == "Y" else "No"
+    form_state.apply_answer(form_id, field_key, display_value, value)
+    await _refresh_form_message(context.bot, form_id)
+
+
+async def _handle_form_text_prompt(query, context) -> None:
+    """Handle an 'Answer' button tap: prompt for the field via ForceReply."""
+    try:
+        _, form_id, field_key = query.data.split(":", 2)
+    except ValueError:
+        await query.answer("⚠️ Malformed form action.", show_alert=True)
+        return
+
+    form = form_state.get_form(form_id)
+    if not form:
+        await query.answer("⚠️ Form expired.", show_alert=True)
+        return
+
+    field = next((f for f in form["fields"] if f["key"] == field_key), None)
+    if not field:
+        await query.answer("⚠️ Unknown field.", show_alert=True)
+        return
+
+    await query.answer()
+    prompt = await query.message.reply_text(
+        f"Reply with: {field['label']}",
+        reply_markup=ForceReply(input_field_placeholder=field["label"][:64], selective=True),
+    )
+    form_state.register_field_prompt(prompt.message_id, form_id, field_key)
+
+
+async def _handle_form_submit(query, context, session_manager: SessionManager) -> None:
+    """Handle the Submit button: batch whatever was answered into one LLM call."""
+    try:
+        _, form_id = query.data.split(":", 1)
+    except ValueError:
+        await query.answer("⚠️ Malformed form action.", show_alert=True)
+        return
+
+    form = form_state.get_form(form_id)
+    if not form:
+        await query.answer("⚠️ Form expired.", show_alert=True)
+        return
+
+    await query.answer("Submitting...")
+    user_key = form["user_key"]
+    answers = form["answers"]
+    lines = [f"{key}={value}" for key, value in answers.items()]
+    prompt_text = "Form submitted:\n" + ("\n".join(lines) if lines else "(no fields answered)")
+
+    incoming = IncomingMessage(
+        source_type="telegram",
+        sender=user_key,
+        subject="",
+        body=prompt_text,
+    )
+    full_prompt = build_prompt(incoming)
+    session_id = form.get("session_id") or session_manager.get_session(user_key)
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, pipe_to_provider, full_prompt, session_id)
+
+    if result.session_id:
+        session_manager.save_session(user_key, result.session_id)
+
+    reply_text = result.output or "✓"
+    if session_manager.get_stats_enabled(user_key):
+        reply_text += format_stats_telegram(result.stats)
+    if len(reply_text) > 4096:
+        reply_text = reply_text[:4093] + "..."
+    reply_text = sanitize_telegram_html(reply_text)
+
+    final_text = sanitize_telegram_html(form["display_text"]) + "\n\n<i>Submitted.</i>"
+    try:
+        await query.message.edit_text(final_text, parse_mode='HTML')
+    except Exception as e:
+        logger.warning("Could not finalize form message %s: %s", form_id, e)
+
+    sent = await query.message.reply_text(reply_text, parse_mode='HTML')
+    if result.session_id and sent:
+        session_manager.save_message_session(sent.message_id, result.session_id)
+
+    form_state.delete_form(form_id)
+
+
 async def handle_callback_query(update: Update, context, session_manager: SessionManager) -> None:
     """
-    Handle inline keyboard button presses for task completion and undo.
+    Handle inline keyboard button presses for task completion, undo, and forms.
 
     Recovers the task text from the original message, pipes a completion
     request to Gemini, and updates the pressed button state.
@@ -459,7 +605,24 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
     query = update.callback_query
     if not query or not query.data:
         return
-        
+
+    user = query.from_user
+
+    # Security: check user is allowed
+    if user.id not in config.TELEGRAM_ALLOWED_USER_IDS:
+        await query.answer("⚠️ Unauthorized.", show_alert=True)
+        return
+
+    if query.data.startswith("formyn:"):
+        await _handle_form_yn(query, context)
+        return
+    if query.data.startswith("formtext:"):
+        await _handle_form_text_prompt(query, context)
+        return
+    if query.data.startswith("formsubmit:"):
+        await _handle_form_submit(query, context, session_manager)
+        return
+
     is_done = query.data.startswith("done_")
     is_undo = query.data.startswith("undo_")
     is_quota = query.data.startswith("quota:")
@@ -468,12 +631,6 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         return
 
     task_hash = query.data[5:]  # Strip "done_" or "undo_" (both are 5 chars)
-    user = query.from_user
-
-    # Security: check user is allowed
-    if user.id not in config.TELEGRAM_ALLOWED_USER_IDS:
-        await query.answer("⚠️ Unauthorized.", show_alert=True)
-        return
 
     # --- HANDLE QUOTA BUTTONS ---
     if is_quota:
