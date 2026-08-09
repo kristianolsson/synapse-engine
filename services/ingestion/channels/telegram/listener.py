@@ -34,10 +34,10 @@ from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
-from ...utils.task_formatter import format_message_with_tasks, recover_task_from_callback
-from ...utils.form_formatter import format_message_with_form, render_form_display
-from .task_buttons import build_task_keyboard
+from ...utils.task_formatter import recover_task_from_callback
+from ...utils.form_formatter import render_form_display
 from .form_buttons import build_form_keyboard
+from .reply_dispatch import build_reply_keyboard, attach_form_message_id
 
 logger = logging.getLogger(__name__)
 
@@ -435,23 +435,10 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     if session_manager.get_stats_enabled(user_key):
         reply_text += format_stats_telegram(result.stats)
 
-    # Relay error/clarification/response to user
-    # Telegram message limit is 4096 chars
-    if len(reply_text) > 4096:
-        reply_text = reply_text[:4093] + "..."
-
-    # Check if response contains an Actionable Form — attach yes/no + submit keyboard
-    reply_text, form_fields = format_message_with_form(reply_text)
-    form_id = None
-    if form_fields:
-        intro_text = reply_text or "Tap to answer, then hit Submit."
-        form_id = form_state.create_form(chat.id, user_key, form_fields, intro_text)
-        reply_text = intro_text
-        keyboard = build_form_keyboard(form_id, form_fields, {})
-    else:
-        # Otherwise check if response contains actionable tasks — attach inline keyboard
-        reply_text, tasks = format_message_with_tasks(reply_text)
-        keyboard = build_task_keyboard(tasks)
+    # Relay error/clarification/response to user.
+    # Detect an Actionable Form or task checklist and build the matching keyboard
+    # (this also truncates reply_text to Telegram's message limit).
+    reply_text, keyboard, form_id = build_reply_keyboard(chat.id, user_key, reply_text)
 
     # Sanitize HTML for Telegram
     reply_text = sanitize_telegram_html(reply_text)
@@ -464,12 +451,11 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             # Remove HTML parse_mode to ensure delivery of malformed output
             sent_message = await message.reply_text(reply_text, reply_markup=keyboard)
         else:
+            if form_id:
+                form_state.delete_form(form_id)
             raise
 
-    if form_id and sent_message:
-        form_state.set_message_id(form_id, sent_message.message_id)
-        if result.session_id:
-            form_state.set_session_id(form_id, result.session_id)
+    attach_form_message_id(form_id, sent_message.message_id, result.session_id)
 
     # Save the new message ID tied to this session so the user can keep replying
     if result.session_id and sent_message:
@@ -687,30 +673,22 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         if session_manager.get_stats_enabled(user_key):
             reply_text += format_stats_telegram(result.stats)
             
-        if len(reply_text) > 4096:
-            reply_text = reply_text[:4093] + "..."
-
-        # Check if response contains an Actionable Form — attach yes/no + submit keyboard
-        reply_text, form_fields = format_message_with_form(reply_text)
-        form_id = None
-        if form_fields:
-            intro_text = reply_text or "Tap to answer, then hit Submit."
-            form_id = form_state.create_form(query.message.chat.id, user_key, form_fields, intro_text)
-            reply_text = intro_text
-            keyboard = build_form_keyboard(form_id, form_fields, {})
-        else:
-            reply_text, tasks = format_message_with_tasks(reply_text)
-            keyboard = build_task_keyboard(tasks)
+        # Detect an Actionable Form or task checklist and build the matching keyboard
+        # (this also truncates reply_text to Telegram's message limit).
+        reply_text, keyboard, form_id = build_reply_keyboard(query.message.chat.id, user_key, reply_text)
 
         # Sanitize HTML for Telegram
         reply_text = sanitize_telegram_html(reply_text)
 
-        await query.message.edit_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
+        try:
+            await query.message.edit_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
+        except Exception as e:
+            logger.warning("Could not deliver quota-retry response: %s", e)
+            if form_id:
+                form_state.delete_form(form_id)
+            return
 
-        if form_id:
-            form_state.set_message_id(form_id, query.message.message_id)
-            if result.session_id:
-                form_state.set_session_id(form_id, result.session_id)
+        attach_form_message_id(form_id, query.message.message_id, result.session_id)
 
         if result.session_id:
             session_manager.save_message_session(query.message.message_id, result.session_id)

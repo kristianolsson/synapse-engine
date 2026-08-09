@@ -378,6 +378,79 @@ class TestWorkReminder:
 
         mock_deliver.assert_not_called()
 
+    @patch("services.ingestion.channels.telegram.reply_dispatch.attach_form_message_id")
+    @patch("services.ingestion.channels.telegram.reply_dispatch.build_reply_keyboard")
+    @patch.object(ReminderScheduler, "_deliver")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.core.scheduler.config")
+    def test_work_reminder_telegram_form_uses_form_keyboard(
+        self, mock_config, mock_pipe, mock_deliver, mock_build_reply_keyboard, mock_attach, scheduler
+    ):
+        """A ☐F: response must go through the shared form dispatch, not the old task-only path."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, output="☐F:yn:protein Protein?", session_id="sess-1",
+        )
+        fake_keyboard = MagicMock()
+        mock_build_reply_keyboard.return_value = ("Protein?", fake_keyboard, "form-abc")
+        mock_deliver.return_value = 999
+
+        scheduler._handle_work_reminder("telegram", "Fitness check-in")
+
+        mock_build_reply_keyboard.assert_called_once()
+        call_args = mock_deliver.call_args
+        assert call_args.args[0] == "telegram"
+        assert call_args.kwargs["reply_markup"] is fake_keyboard
+        mock_attach.assert_called_once_with("form-abc", 999, "sess-1")
+
+    @patch("services.ingestion.core.form_state.delete_form")
+    @patch("services.ingestion.channels.telegram.reply_dispatch.build_reply_keyboard")
+    @patch.object(ReminderScheduler, "_handle_delivery_failure")
+    @patch.object(ReminderScheduler, "_deliver")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.core.scheduler.config")
+    def test_work_reminder_form_delivery_failure_cleans_up_form(
+        self, mock_config, mock_pipe, mock_deliver, mock_fallback, mock_build_reply_keyboard, mock_delete_form, scheduler
+    ):
+        """If delivery of a form-bearing reminder fails, the form must not leak in form_state."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, output="☐F:yn:protein Protein?", session_id=None,
+        )
+        mock_build_reply_keyboard.return_value = ("Protein?", MagicMock(), "form-abc")
+        mock_deliver.return_value = None  # delivery failed
+
+        scheduler._handle_work_reminder("telegram", "Fitness check-in")
+
+        mock_fallback.assert_called_once_with("Fitness check-in")
+        mock_delete_form.assert_called_once_with("form-abc")
+
+    @patch("services.ingestion.channels.telegram.reply_dispatch.build_reply_keyboard")
+    @patch.object(ReminderScheduler, "_deliver")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.core.scheduler.config")
+    def test_work_reminder_form_bakes_subject_into_text(
+        self, mock_config, mock_pipe, mock_deliver, mock_build_reply_keyboard, scheduler
+    ):
+        """The subject header must be baked into the text passed to build_reply_keyboard
+        (so it's part of the cached form state), and NOT also passed to _deliver
+        (which would otherwise double-prefix it)."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, output="☐F:yn:protein Protein?", session_id=None,
+        )
+        mock_build_reply_keyboard.return_value = ("Protein?", MagicMock(), "form-abc")
+        mock_deliver.return_value = 999
+
+        scheduler._handle_work_reminder("telegram", "Fitness check-in", subject_override="Fitness Focus Check-in")
+
+        dispatch_text = mock_build_reply_keyboard.call_args.args[2]
+        assert "<b>Fitness Focus Check-in</b>" in dispatch_text
+        assert mock_deliver.call_args.kwargs["subject"] == ""
+
 
 # ── Delivery Failure ─────────────────────────────────────────────────
 

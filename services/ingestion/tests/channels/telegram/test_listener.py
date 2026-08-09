@@ -5,6 +5,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from telegram.error import BadRequest
 
 from services.ingestion import config
 from services.ingestion.core.rate_limiter import RateLimiter
@@ -796,3 +797,135 @@ class TestTelegramClaudeAuth:
         # Pending auth should be untouched, and /stats should have run normally.
         assert "12345" in listener._pending_claude_auth
         update.message.reply_text.assert_called_once_with("Stats display turned on.")
+
+
+@patch("services.ingestion.channels.telegram.listener.config")
+class TestFormDispatch:
+    """Tests for Actionable Form dispatch in handle_message and the quota-retry callback."""
+
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments")
+    async def test_response_with_form_gets_form_keyboard(self, mock_extract, mock_pipe, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.TELEGRAM_MAX_FILE_SIZE_MB = 10
+        mock_extract.return_value = []
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=False,
+            output="Check-in:\n☐F:yn:protein Protein at every meal?",
+            session_id="test-session", stats=None,
+        )
+
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = False
+        rl = RateLimiter(10, 60)
+
+        update = _make_update(text="send check-in")
+        update.message.reply_to_message = None
+        mock_sent = MagicMock()
+        mock_sent.message_id = 777
+        update.message.reply_text.return_value = mock_sent
+
+        await handle_message(update, None, rl, sm)
+
+        call_args, call_kwargs = update.message.reply_text.call_args
+        assert "☐F:" not in call_args[0]
+        keyboard = call_kwargs["reply_markup"]
+        assert any("formyn:" in b.callback_data for row in keyboard.inline_keyboard for b in row)
+
+    @patch("services.ingestion.core.form_state.delete_form")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments")
+    async def test_send_failure_cleans_up_form(self, mock_extract, mock_pipe, mock_delete_form, mock_config):
+        """An unrecoverable send failure must not leave the form dangling in form_state."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.TELEGRAM_MAX_FILE_SIZE_MB = 10
+        mock_extract.return_value = []
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=False,
+            output="☐F:yn:protein Protein at every meal?",
+            session_id="test-session", stats=None,
+        )
+
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        sm.get_stats_enabled.return_value = False
+        rl = RateLimiter(10, 60)
+
+        update = _make_update(text="send check-in")
+        update.message.reply_to_message = None
+        update.message.reply_text.side_effect = BadRequest("network error")
+
+        with pytest.raises(BadRequest):
+            await handle_message(update, None, rl, sm)
+
+        mock_delete_form.assert_called_once()
+
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    async def test_quota_retry_resolves_into_form(self, mock_pipe, mock_config):
+        """A quota-retry response with ☐F: fields must render as a form, not raw text."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        listener._pending_retries[555] = {
+            "prompt": "some prompt",
+            "session_id": None,
+            "user_key": "12345",
+        }
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, output="☐F:yn:protein Protein at every meal?",
+            session_id="sess-1", stats=None,
+        )
+
+        update = MagicMock()
+        update.callback_query.data = "quota:retry"
+        update.callback_query.from_user.id = 12345
+        update.callback_query.message.message_id = 555
+        update.callback_query.message.chat.id = 12345
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.message.edit_text = AsyncMock()
+
+        sm = MagicMock(spec=SessionManager)
+        sm.get_stats_enabled.return_value = False
+
+        await handle_callback_query(update, None, sm)
+
+        edit_args, edit_kwargs = update.callback_query.message.edit_text.call_args
+        assert "☐F:" not in edit_args[0]
+        keyboard = edit_kwargs["reply_markup"]
+        assert any("formyn:" in b.callback_data for row in keyboard.inline_keyboard for b in row)
+
+    @patch("services.ingestion.core.form_state.delete_form")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    async def test_quota_retry_edit_failure_cleans_up_form(self, mock_pipe, mock_delete_form, mock_config):
+        """A failed final edit_text in the quota-retry path must not leave the form dangling."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+
+        listener._pending_retries[556] = {
+            "prompt": "some prompt",
+            "session_id": None,
+            "user_key": "12345",
+        }
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False, output="☐F:yn:protein Protein at every meal?",
+            session_id="sess-1", stats=None,
+        )
+
+        update = MagicMock()
+        update.callback_query.data = "quota:retry"
+        update.callback_query.from_user.id = 12345
+        update.callback_query.message.message_id = 556
+        update.callback_query.message.chat.id = 12345
+        update.callback_query.answer = AsyncMock()
+        # "⏳ Processing..." edit succeeds; the final edit with the keyboard fails
+        update.callback_query.message.edit_text = AsyncMock(side_effect=[None, Exception("boom")])
+
+        sm = MagicMock(spec=SessionManager)
+        sm.get_stats_enabled.return_value = False
+
+        await handle_callback_query(update, None, sm)  # must not raise
+
+        mock_delete_form.assert_called_once()

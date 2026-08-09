@@ -506,37 +506,27 @@ class ReminderScheduler:
         else:
             subject = subject_override or ""
 
-        # Check for an Actionable Form first; otherwise fall back to a plain
-        # task checklist. Mirrors the same dispatch in the Telegram listener's
-        # handle_message — this is a separate delivery path for scheduled
-        # reminders, so it needs its own copy of the same logic.
+        # Detect an Actionable Form or task checklist and build the matching
+        # keyboard. Uses the same shared dispatch as the Telegram listener —
+        # this is a separate delivery path for scheduled reminders, so it
+        # can't reuse the listener's code directly, but it must stay behind
+        # the same helper rather than its own copy (a prior copy here is
+        # exactly what let this go stale and stop rendering forms).
         keyboard = None
         form_id = None
         deliver_subject = subject
         if channel == "telegram":
-            from ..core import form_state
-            from ..utils.form_formatter import format_message_with_form
-            from ..channels.telegram.form_buttons import build_form_keyboard
+            from ..channels.telegram.reply_dispatch import build_reply_keyboard, attach_form_message_id
 
-            response_text, form_fields = format_message_with_form(response_text)
-            if form_fields:
-                intro_text = response_text or "Tap to answer, then hit Submit."
-                if subject:
-                    # _deliver() only prefixes the subject onto the text it sends —
-                    # form_state's cached copy needs it baked in too, since later
-                    # edits (as fields get answered) re-render from that copy, not
-                    # from re-reading the live Telegram message.
-                    intro_text = f"<b>{subject}</b>\n\n{intro_text}"
-                    deliver_subject = ""
-                chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0] if config.TELEGRAM_ALLOWED_USER_IDS else None
-                form_id = form_state.create_form(chat_id, sender, form_fields, intro_text)
-                response_text = intro_text
-                keyboard = build_form_keyboard(form_id, form_fields, {})
-            else:
-                from ..utils.task_formatter import format_message_with_tasks
-                from ..channels.telegram.task_buttons import build_task_keyboard
-                response_text, tasks = format_message_with_tasks(response_text)
-                keyboard = build_task_keyboard(tasks)
+            dispatch_text = response_text
+            if subject:
+                # Bake the subject in ourselves: _deliver() only prefixes the
+                # subject onto the text it actually sends, but a form's cached
+                # copy (used to re-render as fields get answered) needs it too.
+                dispatch_text = f"<b>{subject}</b>\n\n{dispatch_text}"
+                deliver_subject = ""
+            chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0] if config.TELEGRAM_ALLOWED_USER_IDS else None
+            response_text, keyboard, form_id = build_reply_keyboard(chat_id, sender, dispatch_text)
 
         msg_id = self._deliver(
             channel,
@@ -547,11 +537,12 @@ class ReminderScheduler:
         )
         if not msg_id:
             self._handle_delivery_failure(task)
-        elif form_id and channel == "telegram":
-            from ..core import form_state
-            form_state.set_message_id(form_id, msg_id)
-            if result.session_id:
-                form_state.set_session_id(form_id, result.session_id)
+            if form_id:
+                from ..core import form_state
+                form_state.delete_form(form_id)
+        elif form_id:
+            from ..channels.telegram.reply_dispatch import attach_form_message_id
+            attach_form_message_id(form_id, msg_id, result.session_id)
 
     def _handle_delivery_failure(self, task: str) -> None:
         """Fallback: ask AI to log the failed reminder to master_todos.
