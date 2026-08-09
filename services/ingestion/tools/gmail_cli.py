@@ -26,11 +26,13 @@ Gated commands (disabled unless env flag is set):
 import argparse
 import base64
 import fcntl
+import html
 import os
 import re
 import sys
 from datetime import date
 from email.mime.text import MIMEText
+from html.parser import HTMLParser
 from io import StringIO
 from pathlib import Path
 from typing import Optional, Any
@@ -115,18 +117,121 @@ def _get_header(headers: list, name: str) -> str:
     return ""
 
 
-def _extract_body(payload: dict) -> str:
-    """Recursively extract plain text body from a message payload."""
+class _HTMLTextExtractor(HTMLParser):
+    """HTML-to-markdown-ish text converter, tuned for an LLM reader.
+
+    Strips presentational markup (style/script/head, attributes) but keeps
+    the semantic structure a reader needs: headings, list items, table rows,
+    and link URLs (otherwise silently lost when tags are stripped).
+    """
+
+    _BLOCK_TAGS = {"p", "div", "br", "table"}
+    _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+    _CELL_TAGS = {"td", "th"}
+    _SKIP_TAGS = {"script", "style", "head"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._chunks: list[str] = []
+        self._skip_depth = 0
+        self._link_stack: list[tuple[int, str]] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        if tag == "a":
+            href = dict(attrs).get("href", "")
+            self._link_stack.append((len(self._chunks), href))
+        elif tag in self._HEADING_TAGS:
+            self._chunks.append("\n\n" + "#" * int(tag[1]) + " ")
+        elif tag == "li":
+            self._chunks.append("\n- ")
+        elif tag == "tr":
+            self._chunks.append("\n|")
+        elif tag in self._CELL_TAGS:
+            self._chunks.append(" ")
+        elif tag in self._BLOCK_TAGS:
+            self._chunks.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP_TAGS:
+            self._skip_depth = max(0, self._skip_depth - 1)
+            return
+        if self._skip_depth:
+            return
+        if tag == "a":
+            if not self._link_stack:
+                return
+            start, href = self._link_stack.pop()
+            text = "".join(self._chunks[start:]).strip()
+            del self._chunks[start:]
+            if href and text:
+                self._chunks.append(f"{text} ({href})")
+            elif href:
+                self._chunks.append(f"({href})")
+            elif text:
+                self._chunks.append(text)
+        elif tag in self._HEADING_TAGS:
+            self._chunks.append("\n")
+        elif tag in self._CELL_TAGS:
+            self._chunks.append(" |")
+        elif tag in self._BLOCK_TAGS:
+            self._chunks.append("\n")
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            self._chunks.append(data)
+
+    def get_text(self) -> str:
+        text = "".join(self._chunks)
+        text = html.unescape(text)
+        # Collapse runs of whitespace within lines, and collapse 3+ blank lines to 2.
+        lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+        text = "\n".join(lines)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+
+def _html_to_text(raw_html: str) -> str:
+    parser = _HTMLTextExtractor()
+    parser.feed(raw_html)
+    return parser.get_text()
+
+
+def _extract_body_by_type(payload: dict, mime_type_wanted: str) -> str:
+    """Recursively extract a raw MIME part's decoded text body by exact mime type."""
     mime_type = payload.get("mimeType", "")
-    if mime_type == "text/plain":
+    if mime_type == mime_type_wanted:
         data = payload.get("body", {}).get("data", "")
         if data:
             return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
     if mime_type.startswith("multipart/"):
         for part in payload.get("parts", []):
-            text = _extract_body(part)
+            text = _extract_body_by_type(part, mime_type_wanted)
             if text:
                 return text
+    return ""
+
+
+def _extract_body(payload: dict) -> str:
+    """Extract a readable body from a message payload.
+
+    Prefers text/plain; falls back to converting text/html to text so
+    HTML-only messages don't silently read as empty.
+    """
+    plain = _extract_body_by_type(payload, "text/plain")
+    if plain:
+        return plain
+
+    raw_html = _extract_body_by_type(payload, "text/html")
+    if raw_html:
+        text = _html_to_text(raw_html)
+        if text:
+            return f"[Body extracted from HTML]\n\n{text}"
+
     return ""
 
 
