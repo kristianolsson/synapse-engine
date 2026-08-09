@@ -1,6 +1,10 @@
 """Tests for form_formatter utility module."""
 
-from services.ingestion.utils.form_formatter import format_message_with_form, render_form_display
+from services.ingestion.utils.form_formatter import (
+    format_message_with_form,
+    render_form_display,
+    render_form_as_html_table,
+)
 
 
 class TestFormatMessageWithForm:
@@ -74,3 +78,24 @@ class TestRenderFormDisplay:
         result = render_form_display("Intro.", fields, {"protein": "Y"}, {"protein": "Yes"})
         assert "Protein?" in result
         assert "Ate after 6pm?" not in result
+
+
+class TestRenderFormAsHtmlTable:
+    def test_empty_fields_returns_empty_string(self):
+        assert render_form_as_html_table([]) == ""
+
+    def test_renders_yn_and_text_rows(self):
+        fields = [
+            {"type": "yn", "key": "protein", "label": "Protein at every meal?"},
+            {"type": "text", "key": "sleep", "label": "Sleep (bedtime / hrs)"},
+        ]
+        result = render_form_as_html_table(fields)
+        assert "<table" in result
+        assert "<td>Protein at every meal?</td><td>Yes / No</td>" in result
+        assert "<td>Sleep (bedtime / hrs)</td><td></td>" in result
+
+    def test_escapes_html_special_characters_in_label(self):
+        fields = [{"type": "yn", "key": "a", "label": "A & B < C?"}]
+        result = render_form_as_html_table(fields)
+        assert "A &amp; B &lt; C?" in result
+        assert "A & B < C?" not in result

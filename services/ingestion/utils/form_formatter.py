@@ -7,6 +7,7 @@ in the inline keyboard), plus a renderer for the growing "answered so
 far" recap shown as fields get filled in.
 """
 
+import html
 import re
 
 # Match lines like "☐F:yn:protein Protein at every meal?" or "☐F:text:sleep Sleep (bedtime / hrs)"
@@ -45,3 +46,26 @@ def render_form_display(intro_text: str, fields: list[dict], answers: dict, answ
     if not lines:
         return intro_text
     return intro_text + "\n\n" + "\n".join(lines)
+
+
+def render_form_as_html_table(fields: list[dict]) -> str:
+    """
+    Render form fields as a plain HTML table, for channels (e.g. email) that
+    can't offer interactive buttons. Informational only — not fillable; the
+    recipient answers by replying in text, same as before Actionable Forms.
+    """
+    if not fields:
+        return ""
+    rows = "".join(
+        "<tr><td>{label}</td><td>{hint}</td></tr>".format(
+            label=html.escape(field["label"]),
+            hint="Yes / No" if field["type"] == "yn" else "",
+        )
+        for field in fields
+    )
+    return (
+        '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">'
+        '<tr><th align="left">Field</th><th align="left">Answer</th></tr>'
+        f"{rows}"
+        "</table>"
+    )

@@ -91,6 +91,34 @@ class TestSendReply:
 
     @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
     @patch("services.ingestion.channels.email.reply.config")
+    def test_renders_form_fields_as_table(self, mock_config, mock_smtp_class):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_config.EMAIL_ADDRESS = "bot@lifeos.com"
+        mock_config.EMAIL_APP_PASSWORD = "secret"
+        mock_config.SMTP_HOST = "smtp.gmail.com"
+        mock_config.SMTP_PORT = 587
+
+        mock_server = MagicMock()
+        mock_smtp_class.return_value.__enter__ = MagicMock(return_value=mock_server)
+        mock_smtp_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        body = (
+            "Tonight's check-in:\n"
+            "☐F:yn:protein Protein at every meal?\n"
+            "☐F:text:sleep Sleep (bedtime / hrs)\n"
+        )
+        send_reply(to_addr="user@example.com", subject="Check-in", body=body)
+
+        sent_msg = mock_server.send_message.call_args[0][0]
+        body_content = sent_msg.get_payload(decode=True).decode("utf-8")
+        assert "☐F:" not in body_content
+        assert "<table" in body_content
+        assert "Protein at every meal?" in body_content
+        assert "Sleep (bedtime / hrs)" in body_content
+        assert "Yes / No" in body_content
+
+    @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
+    @patch("services.ingestion.channels.email.reply.config")
     def test_threading_headers(self, mock_config, mock_smtp_class):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_config.EMAIL_ADDRESS = "bot@lifeos.com"
