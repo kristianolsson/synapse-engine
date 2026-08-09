@@ -14,9 +14,27 @@ from typing import Optional
 _forms: dict[str, dict] = {}
 _pending_field_prompts: dict[int, tuple[str, str]] = {}
 
+FORM_MAX_AGE_SECONDS = 24 * 3600
+
+
+def prune_stale_forms(max_age_seconds: float = FORM_MAX_AGE_SECONDS) -> None:
+    """Drop forms (and their pending field prompts) older than max_age_seconds.
+
+    There's no Submit-side deadline enforced elsewhere, so a form the user
+    never acts on would otherwise sit in memory until the process restarts.
+    Checked opportunistically on each create_form call rather than on a
+    timer — good enough for a bot with one user and a handful of forms/day.
+    """
+    cutoff = time.time() - max_age_seconds
+    stale_ids = [form_id for form_id, form in _forms.items() if form["created_at"] < cutoff]
+    for form_id in stale_ids:
+        clear_field_prompts_for_form(form_id)
+        del _forms[form_id]
+
 
 def create_form(chat_id: int, user_key: str, fields: list[dict], intro_text: str) -> str:
     """Register a new form and return its short id."""
+    prune_stale_forms()
     form_id = uuid.uuid4().hex[:8]
     _forms[form_id] = {
         "chat_id": chat_id,

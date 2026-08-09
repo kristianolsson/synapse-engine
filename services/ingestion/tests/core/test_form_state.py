@@ -1,5 +1,7 @@
 """Tests for form_state in-memory store."""
 
+import time
+
 from services.ingestion.core import form_state
 
 
@@ -58,3 +60,40 @@ class TestFormState:
         form_id = form_state.create_form(123, "user1", [], "text")
         form_state.delete_form(form_id)
         assert form_state.get_form(form_id) is None
+
+
+class TestPruneStaleForms:
+    def test_removes_forms_older_than_max_age(self):
+        old_id = form_state.create_form(123, "user1", [], "old")
+        form_state.get_form(old_id)["created_at"] = 0  # far in the past
+
+        form_state.prune_stale_forms(max_age_seconds=3600)
+
+        assert form_state.get_form(old_id) is None
+
+    def test_keeps_forms_within_max_age(self):
+        recent_id = form_state.create_form(123, "user1", [], "recent")
+
+        form_state.prune_stale_forms(max_age_seconds=3600)
+
+        assert form_state.get_form(recent_id) is not None
+        form_state.delete_form(recent_id)
+
+    def test_also_drops_the_stale_form_s_pending_field_prompts(self):
+        old_id = form_state.create_form(123, "user1", [], "old")
+        form_state.get_form(old_id)["created_at"] = 0
+        form_state.register_field_prompt(12345, old_id, "sleep")
+
+        form_state.prune_stale_forms(max_age_seconds=3600)
+
+        assert form_state.pop_field_prompt(12345) is None
+
+    def test_create_form_opportunistically_prunes_stale_forms(self):
+        old_id = form_state.create_form(123, "user1", [], "old")
+        form_state.get_form(old_id)["created_at"] = time.time() - form_state.FORM_MAX_AGE_SECONDS - 1
+
+        new_id = form_state.create_form(123, "user1", [], "new")
+
+        assert form_state.get_form(old_id) is None
+        assert form_state.get_form(new_id) is not None
+        form_state.delete_form(new_id)
