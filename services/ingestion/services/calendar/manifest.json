@@ -1,0 +1,15 @@
+{
+  "name": "calendar",
+  "kind": "tool",
+  "description": "Google Calendar CLI + MCP — list/create events, dedupe, buffer logic",
+  "module": "services.ingestion.services.calendar.cli",
+  "mcp_module": "services.ingestion.services.calendar.mcp",
+  "credential_group": "google",
+  "depends_on": [],
+  "env_vars": {"required": [], "optional": ["CALENDAR_CONFIG_PATH", "CALENDAR_TOKEN_PATH", "CALENDAR_CREDENTIALS_PATH"]},
+  "vault_protocol": "calendar/PROTOCOL.md",
+  "router_entry": {
+    "classification": "Calendar",
+    "routing_rule": "Load `calendar/PROTOCOL.md`, execute calendar protocols. Calendar queries are read-only and should NOT be logged to daily log."
+  }
+}

@@ -33,9 +33,9 @@ def gmail_cli():
         "googleapiclient": mock.MagicMock(),
     }
     with mock.patch.dict(sys.modules, patches):
-        if "services.ingestion.tools.gmail_cli" in sys.modules:
-            del sys.modules["services.ingestion.tools.gmail_cli"]
-        from services.ingestion.tools import gmail_cli as module
+        if "services.ingestion.services.gmail.cli" in sys.modules:
+            del sys.modules["services.ingestion.services.gmail.cli"]
+        from services.ingestion.services.gmail import cli as module
 
         yield module
 

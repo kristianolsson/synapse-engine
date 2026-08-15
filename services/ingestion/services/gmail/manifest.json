@@ -1,0 +1,15 @@
+{
+  "name": "gmail",
+  "kind": "tool",
+  "description": "Gmail CLI — inbox, labels, drafts",
+  "module": "services.ingestion.services.gmail.cli",
+  "mcp_module": null,
+  "credential_group": "google",
+  "depends_on": [],
+  "env_vars": {"required": [], "optional": []},
+  "vault_protocol": "email/PROTOCOL.md",
+  "router_entry": {
+    "classification": "Email",
+    "routing_rule": "Load `email/PROTOCOL.md`, execute email protocols. Email queries should NOT be logged to the daily log."
+  }
+}

@@ -24,7 +24,7 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from services.ingestion.tools.calendar_cli import (
+from services.ingestion.services.calendar.cli import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_CREDENTIALS_PATH,
     DEFAULT_TOKEN_PATH,

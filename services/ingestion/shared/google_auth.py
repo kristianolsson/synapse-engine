@@ -7,7 +7,7 @@ Usage:
        (APIs & Services > Credentials > OAuth 2.0 Client IDs > Download JSON)
     2. Enable both Google Calendar API and Gmail API in your Cloud project
     3. Place credentials.json in the synapse-engine root directory
-    4. Run: python -m services.ingestion.tools.setup_google
+    4. Run: python -m services.ingestion.shared.google_auth
     5. Complete the browser OAuth flow — grants Calendar + Gmail scopes at once
     6. token.json will be saved automatically and shared by both CLIs
 

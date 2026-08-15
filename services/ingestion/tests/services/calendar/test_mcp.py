@@ -43,10 +43,10 @@ def mock_google_modules():
     with mock.patch.dict(sys.modules, patches):
         # Force re-import with mocked dependencies
         for mod_name in list(sys.modules):
-            if mod_name.startswith("services.ingestion.tools.calendar"):
+            if mod_name.startswith("services.ingestion.services.calendar"):
                 del sys.modules[mod_name]
 
-        from services.ingestion.tools import calendar_cli
+        from services.ingestion.services.calendar import cli as calendar_cli
 
         # Patch the module's references
         calendar_cli.Credentials = mock_credentials_mod.Credentials
@@ -80,7 +80,7 @@ def mcp_tools(mock_google_modules, sample_calendars, tmp_path):
         if "calendar_mcp" in mod_name:
             del sys.modules[mod_name]
 
-    from services.ingestion.tools import calendar_mcp
+    from services.ingestion.services.calendar import mcp as calendar_mcp
 
     # Inject mocked state so tools don't try to load real files or auth
     calendar_mcp._calendars = sample_calendars

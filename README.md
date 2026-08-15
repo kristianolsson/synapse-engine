@@ -152,7 +152,7 @@ The service is organized into the following layers under `services/ingestion/`:
     4. Add your email as a test user under **OAuth consent screen → Test users**.
     5. Run the setup script (opens a browser to grant Calendar + Gmail scopes at once):
        ```bash
-       python -m services.ingestion.tools.setup_google
+       python -m services.ingestion.shared.google_auth
        ```
     6. Copy `calendars.json.example` to `calendars.json` and fill in your calendar IDs from the setup output:
        ```bash

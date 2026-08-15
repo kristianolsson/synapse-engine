@@ -71,10 +71,10 @@ def mock_google_modules():
 
     with mock.patch.dict(sys.modules, patches):
         # Force re-import with mocked dependencies
-        if "services.ingestion.tools.calendar_cli" in sys.modules:
-            del sys.modules["services.ingestion.tools.calendar_cli"]
+        if "services.ingestion.services.calendar.cli" in sys.modules:
+            del sys.modules["services.ingestion.services.calendar.cli"]
 
-        from services.ingestion.tools import calendar_cli
+        from services.ingestion.services.calendar import cli as calendar_cli
 
         # Patch the module's references
         calendar_cli.Credentials = mock_credentials_mod.Credentials

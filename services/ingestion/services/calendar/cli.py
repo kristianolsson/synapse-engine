@@ -37,7 +37,7 @@ SCOPES = [
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
 # Default paths (can be overridden via env or args)
-_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 DEFAULT_CONFIG_PATH = _ROOT / "calendars.json"
 DEFAULT_TOKEN_PATH = _ROOT / "token.json"
 DEFAULT_CREDENTIALS_PATH = _ROOT / "credentials.json"

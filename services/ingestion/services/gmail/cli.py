@@ -47,7 +47,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
 ]
 
-_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 DEFAULT_TOKEN_PATH = _ROOT / "token.json"
 DEFAULT_CREDENTIALS_PATH = _ROOT / "credentials.json"
 
