@@ -77,23 +77,23 @@ The service is organized into the following layers under `services/ingestion/`:
 
 | Layer | Path | Responsibility |
 |---|---|---|
-| **Entry Point** | `main.py` | Starts enabled channels + the reminder scheduler in daemon threads |
+| **Entry Point** | `main.py` | Starts enabled services + the reminder scheduler in daemon threads |
 | **Config** | `config.py` | Env-driven configuration, provider selection and fallback rotation |
-| **Channels** | `channels/email/` | IMAP IDLE listener + SMTP reply |
-| | `channels/telegram/` | Long-polling bot: listener, standalone sender, inline task buttons |
+| **Services** | `services/email/` | IMAP IDLE listener + SMTP reply (channel) |
+| | `services/telegram/` | Long-polling bot: listener, sender, inline buttons (channel) |
+| | `services/calendar/` | Google Calendar CLI + MCP (tool) |
+| | `services/gmail/` | Gmail CLI (tool) |
+| | `services/reminder/` | Reminder CLI + scheduler (tool) |
+| | `services/etrade/` | E*TRADE CLI + `stocks/` (tool) |
+| | `services/options_bot/` | Weekday options scan (tool, depends on etrade) |
+| | `services/amazon_fresh/` | Amazon Fresh CLI + `internal/` (tool) |
 | **Core** | `core/pipe.py` | Prompt standardization + Vault git sync + provider dispatch |
 | | `core/scheduler.py` | Reminder scheduler (heapq two-tier queue; recurring + one-shot) |
 | | `core/session_manager.py` | Per-user/provider session state (TTL + midnight reset) |
 | | `core/rate_limiter.py` | Shared sliding-window rate limiter |
 | **Providers** | `providers/` | Pluggable AI backends via `AIProvider` ABC + factory (`gemini`, `claude`, `agy`, `echo`) |
-| **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
-| _(injected onto the_ | `tools/calendar_mcp.py` | Same calendar functions exposed over MCP |
-| _agent's `PATH`_ | `tools/gmail_cli.py` | Gmail CLI (inbox, labels, drafts) |
-| _via `bin/`)_ | `tools/reminder_cli.py` | Reminder CRUD backing the scheduler |
-| | `tools/etrade_cli.py` + `tools/stocks/` | E\*TRADE quotes, options, and positions (Playwright auth) |
-| | `tools/options_bot_cli.py` | Weekday options-opportunity scan → HTML report |
-| | `tools/amazon_fresh_cli.py` + `tools/amazon_fresh/` | Amazon Fresh grocery browsing (Playwright) |
-| | `tools/setup_google.py` | One-time OAuth2 setup for Calendar + Gmail |
+| **Registry** | `registry.py` | Discovers `services/*/manifest.json`, validates `ENABLED_SERVICES` |
+| **Vault Sync** | `vault_sync.py` | `apply()` — syncs service `PROTOCOL.md` into the vault on every boot |
 | **Utils** | `utils/stats_formatter.py` | Per-channel token/cost/usage stats formatting |
 | | `utils/task_formatter.py` | Two-way task-completion parsing and formatting |
 | | `utils/html_utils.py` | Telegram HTML sanitization |
@@ -122,7 +122,7 @@ The service is organized into the following layers under `services/ingestion/`:
     ```
 
     **Key Configuration** (see `.env.example` for the full list, including model, timeout, retry, and E\*TRADE options):
-    - `ENABLED_CHANNELS`: Comma-separated list of channels to run (`email`, `telegram`, or `email,telegram`).
+    - `ENABLED_SERVICES`: Comma-separated list of services to run — channels (`email`, `telegram`, at least one required) plus tools (`calendar`, `gmail`, `reminder`, `etrade`, `options-bot`, `amazon-fresh`). Run `./synapse services` to see all available services and their current status.
     - `AI_PROVIDERS`: Ordered, comma-separated provider list — the first is the default, the rest are fallbacks on quota errors (e.g. `claude,gemini`). Valid values: `gemini`, `claude`, `agy`, `echo`.
     - `AI_PROVIDER`: Legacy single-provider variable (still honored if `AI_PROVIDERS` is unset). Defaults to `gemini`.
     - `CLAUDE_CMD`: (Optional) Explicit path to `claude` binary. Auto-detected if omitted.
