@@ -1,7 +1,7 @@
 """Tests for task_buttons utility module."""
 
 
-from services.ingestion.channels.telegram.task_buttons import build_task_keyboard
+from services.ingestion.services.telegram.task_buttons import build_task_keyboard
 from services.ingestion.utils.task_formatter import (
     parse_tasks,
     format_message_with_tasks,

@@ -1,6 +1,6 @@
 """Tests for form_buttons utility module."""
 
-from services.ingestion.channels.telegram.form_buttons import build_form_keyboard
+from services.ingestion.services.telegram.form_buttons import build_form_keyboard
 
 
 class TestBuildFormKeyboard:

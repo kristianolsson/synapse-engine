@@ -10,8 +10,8 @@ from telegram.error import BadRequest
 from services.ingestion import config
 from services.ingestion.core.rate_limiter import RateLimiter
 from services.ingestion.core.session_manager import SessionManager
-from services.ingestion.channels.telegram import listener
-from services.ingestion.channels.telegram.listener import (
+from services.ingestion.services.telegram import listener
+from services.ingestion.services.telegram.listener import (
     handle_message,
     handle_callback_query,
     download_attachment,
@@ -48,8 +48,8 @@ class TestTelegramSecurity:
         self.session_manager.get_session.return_value = None
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_rejects_group_chat(self, mock_pipe, mock_config):
         self.setUp()
         update = _make_update(chat_type="group")
@@ -60,8 +60,8 @@ class TestTelegramSecurity:
         update.message.reply_text.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_rejects_unauthorized_user(self, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [99999]
         rl = RateLimiter(10, 60)
@@ -73,8 +73,8 @@ class TestTelegramSecurity:
         update.message.reply_text.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_accepts_authorized_user(self, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="")
@@ -91,8 +91,8 @@ class TestTelegramSecurity:
 
 class TestTelegramRateLimiting:
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_rate_limit_blocks_message(self, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         rl = RateLimiter(1, 60)
@@ -111,9 +111,9 @@ class TestTelegramRateLimiting:
 
 class TestTelegramMessageProcessing:
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_success_replies_checkmark(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -126,9 +126,9 @@ class TestTelegramMessageProcessing:
         update.message.reply_text.assert_called_once_with("✓", parse_mode='HTML', reply_markup=None)
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_success_with_stats(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -158,9 +158,9 @@ class TestTelegramMessageProcessing:
         assert "gemini-pro (2 req, 0 err)" in args
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_success_with_stats_disabled(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -190,9 +190,9 @@ class TestTelegramMessageProcessing:
         assert "Stats" not in args
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_success_with_tool_stats(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -228,9 +228,9 @@ class TestTelegramMessageProcessing:
         assert "google_web_search: 2 (1 ok, 1 fail)" in args
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_error_replies_with_output(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -246,9 +246,9 @@ class TestTelegramMessageProcessing:
         update.message.reply_text.assert_called_once_with("Repo is locked", parse_mode='HTML', reply_markup=None)
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_empty_message_ignored(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -260,9 +260,9 @@ class TestTelegramMessageProcessing:
         mock_pipe.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_voice_message_replies_unsupported(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -277,9 +277,9 @@ class TestTelegramMessageProcessing:
         update.message.reply_text.assert_called_once_with("Sorry, voice notes are not supported yet.")
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_prompt_contains_telegram_type(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -297,7 +297,7 @@ class TestTelegramMessageProcessing:
         assert "Sender: 12345" in prompt_arg
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.config")
     async def test_stats_on_command(self, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         rl = RateLimiter(10, 60)
@@ -310,7 +310,7 @@ class TestTelegramMessageProcessing:
         update.message.reply_text.assert_called_once_with("Stats display turned on.")
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.config")
     async def test_stats_off_command(self, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         rl = RateLimiter(10, 60)
@@ -328,8 +328,8 @@ class TestTelegramMessageProcessing:
 
 class TestTelegramAttachments:
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.MAX_FILE_BYTES", 1 * 1024 * 1024)
-    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.MAX_FILE_BYTES", 1 * 1024 * 1024)
+    @patch("services.ingestion.services.telegram.listener.config")
     async def test_download_skips_large_file(self, mock_config, tmp_path):
         mock_config.VAULT_PATH = str(tmp_path)
         mock_config.TELEGRAM_MAX_FILE_SIZE_MB = 1
@@ -345,7 +345,7 @@ class TestTelegramAttachments:
         bot.get_file.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.config")
     async def test_download_saves_file(self, mock_config, tmp_path):
         mock_config.VAULT_PATH = str(tmp_path)
         mock_config.TELEGRAM_MAX_FILE_SIZE_MB = 10
@@ -366,9 +366,9 @@ class TestTelegramAttachments:
         tg_file.download_to_drive.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_reply_to_bot_message_resumes_session(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
@@ -395,7 +395,7 @@ class TestTelegramAttachments:
         mock_sent_msg.message_id = 1000
         update.message.reply_text.return_value = mock_sent_msg
         
-        from services.ingestion.channels.telegram.listener import handle_message
+        from services.ingestion.services.telegram.listener import handle_message
         await handle_message(update, None, rl, sm)
         
         # Verify the session manager linked the session properly
@@ -416,12 +416,12 @@ class TestTelegramAttachments:
 
 
 @pytest.mark.asyncio
-@patch("services.ingestion.channels.telegram.listener.config")
+@patch("services.ingestion.services.telegram.listener.config")
 class TestTaskButtons:
     """Tests for inline keyboard attachment and callback query handling."""
 
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments")
     async def test_response_with_tasks_gets_keyboard(self, mock_extract, mock_pipe, mock_config):
         """When Gemini returns ☐ items, reply should include inline buttons."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -455,8 +455,8 @@ class TestTaskButtons:
         assert len(keyboard.inline_keyboard[0]) == 2
         assert keyboard.inline_keyboard[0][0].callback_data.startswith("done_")
 
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments")
     async def test_response_without_tasks_gets_no_keyboard(self, mock_extract, mock_pipe, mock_config):
         """When Gemini returns no ☐ items, reply should have no keyboard."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -485,7 +485,7 @@ class TestTaskButtons:
         call_kwargs = update.message.reply_text.call_args[1]
         assert call_kwargs.get("reply_markup") is None
 
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_callback_query_completes_task(self, mock_pipe, mock_config):
         """Tapping a ✅ button pipes completion to Gemini and removes the button."""
         from services.ingestion.utils.task_formatter import _hash_task
@@ -543,7 +543,7 @@ class TestTaskButtons:
         assert new_kb[1][0].text == "✅ Fix the fence"
         assert new_kb[1][0].callback_data == f"done_{_hash_task('Fix the fence')}"
 
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_callback_query_undo_task(self, mock_pipe, mock_config):
         from services.ingestion.utils.task_formatter import _hash_task
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -591,7 +591,7 @@ class TestTaskButtons:
         assert new_kb[0][0].text == "✅ Buy groceries"
         assert new_kb[0][0].callback_data == f"done_{task_hash}"
 
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_callback_query_rollback_on_error(self, mock_pipe, mock_config):
         """If Gemini fails, the optimistic UI update should be rolled back."""
         from services.ingestion.utils.task_formatter import _hash_task
@@ -690,8 +690,8 @@ class TestTelegramClaudeAuth:
         listener._pending_claude_auth.clear()
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener._start_claude_auth")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener._start_claude_auth")
     async def test_update_claude_auth_replies_with_url(self, mock_start, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_start.return_value = (MagicMock(), "https://claude.ai/oauth/authorize?code=abc")
@@ -705,8 +705,8 @@ class TestTelegramClaudeAuth:
         assert "https://claude.ai/oauth/authorize?code=abc" in reply
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener._start_claude_auth")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener._start_claude_auth")
     async def test_update_claude_auth_start_failure(self, mock_start, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_start.side_effect = RuntimeError("boom")
@@ -720,8 +720,8 @@ class TestTelegramClaudeAuth:
         assert "Failed to start Claude login" in reply
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener._finish_claude_auth")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener._finish_claude_auth")
     async def test_pasted_code_completes_login(self, mock_finish, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_finish.return_value = (True, "Login successful")
@@ -740,8 +740,8 @@ class TestTelegramClaudeAuth:
         assert any("successful" in r.lower() for r in replies)
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener._finish_claude_auth")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener._finish_claude_auth")
     async def test_pasted_code_reports_failure(self, mock_finish, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_finish.return_value = (False, "invalid code")
@@ -759,8 +759,8 @@ class TestTelegramClaudeAuth:
         assert any("failed" in r.lower() for r in replies)
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener._finish_claude_auth")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener._finish_claude_auth")
     async def test_expired_pending_auth_is_rejected(self, mock_finish, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_child = MagicMock()
@@ -780,8 +780,8 @@ class TestTelegramClaudeAuth:
         assert "expired" in reply.lower()
 
     @pytest.mark.asyncio
-    @patch("services.ingestion.channels.telegram.listener.config")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.config")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_pending_auth_ignored_for_slash_commands(self, mock_pipe, mock_config):
         """A slash command while a login is pending should not be swallowed as the code."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -799,12 +799,12 @@ class TestTelegramClaudeAuth:
         update.message.reply_text.assert_called_once_with("Stats display turned on.")
 
 
-@patch("services.ingestion.channels.telegram.listener.config")
+@patch("services.ingestion.services.telegram.listener.config")
 class TestFormDispatch:
     """Tests for Actionable Form dispatch in handle_message and the quota-retry callback."""
 
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments")
     async def test_response_with_form_gets_form_keyboard(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_config.TELEGRAM_MAX_FILE_SIZE_MB = 10
@@ -835,8 +835,8 @@ class TestFormDispatch:
         assert any("formyn:" in b.callback_data for row in keyboard.inline_keyboard for b in row)
 
     @patch("services.ingestion.core.form_state.delete_form")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.telegram.listener.extract_attachments")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.extract_attachments")
     async def test_send_failure_cleans_up_form(self, mock_extract, mock_pipe, mock_delete_form, mock_config):
         """An unrecoverable send failure must not leave the form dangling in form_state."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -863,7 +863,7 @@ class TestFormDispatch:
 
         mock_delete_form.assert_called_once()
 
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_quota_retry_resolves_into_form(self, mock_pipe, mock_config):
         """A quota-retry response with ☐F: fields must render as a form, not raw text."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -898,7 +898,7 @@ class TestFormDispatch:
         assert any("formyn:" in b.callback_data for row in keyboard.inline_keyboard for b in row)
 
     @patch("services.ingestion.core.form_state.delete_form")
-    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.services.telegram.listener.pipe_to_provider")
     async def test_quota_retry_edit_failure_cleans_up_form(self, mock_pipe, mock_delete_form, mock_config):
         """A failed final edit_text in the quota-retry path must not leave the form dangling."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]

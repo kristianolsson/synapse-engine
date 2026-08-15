@@ -9,7 +9,7 @@ flagged the duplication and the bugs it let slip through.
 from unittest.mock import patch
 
 from services.ingestion.core import form_state
-from services.ingestion.channels.telegram.reply_dispatch import (
+from services.ingestion.services.telegram.reply_dispatch import (
     build_reply_keyboard,
     attach_form_message_id,
     TELEGRAM_MESSAGE_LIMIT,

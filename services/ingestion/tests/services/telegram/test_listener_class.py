@@ -2,7 +2,7 @@
 
 import unittest
 from unittest.mock import MagicMock, patch
-from services.ingestion.channels.telegram.listener import TelegramListener
+from services.ingestion.services.telegram.listener import TelegramListener
 from services.ingestion import config
 
 class TestTelegramListenerClass(unittest.TestCase):
@@ -11,7 +11,7 @@ class TestTelegramListenerClass(unittest.TestCase):
         self.listener = TelegramListener(rate_limiter=self.mock_rate_limiter)
         config.TELEGRAM_BOT_TOKEN = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 
-    @patch("services.ingestion.channels.telegram.listener.Application")
+    @patch("services.ingestion.services.telegram.listener.Application")
     def test_run_success(self, mock_app_cls):
         # Mock the builder chain: Application.builder().token().build()
         mock_builder = MagicMock()
@@ -39,11 +39,11 @@ class TestTelegramListenerClass(unittest.TestCase):
 
     def test_run_no_token(self):
         config.TELEGRAM_BOT_TOKEN = ""
-        with patch("services.ingestion.channels.telegram.listener.Application") as mock_app_cls:
+        with patch("services.ingestion.services.telegram.listener.Application") as mock_app_cls:
             self.listener.run()
             mock_app_cls.assert_not_called()
 
-    @patch("services.ingestion.channels.telegram.listener.asyncio")
+    @patch("services.ingestion.services.telegram.listener.asyncio")
     def test_stop_calls_app_stop(self, mock_asyncio):
         mock_app = MagicMock()
         mock_app.running = True
@@ -56,7 +56,7 @@ class TestTelegramListenerClass(unittest.TestCase):
 
         mock_loop.call_soon_threadsafe.assert_called_with(mock_app.stop)
 
-    @patch("services.ingestion.channels.telegram.listener.asyncio")
+    @patch("services.ingestion.services.telegram.listener.asyncio")
     def test_stop_ignored_if_not_running(self, mock_asyncio):
         mock_app = MagicMock()
         mock_app.running = False
