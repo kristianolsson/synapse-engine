@@ -120,7 +120,10 @@ The service is organized into the following layers under `services/ingestion/`:
     nano .env
     ```
 
+    If you don't already have a notes vault, leave `VAULT_PATH` unset (or blank) — `./synapse setup` will then offer to scaffold a fresh one for you: it creates the vault (defaults to a nested `vault/` folder in the project), initializes it as its own git repo, optionally wires up a git remote, and writes the resulting path back into `.env`.
+
     **Key Configuration** (see `.env.example` for the full list, including model, timeout, retry, and E\*TRADE options):
+    - `VAULT_PATH`: Absolute path to your Obsidian/markdown vault. Leave unset to have `./synapse setup` scaffold one (see above).
     - `ENABLED_SERVICES`: Comma-separated list of services to run — channels (`email`, `telegram`, at least one required) plus tools (`calendar`, `gmail`, `reminder`, `etrade`, `options-bot`, `amazon-fresh`). Run `./synapse services` to see all available services and their current status.
     - `AI_PROVIDERS`: Ordered, comma-separated provider list — the first is the default, the rest are fallbacks on quota errors (e.g. `claude,gemini`). Valid values: `gemini`, `claude`, `agy`, `echo`.
     - `AI_PROVIDER`: Legacy single-provider variable (still honored if `AI_PROVIDERS` is unset). Defaults to `gemini`.

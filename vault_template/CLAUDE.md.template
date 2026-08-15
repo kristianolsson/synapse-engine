@@ -99,11 +99,11 @@ After classification, load the appropriate module manifest and execute its proto
 
 -   **TODO / Task** → Load `tasks/PROTOCOL.md`, execute task protocols. (Always check if the task belongs to an existing project before defaulting to master_todos).
 -   **Link URL** → Load `links/PROTOCOL.md`, execute link protocols.
--   **Question / Work** → No separate protocol file exists. You must autonomously execute the required steps. This includes answering questions from vault data, performing active web research (e.g., live sports scores, market sentiment), and executing multi-step complex workflows. **CRITICAL: You must ALWAYS use your web-search tools to verify factual inquiries and gather up-to-date context. NEVER guess or assume facts. If you cannot find the answer via search, state that explicitly.** For time-sensitive queries, load `calendar/PROTOCOL.md` and check calendar first.
+-   **Question / Work** → No separate protocol file exists. You must autonomously execute the required steps. This includes answering questions from vault data, performing active web research (e.g., live sports scores, market sentiment), and executing multi-step complex workflows. **CRITICAL: You must ALWAYS use your web-search tools to verify factual inquiries and gather up-to-date context. NEVER guess or assume facts. If you cannot find the answer via search, state that explicitly.** For time-sensitive queries, load `calendar/PROTOCOL.md` and check calendar first — only if the calendar service appears in the Service Router table below.
 -   **Project** → Load `projects/PROTOCOL.md`, execute project protocols. (For structural changes, status updates, or creating new projects).
 -   **Undefined** → Log in `tasks/master_todos.md` under Other header.
 
 <!-- SERVICE_ROUTER_START -->
 <!-- SERVICE_ROUTER_END -->
 
-> **Reminder co-routing:** Load `reminders/PROTOCOL.md` and use the `reminder` CLI for ANY reminder-related operation — create, edit, delete, or list — regardless of how the request is phrased. If creating a reminder alongside a primary classification, do this after processing the primary route.
+> **Reminder co-routing (only if the reminder service appears in the Service Router above):** Load `reminders/PROTOCOL.md` and use the `reminder` CLI for ANY reminder-related operation — create, edit, delete, or list — regardless of how the request is phrased. If creating a reminder alongside a primary classification, do this after processing the primary route.

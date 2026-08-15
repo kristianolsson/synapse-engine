@@ -93,8 +93,6 @@ _detect_venv_dir() {
 }
 
 cmd_setup_mac() {
-    _maybe_scaffold_vault
-
     NODE_BIN="$(_detect_node_bin)"
     if [ -z "$NODE_BIN" ]; then
         echo "⚠️  Could not find node. Gemini CLI may not work."
@@ -111,6 +109,11 @@ cmd_setup_mac() {
         echo "❌ .env not found. Run: cp .env.example .env"
         exit 1
     fi
+
+    # Runs after the .env/venv guards above so a genuinely fresh clone hits those
+    # errors first — scaffolding would otherwise create a one-line .env and
+    # permanently defeat the "cp .env.example .env" check.
+    _maybe_scaffold_vault
 
     _prompt_services
 
@@ -187,20 +190,49 @@ cmd_restart_qnap() {
     docker compose restart
 }
 
-# Runs a git script inside a throwaway alpine/git container against
+# Runs a local git script inside a throwaway alpine/git container against
 # vault_dir, mirroring _qnap_git_pull's approach — QNAP has no usable host
 # git. Restores ownership to the synapse user afterward.
+#
+# Deliberately mounts NO SSH key: init/commit/remote-add are all local
+# operations. Mounting a not-yet-provisioned key path would make Docker create
+# a *directory* at that host path, which then gets bind-mounted into the real
+# app container (see docker-compose.yml) and breaks every future vault push.
+# Use _qnap_git_in_container_with_ssh for operations that talk to a remote.
 _qnap_git_in_container() {
     local vault_dir="$1"
     local script="$2"
+    local rc=0
     docker run --rm --entrypoint sh \
         -v "$vault_dir:$vault_dir" \
-        -v "$QNAP_DATA_DIR/ssh/id_ed25519:/root/.ssh/id_ed25519" \
+        alpine/git \
+        -c "git config --global --add safe.directory '$vault_dir' && \
+            cd '$vault_dir' && $script" || rc=$?
+    chown -R synapse "$vault_dir" || true
+    return $rc
+}
+
+# Same as above but with the SSH deploy key mounted, for operations that reach a
+# remote. Refuses to run (rather than mounting a missing path) when the key is
+# absent, so a fresh QNAP can never get a poisoned directory at the key path.
+_qnap_git_in_container_with_ssh() {
+    local vault_dir="$1"
+    local script="$2"
+    local key_path="$QNAP_DATA_DIR/ssh/id_ed25519"
+    if [ ! -f "$key_path" ]; then
+        echo "⚠️  SSH deploy key not found at $key_path — cannot push, skipping."
+        return 1
+    fi
+    local rc=0
+    docker run --rm --entrypoint sh \
+        -v "$vault_dir:$vault_dir" \
+        -v "$key_path:/root/.ssh/id_ed25519" \
         alpine/git \
         -c "chmod 600 /root/.ssh/id_ed25519 && \
-            git config --global --add safe.directory $vault_dir && \
-            cd $vault_dir && $script"
-    chown -R synapse "$vault_dir"
+            git config --global --add safe.directory '$vault_dir' && \
+            cd '$vault_dir' && $script" || rc=$?
+    chown -R synapse "$vault_dir" || true
+    return $rc
 }
 
 _qnap_vault_git_init() {
@@ -217,12 +249,12 @@ _qnap_vault_git_init() {
 _qnap_vault_git_remote() {
     local vault_dir="$1"
     local remote_url="$2"
-    _qnap_git_in_container "$vault_dir" "git remote add origin $remote_url"
+    _qnap_git_in_container "$vault_dir" "git remote add origin '$remote_url'"
 }
 
 _qnap_vault_git_push() {
     local vault_dir="$1"
-    _qnap_git_in_container "$vault_dir" \
+    _qnap_git_in_container_with_ssh "$vault_dir" \
         "GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git push -u origin HEAD"
 }
 
@@ -290,7 +322,14 @@ _env_var() {
 _maybe_scaffold_vault() {
     local current_vault_path
     current_vault_path="$(_env_var VAULT_PATH)"
-    if [ -n "$current_vault_path" ] && [ -d "$current_vault_path" ]; then
+    if [[ "$TARGET" == "qnap" ]]; then
+        # On QNAP, VAULT_PATH is a *container-internal* path (e.g. /app/notes),
+        # so a host-side [ -d ] test never passes and would wrongly re-scaffold
+        # over a working production vault. Any non-empty value means configured.
+        if [ -n "$current_vault_path" ]; then
+            return
+        fi
+    elif [ -n "$current_vault_path" ] && [ -d "$current_vault_path" ]; then
         return
     fi
 
@@ -316,8 +355,9 @@ scaffold(Path(os.environ['VAULT_SCAFFOLD_PATH']), os.environ['VAULT_SCAFFOLD_CON
 "
     echo "✅ Vault scaffolded at $new_vault_path"
 
-    _init_vault_git "$new_vault_path"
-
+    # Record VAULT_PATH *before* the git step: if git fails, the vault directory
+    # already exists and a naive `./synapse setup` retry would otherwise hit
+    # scaffold()'s FileExistsError with no way out but a manual rm -rf.
     if grep -q "^VAULT_PATH=" "$ENV_FILE" 2>/dev/null; then
         sed -i.bak "s|^VAULT_PATH=.*|VAULT_PATH=$new_vault_path|" "$ENV_FILE"
         rm -f "$ENV_FILE.bak"
@@ -325,43 +365,56 @@ scaffold(Path(os.environ['VAULT_SCAFFOLD_PATH']), os.environ['VAULT_SCAFFOLD_CON
         echo "VAULT_PATH=$new_vault_path" >> "$ENV_FILE"
     fi
     echo "✅ $ENV_FILE updated with VAULT_PATH=$new_vault_path"
+
+    _init_vault_git "$new_vault_path"
 }
 
 # Git-initializes a freshly scaffolded vault and optionally wires up a
 # remote. Never pushes without an explicit "y" to the second prompt below —
 # scaffolding a vault must never silently push anywhere.
+#
+# Every git step is fail-soft (warn and continue/return, never abort under
+# `set -e`), matching vault_sync.py's commit_and_push_if_changed: by the time
+# this runs VAULT_PATH is already written to $ENV_FILE, so a git failure must
+# not take down the rest of `./synapse setup`.
 _init_vault_git() {
     local vault_dir="$1"
 
     if [[ "$TARGET" == "mac" ]]; then
-        (cd "$vault_dir" && git init -q && git add -A && git commit -q -m "Initial vault scaffold")
+        (cd "$vault_dir" && git init -q && git add -A && git commit -q -m "Initial vault scaffold") \
+            || { echo "⚠️  git init/commit failed (is git configured with user.name/user.email?) — vault left un-versioned at $vault_dir. Continuing."; return 0; }
     else
-        _qnap_vault_git_init "$vault_dir"
+        _qnap_vault_git_init "$vault_dir" \
+            || { echo "⚠️  git init/commit failed — vault left un-versioned at $vault_dir. Continuing."; return 0; }
     fi
     echo "✅ Vault git-initialized at $vault_dir"
 
     read -rp "Git remote URL for this vault (blank to skip): " vault_remote
     if [ -z "$vault_remote" ]; then
-        return
+        return 0
     fi
 
     if [[ "$TARGET" == "mac" ]]; then
-        (cd "$vault_dir" && git remote add origin "$vault_remote")
+        (cd "$vault_dir" && git remote add origin "$vault_remote") \
+            || { echo "⚠️  Could not add remote 'origin' — continuing without one."; return 0; }
     else
-        _qnap_vault_git_remote "$vault_dir" "$vault_remote"
+        _qnap_vault_git_remote "$vault_dir" "$vault_remote" \
+            || { echo "⚠️  Could not add remote 'origin' — continuing without one."; return 0; }
     fi
     echo "✅ Remote 'origin' set to $vault_remote"
 
     read -rp "Push now? [y/N]: " push_answer
     if [[ ! "$push_answer" =~ ^[Yy] ]]; then
         echo "Skipped push — the vault has a remote configured but nothing pushed yet."
-        return
+        return 0
     fi
 
     if [[ "$TARGET" == "mac" ]]; then
-        (cd "$vault_dir" && git push -u origin HEAD)
+        (cd "$vault_dir" && git push -u origin HEAD) \
+            || { echo "⚠️  Push failed — the vault is committed locally; push it manually from $vault_dir. Continuing."; return 0; }
     else
-        _qnap_vault_git_push "$vault_dir"
+        _qnap_vault_git_push "$vault_dir" \
+            || { echo "⚠️  Push failed — the vault is committed locally; push it manually from $vault_dir. Continuing."; return 0; }
     fi
     echo "✅ Pushed."
 }
