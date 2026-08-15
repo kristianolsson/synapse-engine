@@ -244,7 +244,7 @@ cmd_update_qnap() {
 }
 
 _env_var() {
-    grep "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-
+    grep "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true
 }
 
 _maybe_scaffold_vault() {
