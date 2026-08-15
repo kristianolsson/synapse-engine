@@ -45,11 +45,13 @@ USER synapse
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
 
 # Configure git signing, identity, and safe directories
+ARG GIT_USER_NAME="Synapse Bot"
+ARG GIT_USER_EMAIL="synapse@localhost"
 RUN git config --global gpg.format ssh && \
     git config --global user.signingkey /home/synapse/.ssh/id_ed25519.pub && \
     git config --global commit.gpgsign true && \
-    git config --global user.name "Kristian Olsson" && \
-    git config --global user.email "developer@kasa.nu" && \
+    git config --global user.name "${GIT_USER_NAME}" && \
+    git config --global user.email "${GIT_USER_EMAIL}" && \
     git config --global --add safe.directory /app/synapse-engine && \
     git config --global --add safe.directory /app/notes
 

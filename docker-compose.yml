@@ -1,6 +1,10 @@
 services:
   synapse:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_USER_NAME: ${GIT_USER_NAME:-Synapse Bot}
+        GIT_USER_EMAIL: ${GIT_USER_EMAIL:-synapse@localhost}
     restart: always
     env_file: /share/CE_CACHEDEV2_DATA/synapse/.env
     environment:
