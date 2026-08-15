@@ -187,31 +187,48 @@ cmd_restart_qnap() {
 # QNAP has no usable host git and the repo is owned by the `synapse` user, so the
 # pull runs in a throwaway alpine/git container with the SSH deploy key mounted
 # (same pattern as the old update.sh), then ownership is restored afterwards.
+#
+# The before/after SHA capture and the Dockerfile/requirements.txt change check
+# also happen inside this same container, for the same reason — cmd_update_qnap
+# must never assume host git works. Results come back as SYNAPSE_*=value lines
+# on stdout, which the caller parses; nothing outside the container touches git.
 _qnap_git_pull() {
-    docker run --rm --entrypoint sh \
+    local pull_output
+    pull_output="$(docker run --rm --entrypoint sh \
         -v "$QNAP_DATA_DIR:$QNAP_DATA_DIR" \
         -v "$QNAP_DATA_DIR/ssh/id_ed25519:/root/.ssh/id_ed25519" \
         alpine/git \
         -c "chmod 600 /root/.ssh/id_ed25519 && \
             git config --global --add safe.directory $PROJECT_DIR && \
             cd $PROJECT_DIR && \
-            GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git pull"
+            BEFORE=\$(git rev-parse HEAD) && \
+            GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git pull && \
+            AFTER=\$(git rev-parse HEAD) && \
+            echo \"SYNAPSE_BEFORE_SHA=\$BEFORE\" && \
+            echo \"SYNAPSE_AFTER_SHA=\$AFTER\" && \
+            if [ \"\$BEFORE\" != \"\$AFTER\" ] && git diff --name-only \"\$BEFORE\" \"\$AFTER\" | grep -qE '^(Dockerfile|requirements\.txt)\$'; then \
+                echo SYNAPSE_REBUILD_NEEDED=1; \
+            else \
+                echo SYNAPSE_REBUILD_NEEDED=0; \
+            fi")"
 
     chown -R synapse "$PROJECT_DIR"
+
+    QNAP_PULL_BEFORE_SHA="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_BEFORE_SHA=//p')"
+    QNAP_PULL_AFTER_SHA="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_AFTER_SHA=//p')"
+    QNAP_REBUILD_NEEDED="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_REBUILD_NEEDED=//p')"
 }
 
 cmd_update_qnap() {
-    before_sha="$(git rev-parse HEAD)"
     echo "Pulling latest code..."
     _qnap_git_pull
-    after_sha="$(git rev-parse HEAD)"
 
-    if [[ "$before_sha" == "$after_sha" ]]; then
+    if [[ "$QNAP_PULL_BEFORE_SHA" == "$QNAP_PULL_AFTER_SHA" ]]; then
         echo "Already up to date."
         return
     fi
 
-    if git diff --name-only "$before_sha" "$after_sha" | grep -qE "^(Dockerfile|requirements\.txt)$"; then
+    if [[ "$QNAP_REBUILD_NEEDED" == "1" ]]; then
         echo "Dockerfile or requirements.txt changed — rebuilding image..."
         docker compose build
     else
