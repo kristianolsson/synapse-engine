@@ -1,0 +1,49 @@
+#!/bin/bash
+# synapse — unified setup/deploy dispatcher for synapse-engine.
+# Replaces install.sh, stop.sh, update.sh, and the manual QNAP docker commands.
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_DIR"
+
+detect_target() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "mac"
+    else
+        echo "qnap"
+    fi
+}
+
+cmd_services() {
+    PYTHON="python3"
+    [ -x "$PROJECT_DIR/venv/bin/python3" ] && PYTHON="$PROJECT_DIR/venv/bin/python3"
+    "$PYTHON" -c "
+from pathlib import Path
+from services.ingestion.registry import ServiceRegistry
+import os
+registry = ServiceRegistry.discover(Path('services/ingestion/services'))
+enabled = {s.strip().lower() for s in os.getenv('ENABLED_SERVICES', '').split(',') if s.strip()}
+for name, spec in sorted(registry.services.items()):
+    status = 'enabled' if name in enabled else 'disabled'
+    print(f'{name:15} [{spec.kind:8}] {status:10} {spec.description}')
+"
+}
+
+cmd_logs() {
+    target="$(detect_target)"
+    if [[ "$target" == "mac" ]]; then
+        tail -f /tmp/synapse-ingestion.out.log /tmp/synapse-ingestion.err.log
+    else
+        docker compose logs -f
+    fi
+}
+
+case "${1:-}" in
+    services) cmd_services ;;
+    logs) cmd_logs ;;
+    *)
+        echo "Usage: ./synapse {services|logs|setup|start|stop|restart|update}"
+        echo "(setup/start/stop/restart/update added in a later task)"
+        exit 1
+        ;;
+esac
