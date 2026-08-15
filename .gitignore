@@ -42,3 +42,6 @@ htmlcov/
 # Antigravity CLI
 .antigravitycli/
 
+# Superpowers subagent-driven-development scratch workspace
+.superpowers/
+
