@@ -167,6 +167,7 @@ cmd_update_mac() {
 }
 
 cmd_setup_qnap() {
+    _maybe_scaffold_vault
     _prompt_services
     echo "Building and starting containers..."
     docker compose --env-file "$ENV_FILE" build
@@ -184,6 +185,45 @@ cmd_stop_qnap() {
 
 cmd_restart_qnap() {
     docker compose restart
+}
+
+# Runs a git script inside a throwaway alpine/git container against
+# vault_dir, mirroring _qnap_git_pull's approach — QNAP has no usable host
+# git. Restores ownership to the synapse user afterward.
+_qnap_git_in_container() {
+    local vault_dir="$1"
+    local script="$2"
+    docker run --rm --entrypoint sh \
+        -v "$vault_dir:$vault_dir" \
+        -v "$QNAP_DATA_DIR/ssh/id_ed25519:/root/.ssh/id_ed25519" \
+        alpine/git \
+        -c "chmod 600 /root/.ssh/id_ed25519 && \
+            git config --global --add safe.directory $vault_dir && \
+            cd $vault_dir && $script"
+    chown -R synapse "$vault_dir"
+}
+
+_qnap_vault_git_init() {
+    local vault_dir="$1"
+    local git_name git_email
+    git_name="$(_env_var GIT_USER_NAME)"
+    git_name="${git_name:-synapse-engine}"
+    git_email="$(_env_var GIT_USER_EMAIL)"
+    git_email="${git_email:-synapse-engine@localhost}"
+    _qnap_git_in_container "$vault_dir" \
+        "git init -q && git config user.name '$git_name' && git config user.email '$git_email' && git add -A && git commit -q -m 'Initial vault scaffold'"
+}
+
+_qnap_vault_git_remote() {
+    local vault_dir="$1"
+    local remote_url="$2"
+    _qnap_git_in_container "$vault_dir" "git remote add origin $remote_url"
+}
+
+_qnap_vault_git_push() {
+    local vault_dir="$1"
+    _qnap_git_in_container "$vault_dir" \
+        "GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git push -u origin HEAD"
 }
 
 # QNAP has no usable host git and the repo is owned by the `synapse` user, so the
