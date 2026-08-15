@@ -38,12 +38,149 @@ cmd_logs() {
     fi
 }
 
+LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
+PLIST_NAME="com.synapse.ingestion.plist"
+LABEL="com.synapse.ingestion"
+
+_detect_node_bin() {
+    if command -v node &>/dev/null; then
+        dirname "$(command -v node)"
+    elif [ -d "$HOME/.nvm" ]; then
+        find "$HOME/.nvm/versions/node" -maxdepth 2 -name bin -type d 2>/dev/null | sort -V | tail -1
+    else
+        echo ""
+    fi
+}
+
+_detect_venv_dir() {
+    if [ -f "$PROJECT_DIR/.venv/bin/python" ]; then
+        echo ".venv"
+    elif [ -f "$PROJECT_DIR/venv/bin/python" ]; then
+        echo "venv"
+    else
+        echo ""
+    fi
+}
+
+cmd_setup_mac() {
+    NODE_BIN="$(_detect_node_bin)"
+    if [ -z "$NODE_BIN" ]; then
+        echo "⚠️  Could not find node. Gemini CLI may not work."
+        NODE_BIN="/usr/local/bin"
+    fi
+
+    VENV_DIR="$(_detect_venv_dir)"
+    if [ -z "$VENV_DIR" ]; then
+        echo "❌ venv not found. Create one (.venv or venv) and install requirements."
+        exit 1
+    fi
+
+    if [ ! -f "$PROJECT_DIR/.env" ]; then
+        echo "❌ .env not found. Run: cp .env.example .env"
+        exit 1
+    fi
+
+    _prompt_services
+
+    sed \
+        -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+        -e "s|__NODE_BIN__|$NODE_BIN|g" \
+        -e "s|__VENV_DIR__|$VENV_DIR|g" \
+        "$PROJECT_DIR/com.synapse.ingestion.plist.template" > "$PROJECT_DIR/$PLIST_NAME"
+
+    echo "✅ Generated $PLIST_NAME (PROJECT_DIR=$PROJECT_DIR, NODE_BIN=$NODE_BIN, VENV_DIR=$VENV_DIR)"
+
+    echo "Stopping existing service (if running)..."
+    launchctl unload "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null || true
+    sleep 2
+
+    mkdir -p "$LAUNCH_AGENTS"
+    cp "$PROJECT_DIR/$PLIST_NAME" "$LAUNCH_AGENTS/$PLIST_NAME"
+    launchctl enable "gui/$(id -u)/$LABEL" 2>/dev/null || true
+    launchctl load -w "$LAUNCH_AGENTS/$PLIST_NAME"
+
+    echo "✅ Service installed and started. Logs: ./synapse logs"
+}
+
+cmd_start_mac() {
+    launchctl load -w "$LAUNCH_AGENTS/$PLIST_NAME"
+    echo "Service started."
+}
+
+cmd_stop_mac() {
+    if [[ "${2:-}" == "--persist" ]]; then
+        launchctl load -w "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null || true
+        launchctl unload -w "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null || true
+        echo "Service stopped and disabled — won't restart on login/reboot. Re-enable with: ./synapse setup"
+    else
+        if launchctl unload "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null; then
+            echo "Service stopped."
+        else
+            echo "Service was not running."
+        fi
+        echo "FYI: won't survive reboot/login (RunAtLoad restarts it). Use './synapse stop --persist' to disable permanently."
+    fi
+}
+
+cmd_restart_mac() {
+    cmd_stop_mac
+    cmd_start_mac
+}
+
+cmd_update_mac() {
+    echo "Pulling latest code..."
+    git pull
+    cmd_restart_mac
+}
+
+_prompt_services() {
+    PYTHON="python3"
+    [ -x "$PROJECT_DIR/venv/bin/python3" ] && PYTHON="$PROJECT_DIR/venv/bin/python3"
+    echo "Available services:"
+    "$PYTHON" -c "
+from pathlib import Path
+from services.ingestion.registry import ServiceRegistry
+registry = ServiceRegistry.discover(Path('services/ingestion/services'))
+for name, spec in sorted(registry.services.items()):
+    print(f'  {name} ({spec.kind}): {spec.description}')
+"
+    echo ""
+    echo "Current ENABLED_SERVICES in .env:"
+    grep "^ENABLED_SERVICES=" "$PROJECT_DIR/.env" || echo "  (not set)"
+    read -rp "Enter comma-separated services to enable (blank = keep current): " selection
+    if [ -n "$selection" ]; then
+        if grep -q "^ENABLED_SERVICES=" "$PROJECT_DIR/.env"; then
+            sed -i.bak "s|^ENABLED_SERVICES=.*|ENABLED_SERVICES=$selection|" "$PROJECT_DIR/.env"
+            rm -f "$PROJECT_DIR/.env.bak"
+        else
+            echo "ENABLED_SERVICES=$selection" >> "$PROJECT_DIR/.env"
+        fi
+        echo "✅ .env updated."
+    fi
+}
+
+target="$(detect_target)"
+
 case "${1:-}" in
     services) cmd_services ;;
     logs) cmd_logs ;;
+    setup)
+        if [[ "$target" == "mac" ]]; then cmd_setup_mac; else cmd_setup_qnap; fi
+        ;;
+    start)
+        if [[ "$target" == "mac" ]]; then cmd_start_mac; else cmd_start_qnap; fi
+        ;;
+    stop)
+        if [[ "$target" == "mac" ]]; then cmd_stop_mac "$@"; else cmd_stop_qnap; fi
+        ;;
+    restart)
+        if [[ "$target" == "mac" ]]; then cmd_restart_mac; else cmd_restart_qnap; fi
+        ;;
+    update)
+        if [[ "$target" == "mac" ]]; then cmd_update_mac; else cmd_update_qnap; fi
+        ;;
     *)
-        echo "Usage: ./synapse {services|logs|setup|start|stop|restart|update}"
-        echo "(setup/start/stop/restart/update added in a later task)"
+        echo "Usage: ./synapse {setup|start|stop|restart|update|services|logs}"
         exit 1
         ;;
 esac

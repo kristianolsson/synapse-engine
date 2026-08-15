@@ -186,13 +186,14 @@ There are two supported ways to run Synapse Engine as a long-lived service.
 
 Best for running on a personal Mac. Runs the service in the background via a `launchd` agent.
 
-1.  **Install & Start:**
+1.  **Setup & Start:**
     ```bash
-    ./install.sh
+    ./synapse setup
     ```
-    This auto-detects your paths, generates the plist from
-    `com.synapse.ingestion.plist.template`, and installs the service.
-    Use `./stop.sh` to stop it and `./update.sh` to pull + restart.
+    Prompts for which services to enable, auto-detects your paths, generates
+    the plist from `com.synapse.ingestion.plist.template`, and installs the
+    service. Use `./synapse stop` to stop it, `./synapse update` to pull +
+    restart, `./synapse services` to see what's enabled.
 
 2.  **Logs:**
     ```bash
