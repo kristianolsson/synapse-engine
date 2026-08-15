@@ -34,7 +34,7 @@ def test_apply_creates_protocol_file_in_empty_vault(tmp_path):
 
     changed = apply(registry, {"calendar"}, vault, services_dir)
 
-    assert changed is True
+    assert changed
     assert (vault / "calendar" / "PROTOCOL.md").read_text() == "calendar rules"
 
 
@@ -51,7 +51,7 @@ def test_apply_is_noop_when_vault_already_matches(tmp_path):
 
     changed = apply(registry, {"calendar"}, vault, services_dir)  # second run
 
-    assert changed is False
+    assert not changed
 
 
 def test_apply_overwrites_hand_edited_protocol_file(tmp_path):
@@ -68,7 +68,7 @@ def test_apply_overwrites_hand_edited_protocol_file(tmp_path):
 
     changed = apply(registry, {"calendar"}, vault, services_dir)
 
-    assert changed is True
+    assert changed
     assert (vault / "calendar" / "PROTOCOL.md").read_text() == "template rules"
 
 

@@ -60,14 +60,26 @@ old `main.py` and is easy to forget since it was never something you
 
 ## 4. Pull, rebuild, restart
 
+QNAP has no usable host git and the repo is owned by the `synapse` user, so
+the pull has to run in a throwaway `alpine/git` container with the SSH
+deploy key mounted — the same pattern `./synapse update`'s `_qnap_git_pull`
+uses:
 ```bash
 cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
-git pull
-docker compose build && docker compose up -d
+docker run --rm --entrypoint sh \
+  -v /share/CE_CACHEDEV2_DATA/synapse:/share/CE_CACHEDEV2_DATA/synapse \
+  -v /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519:/root/.ssh/id_ed25519 \
+  alpine/git \
+  -c "chmod 600 /root/.ssh/id_ed25519 && \
+      git config --global --add safe.directory /share/CE_CACHEDEV2_DATA/synapse/synapse-engine && \
+      cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine && \
+      GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git pull"
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
+docker compose --env-file /share/CE_CACHEDEV2_DATA/synapse/.env build && docker compose up -d
 ```
 Use these explicit commands rather than `./synapse update` for this one-time
 cutover: `./synapse update` compares HEAD before and after its own pull, so
-after a manual `git pull` it would see no change and return early without
+after a manual pull it would see no change and return early without
 rebuilding or restarting anything. Use `./synapse update` for routine updates
 from here on.
 
@@ -81,10 +93,15 @@ Look for:
 - No `RegistryError` or startup exceptions
 - The reminder scheduler thread starting (`Reminder scheduler enabled.`)
 
-Then check the vault:
+Then check the vault (also no usable host git, so containerized again — no
+SSH key needed here, it's a local read-only log):
 ```bash
-cd /share/CE_CACHEDEV2_DATA/synapse/notes
-git log -1 --stat
+docker run --rm --entrypoint sh \
+  -v /share/CE_CACHEDEV2_DATA/synapse/notes:/share/CE_CACHEDEV2_DATA/synapse/notes \
+  alpine/git \
+  -c "git config --global --add safe.directory /share/CE_CACHEDEV2_DATA/synapse/notes && \
+      cd /share/CE_CACHEDEV2_DATA/synapse/notes && \
+      git log -1 --stat"
 ```
 Expected: either no new commit (if `apply()` found everything already in
 sync, per step 2's confirmation) or a single new commit titled
@@ -100,12 +117,28 @@ test reminder and confirm it still fires on schedule.
 
 If anything is wrong:
 ```bash
-cd /share/CE_CACHEDEV2_DATA/synapse
+cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 docker compose down
 # Restore from the step-1 backup:
 tar -xzf ~/synapse-qnap-backup-<date>.tar.gz -C /share/CE_CACHEDEV2_DATA/synapse
-cd synapse-engine
-git log --oneline -5   # find the commit SHA from before this migration
-git checkout <prior-sha>
-docker compose build && docker compose up -d
+cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
+
+# Same no-usable-host-git caveat as step 4 — find the SHA and check it out
+# via the containerized git, not directly:
+docker run --rm --entrypoint sh \
+  -v /share/CE_CACHEDEV2_DATA/synapse:/share/CE_CACHEDEV2_DATA/synapse \
+  alpine/git \
+  -c "git config --global --add safe.directory /share/CE_CACHEDEV2_DATA/synapse/synapse-engine && \
+      cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine && \
+      git log --oneline -5"   # find the commit SHA from before this migration
+
+docker run --rm --entrypoint sh \
+  -v /share/CE_CACHEDEV2_DATA/synapse:/share/CE_CACHEDEV2_DATA/synapse \
+  alpine/git \
+  -c "git config --global --add safe.directory /share/CE_CACHEDEV2_DATA/synapse/synapse-engine && \
+      cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine && \
+      git checkout <prior-sha>"
+chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
+
+docker compose --env-file /share/CE_CACHEDEV2_DATA/synapse/.env build && docker compose up -d
 ```

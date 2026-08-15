@@ -200,11 +200,16 @@ cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 and starts the container. Under the hood it runs:
 
 ```bash
-docker compose build
+docker compose --env-file /share/CE_CACHEDEV2_DATA/synapse/.env build
 docker compose up -d
 ```
 
-Those raw commands still work if you'd rather set `ENABLED_SERVICES` by hand.
+The `--env-file` flag matters for `build`: the live `.env` lives one directory
+up from `docker-compose.yml`, and without it Compose won't see any
+`GIT_USER_NAME`/`GIT_USER_EMAIL` override you've set (silently falling back
+to the `Synapse Bot`/`synapse@localhost` defaults). `docker compose up -d`
+doesn't need the flag — the `env_file:` directive in `docker-compose.yml`
+already points at the right path for the container's runtime environment.
 
 ## Update workflow
 

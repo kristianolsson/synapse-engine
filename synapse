@@ -167,7 +167,7 @@ cmd_update_mac() {
 cmd_setup_qnap() {
     _prompt_services
     echo "Building and starting containers..."
-    docker compose build
+    docker compose --env-file "$ENV_FILE" build
     docker compose up -d
     echo "✅ Started. Logs: ./synapse logs"
 }
@@ -230,7 +230,7 @@ cmd_update_qnap() {
 
     if [[ "$QNAP_REBUILD_NEEDED" == "1" ]]; then
         echo "Dockerfile or requirements.txt changed — rebuilding image..."
-        docker compose build
+        docker compose --env-file "$ENV_FILE" build
     else
         echo "Code-only change — no rebuild needed."
     fi

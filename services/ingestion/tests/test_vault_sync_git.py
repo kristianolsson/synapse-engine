@@ -20,7 +20,7 @@ def git_vault(tmp_path):
 
 def test_noop_when_nothing_changed(git_vault):
     before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=git_vault, capture_output=True, text=True).stdout
-    commit_and_push_if_changed(git_vault, changed=False)
+    commit_and_push_if_changed(git_vault, changed_paths=[])
     after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=git_vault, capture_output=True, text=True).stdout
     assert before == after
 
@@ -28,11 +28,25 @@ def test_noop_when_nothing_changed(git_vault):
 def test_commits_when_changed(git_vault):
     (git_vault / "file.md").write_text("modified by apply()")
     before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=git_vault, capture_output=True, text=True).stdout
-    commit_and_push_if_changed(git_vault, changed=True, push=False)
+    commit_and_push_if_changed(git_vault, changed_paths=["file.md"], push=False)
     after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=git_vault, capture_output=True, text=True).stdout
     assert before != after
     log = subprocess.run(["git", "log", "-1", "--pretty=%s"], cwd=git_vault, capture_output=True, text=True).stdout
     assert "synapse-engine apply()" in log
+
+
+def test_does_not_stage_unrelated_dirty_files(git_vault):
+    """git add must only stage changed_paths, not sweep in unrelated WIP."""
+    (git_vault / "file.md").write_text("modified by apply()")
+    (git_vault / "unrelated.md").write_text("in-progress edit from something else")
+
+    commit_and_push_if_changed(git_vault, changed_paths=["file.md"], push=False)
+
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=git_vault, capture_output=True, text=True).stdout
+    assert "unrelated.md" in status  # still untracked/dirty, not committed
+    log = subprocess.run(["git", "show", "--stat", "--pretty=", "HEAD"], cwd=git_vault, capture_output=True, text=True).stdout
+    assert "unrelated.md" not in log
+    assert "file.md" in log
 
 
 def test_does_not_raise_when_vault_is_not_a_git_repo(tmp_path, caplog):
@@ -43,7 +57,7 @@ def test_does_not_raise_when_vault_is_not_a_git_repo(tmp_path, caplog):
     (not_a_repo / "file.md").write_text("content")
 
     with caplog.at_level(logging.ERROR, logger="services.ingestion.vault_sync"):
-        commit_and_push_if_changed(not_a_repo, changed=True, push=False)  # must not raise
+        commit_and_push_if_changed(not_a_repo, changed_paths=["file.md"], push=False)  # must not raise
 
     assert any(r.levelno >= logging.ERROR for r in caplog.records), \
         "expected the git failure to be logged as an error"
@@ -56,7 +70,7 @@ def test_does_not_raise_when_subprocess_raises_called_process_error(git_vault, m
     monkeypatch.setattr("services.ingestion.vault_sync.subprocess.run", boom)
 
     with caplog.at_level(logging.ERROR, logger="services.ingestion.vault_sync"):
-        commit_and_push_if_changed(git_vault, changed=True, push=True)  # must not raise
+        commit_and_push_if_changed(git_vault, changed_paths=["file.md"], push=True)  # must not raise
 
     assert any(r.levelno >= logging.ERROR for r in caplog.records)
 
@@ -66,7 +80,7 @@ def test_push_failure_does_not_raise(git_vault, caplog):
     (git_vault / "file.md").write_text("modified by apply()")
 
     with caplog.at_level(logging.ERROR, logger="services.ingestion.vault_sync"):
-        commit_and_push_if_changed(git_vault, changed=True, push=True)  # must not raise
+        commit_and_push_if_changed(git_vault, changed_paths=["file.md"], push=True)  # must not raise
 
     # The local commit still landed even though the push failed.
     log = subprocess.run(["git", "log", "-1", "--pretty=%s"], cwd=git_vault,

@@ -46,8 +46,10 @@ def _regenerate_router(vault_path: Path, registry: ServiceRegistry, enabled: set
     return True
 
 
-def apply(registry: ServiceRegistry, enabled: set, vault_path: Path, services_dir: Path) -> bool:
-    changed = False
+def apply(registry: ServiceRegistry, enabled: set, vault_path: Path, services_dir: Path) -> list:
+    """Returns the vault-relative paths written, so callers can stage exactly
+    those files rather than everything in the working tree."""
+    changed_paths = []
 
     for name in sorted(enabled):
         spec = registry.services[name]
@@ -61,49 +63,57 @@ def apply(registry: ServiceRegistry, enabled: set, vault_path: Path, services_di
         vault_protocol_path.parent.mkdir(parents=True, exist_ok=True)
         if not vault_protocol_path.exists() or vault_protocol_path.read_text() != template_content:
             vault_protocol_path.write_text(template_content)
-            changed = True
+            changed_paths.append(spec.vault_protocol)
 
     if _regenerate_router(vault_path, registry, enabled):
-        changed = True
+        changed_paths.append("CLAUDE.md")
 
-    return changed
+    return changed_paths
 
 
-def commit_and_push_if_changed(vault_path: Path, changed: bool, push: bool = True) -> None:
-    """Commit (and optionally push) vault changes made by apply().
+def commit_and_push_if_changed(vault_path: Path, changed_paths: list, push: bool = True) -> None:
+    """Commit (and optionally push) the vault paths written by apply().
 
     Runs at boot, before any listener thread starts, so a git failure here must
     never propagate — a raised exception would crash the process before the bot
     comes up, and under a supervisor that means a crash loop. Matches the
     fail-soft style of core/pipe.py's _sync_git(): log and continue.
+
+    Stages only `changed_paths` (not the whole working tree) so unrelated,
+    concurrently in-progress vault edits are never swept into this commit.
+    Commits first, then rebases onto the remote — pull --rebase requires a
+    clean working tree, and apply() has already written to it — matching the
+    add/commit/pull --rebase/push order used by reminder/cli.py.
     """
-    if not changed:
+    if not changed_paths:
         return
 
-    # Rebase onto the remote first so the subsequent push is less likely to be
-    # rejected for divergence. Best-effort: no network (or no remote) is not
-    # fatal, we just commit locally and let the next boot catch up.
     try:
-        result = subprocess.run(
-            ["git", "pull", "--rebase"],
-            cwd=vault_path, capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "Vault git pull --rebase failed (continuing): %s",
-                result.stderr.strip().replace("\n", " ")[:200],
-            )
-    except Exception as e:
-        logger.warning("Vault git pull --rebase exception (continuing): %s", e)
-
-    try:
-        subprocess.run(["git", "add", "."], cwd=vault_path, check=True, capture_output=True)
+        subprocess.run(["git", "add", "--", *changed_paths], cwd=vault_path, check=True, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "synapse-engine apply(): sync service protocols"],
             cwd=vault_path, check=True, capture_output=True,
         )
+
+        # Rebase onto the remote now that our changes are safely committed, so
+        # the subsequent push is less likely to be rejected for divergence.
+        # Best-effort: no network (or no remote) is not fatal, we just push
+        # (or fail to) and let the next boot catch up.
+        try:
+            result = subprocess.run(
+                ["git", "pull", "--rebase"],
+                cwd=vault_path, capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "Vault git pull --rebase failed (continuing): %s",
+                    result.stderr.strip().replace("\n", " ")[:200],
+                )
+        except Exception as e:
+            logger.warning("Vault git pull --rebase exception (continuing): %s", e)
+
         if push:
-            subprocess.run(["git", "push"], cwd=vault_path, check=True, capture_output=True)
+            subprocess.run(["git", "push"], cwd=vault_path, check=True, capture_output=True, timeout=60)
     except subprocess.CalledProcessError as e:
         stderr = (e.stderr or b"")
         if isinstance(stderr, bytes):

@@ -45,10 +45,10 @@ def main():
     from .vault_sync import apply, commit_and_push_if_changed
 
     vault_path = Path(config.VAULT_PATH)
-    changed = apply(registry, enabled, vault_path, SERVICES_DIR)
-    if changed:
+    changed_paths = apply(registry, enabled, vault_path, SERVICES_DIR)
+    if changed_paths:
         logger.info("apply(): vault protocol files updated, committing...")
-        commit_and_push_if_changed(vault_path, changed=True, push=True)
+        commit_and_push_if_changed(vault_path, changed_paths, push=True)
 
     logger.info("Enabled services: %s", ", ".join(sorted(enabled)))
 
