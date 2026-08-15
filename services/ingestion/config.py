@@ -183,12 +183,12 @@ TELEGRAM_ALLOWED_USER_IDS = [
 ]
 TELEGRAM_MAX_FILE_SIZE_MB = int(os.getenv("TELEGRAM_MAX_FILE_SIZE_MB", "10"))
 
-# --- Channel Selection ---
-ENABLED_CHANNELS = [
-    ch.strip().lower()
-    for ch in os.getenv("ENABLED_CHANNELS", "email").split(",")
-    if ch.strip()
-]
+# --- Service Selection ---
+ENABLED_SERVICES = {
+    s.strip().lower()
+    for s in os.getenv("ENABLED_SERVICES", "email").split(",")
+    if s.strip()
+}
 
 # --- Stats Display ---
 STATS_ENABLED = os.getenv("STATS_ENABLED", "false").strip().lower() in ("true", "1", "yes")
