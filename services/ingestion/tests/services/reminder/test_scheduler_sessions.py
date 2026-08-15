@@ -5,7 +5,7 @@ Tests for session persistence in ReminderScheduler.
 from unittest.mock import MagicMock, patch
 import pytest
 
-from services.ingestion.core.scheduler import ReminderScheduler
+from services.ingestion.services.reminder.scheduler import ReminderScheduler
 
 @pytest.fixture
 def scheduler():
@@ -15,9 +15,9 @@ def scheduler():
 class TestSchedulerSessions:
     """Tests for session persistence logic in ReminderScheduler."""
 
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.session_manager.SessionManager.save_session")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_handle_work_reminder_saves_session_for_email(self, mock_config, mock_save, mock_pipe, scheduler):
         """Test that _handle_work_reminder saves the session ID for email."""
         mock_config.REPLY_TO_ADDRESS = "user@example.com"
@@ -30,7 +30,7 @@ class TestSchedulerSessions:
             session_id=returned_session_id
         )
         
-        with patch("services.ingestion.core.scheduler.ReminderScheduler._deliver") as mock_deliver:
+        with patch("services.ingestion.services.reminder.scheduler.ReminderScheduler._deliver") as mock_deliver:
             mock_deliver.return_value = True
             scheduler._handle_work_reminder("email", "Do some work")
             
@@ -44,9 +44,9 @@ class TestSchedulerSessions:
             mock_deliver.assert_called_once()
             assert mock_deliver.call_args[1]["session_id"] == returned_session_id
 
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.session_manager.SessionManager.save_session")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_handle_work_reminder_no_save_for_telegram(self, mock_config, mock_save, mock_pipe, scheduler):
         """Test that _handle_work_reminder does NOT save session for telegram."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -58,7 +58,7 @@ class TestSchedulerSessions:
             session_id=returned_session_id
         )
         
-        with patch("services.ingestion.core.scheduler.ReminderScheduler._deliver") as mock_deliver:
+        with patch("services.ingestion.services.reminder.scheduler.ReminderScheduler._deliver") as mock_deliver:
             mock_deliver.return_value = True
             scheduler._handle_work_reminder("telegram", "Do some work")
             

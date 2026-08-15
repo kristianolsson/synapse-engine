@@ -1,0 +1,15 @@
+{
+  "name": "reminder",
+  "kind": "tool",
+  "description": "Two-phase reminder scheduler (hourly parse thread) + reminder CLI",
+  "module": "services.ingestion.services.reminder.cli",
+  "mcp_module": null,
+  "credential_group": null,
+  "depends_on": [],
+  "env_vars": {"required": [], "optional": ["SCHEDULER_INTERVAL_MINUTES", "REMINDERS_JSON_PATH"]},
+  "vault_protocol": "reminders/PROTOCOL.md",
+  "router_entry": {
+    "classification": "Reminder co-routing",
+    "routing_rule": "Load `reminders/PROTOCOL.md` and use the `reminder` CLI for ANY reminder-related operation, regardless of primary classification."
+  }
+}

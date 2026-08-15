@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from services.ingestion.core.scheduler import (
+from services.ingestion.services.reminder.scheduler import (
     ReminderScheduler,
     compute_next_fire,
     MISSED_THRESHOLD_SECONDS,
@@ -211,32 +211,32 @@ class TestComputeNextFire:
 class TestDelivery:
     """Tests for _deliver, _send_telegram, _send_email."""
 
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_send_telegram(self, mock_config, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_config.TELEGRAM_BOT_TOKEN = "test-token"
 
         with patch(
-            "services.ingestion.channels.telegram.sender.send_telegram_message"
+            "services.ingestion.services.telegram.sender.send_telegram_message"
         ) as mock_send:
             mock_send.return_value = True
             result = scheduler._send_telegram("Hello!")
             mock_send.assert_called_once_with(12345, "Hello!", reply_markup=None)
             assert result is True
 
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_send_telegram_no_user_ids(self, mock_config, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = []
         result = scheduler._send_telegram("Hello!")
         assert result is None
 
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_send_email(self, mock_config, scheduler):
         mock_config.REPLY_TO_ADDRESS = "user@example.com"
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
 
         with patch(
-            "services.ingestion.channels.email.reply.send_reply"
+            "services.ingestion.services.email.reply.send_reply"
         ) as mock_send:
             mock_send.return_value = True
             result = scheduler._send_email("Hello!", subject="Reminder: Hello!", session_id="test-session-123")
@@ -248,7 +248,7 @@ class TestDelivery:
             )
             assert result is True
 
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_send_email_no_address(self, mock_config, scheduler):
         mock_config.REPLY_TO_ADDRESS = ""
         mock_config.ALLOWED_SENDERS = []
@@ -298,8 +298,8 @@ class TestWorkReminder:
     """Tests for _handle_work_reminder."""
 
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_work_reminder_telegram(self, mock_config, mock_pipe, mock_deliver, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_config.REPLY_TO_ADDRESS = "user@example.com"
@@ -326,8 +326,8 @@ class TestWorkReminder:
         assert "Here are the stock results..." in call_args.args[1]
 
     @patch.object(ReminderScheduler, "_handle_delivery_failure")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_work_reminder_pipe_error(self, mock_config, mock_pipe, mock_fallback, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
 
@@ -341,8 +341,8 @@ class TestWorkReminder:
         mock_fallback.assert_called_once_with("Research stocks")
 
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_work_reminder_missed_prefix(self, mock_config, mock_pipe, mock_deliver, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_config.REPLY_TO_ADDRESS = "user@example.com"
@@ -361,8 +361,8 @@ class TestWorkReminder:
         assert "Missed" in text
 
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_work_reminder_synapse_ok_skips_delivery(self, mock_config, mock_pipe, mock_deliver, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_config.REPLY_TO_ADDRESS = "user@example.com"
@@ -378,11 +378,11 @@ class TestWorkReminder:
 
         mock_deliver.assert_not_called()
 
-    @patch("services.ingestion.channels.telegram.reply_dispatch.attach_form_message_id")
-    @patch("services.ingestion.channels.telegram.reply_dispatch.build_reply_keyboard")
+    @patch("services.ingestion.services.telegram.reply_dispatch.attach_form_message_id")
+    @patch("services.ingestion.services.telegram.reply_dispatch.build_reply_keyboard")
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_work_reminder_telegram_form_uses_form_keyboard(
         self, mock_config, mock_pipe, mock_deliver, mock_build_reply_keyboard, mock_attach, scheduler
     ):
@@ -405,11 +405,11 @@ class TestWorkReminder:
         mock_attach.assert_called_once_with("form-abc", 999, "sess-1")
 
     @patch("services.ingestion.core.form_state.delete_form")
-    @patch("services.ingestion.channels.telegram.reply_dispatch.build_reply_keyboard")
+    @patch("services.ingestion.services.telegram.reply_dispatch.build_reply_keyboard")
     @patch.object(ReminderScheduler, "_handle_delivery_failure")
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_work_reminder_form_delivery_failure_cleans_up_form(
         self, mock_config, mock_pipe, mock_deliver, mock_fallback, mock_build_reply_keyboard, mock_delete_form, scheduler
     ):
@@ -427,10 +427,10 @@ class TestWorkReminder:
         mock_fallback.assert_called_once_with("Fitness check-in")
         mock_delete_form.assert_called_once_with("form-abc")
 
-    @patch("services.ingestion.channels.telegram.reply_dispatch.build_reply_keyboard")
+    @patch("services.ingestion.services.telegram.reply_dispatch.build_reply_keyboard")
     @patch.object(ReminderScheduler, "_deliver")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    @patch("services.ingestion.core.scheduler.config")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.config")
     def test_work_reminder_form_bakes_subject_into_text(
         self, mock_config, mock_pipe, mock_deliver, mock_build_reply_keyboard, scheduler
     ):
@@ -458,7 +458,7 @@ class TestWorkReminder:
 class TestDeliveryFailure:
     """Tests for _handle_delivery_failure."""
 
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
     def test_fallback_logs_to_master_todos(self, mock_pipe, scheduler):
         mock_pipe.return_value = MagicMock(is_error=False, output="")
 
@@ -470,7 +470,7 @@ class TestDeliveryFailure:
         assert "Call the dentist" in prompt_arg
 
     @patch.object(ReminderScheduler, "_send_email")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
     def test_fallback_handles_exception(self, mock_pipe, mock_email, scheduler):
         mock_pipe.side_effect = Exception("Total failure")
         # Should not raise
@@ -483,7 +483,7 @@ class TestDeliveryFailure:
         assert "execute and log" in kwargs["subject"]
 
     @patch.object(ReminderScheduler, "_send_email")
-    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.services.reminder.scheduler.pipe_to_provider")
     def test_fallback_returns_error_sends_email(self, mock_pipe, mock_email, scheduler):
         mock_pipe.return_value = MagicMock(is_error=True, output="API error")
 
@@ -545,7 +545,7 @@ class TestFireReminder:
         scheduler._fire_reminder(reminder, now)
         mock_remove.assert_called_once_with("test-5")
 
-    @patch("services.ingestion.core.scheduler.logger")
+    @patch("services.ingestion.services.reminder.scheduler.logger")
     @patch.object(ReminderScheduler, "_remove_from_json")
     @patch.object(ReminderScheduler, "_handle_message_reminder")
     def test_fire_one_shot_removal_failure_logs_warning(self, mock_handle, mock_remove, mock_logger, scheduler):

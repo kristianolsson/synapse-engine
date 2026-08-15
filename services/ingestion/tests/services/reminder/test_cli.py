@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from services.ingestion.tools.reminder_cli import (
+from services.ingestion.services.reminder.cli import (
     cmd_add,
     cmd_edit,
     cmd_remove,

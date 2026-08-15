@@ -27,10 +27,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from .. import config
-from ..core.pipe import IncomingMessage, build_prompt, pipe_to_provider
-from ..core.session_manager import SessionManager
-from ..providers.base import GLOBAL_PROVIDER_LOCK
+from ... import config
+from ...core.pipe import IncomingMessage, build_prompt, pipe_to_provider
+from ...core.session_manager import SessionManager
+from ...providers.base import GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
 
@@ -350,7 +350,7 @@ class ReminderScheduler:
 
     def _send_telegram(self, text: str, reply_markup=None) -> Optional[int]:
         """Send a message via Telegram. Returns the message_id on success."""
-        from ..channels.telegram.sender import send_telegram_message
+        from ..telegram.sender import send_telegram_message
 
         if not config.TELEGRAM_ALLOWED_USER_IDS:
             logger.error("No TELEGRAM_ALLOWED_USER_IDS configured, cannot send reminder")
@@ -361,7 +361,7 @@ class ReminderScheduler:
 
     def _send_email(self, text: str, subject: str, session_id: str = None) -> bool:
         """Send a message via Email."""
-        from ..channels.email.reply import send_reply
+        from ..email.reply import send_reply
 
         to_addr = config.REPLY_TO_ADDRESS or (
             config.ALLOWED_SENDERS[0] if config.ALLOWED_SENDERS else ""
@@ -489,10 +489,10 @@ class ReminderScheduler:
 
         if self.session_manager.get_stats_enabled(sender):
             if channel == "telegram":
-                from ..utils.stats_formatter import format_stats_telegram
+                from ...utils.stats_formatter import format_stats_telegram
                 response_text += format_stats_telegram(result.stats)
             elif channel == "email":
-                from ..utils.stats_formatter import format_stats_email
+                from ...utils.stats_formatter import format_stats_email
                 response_text += format_stats_email(result.stats)
 
         # Save the session context for future replies if this is an email thread.
@@ -516,7 +516,7 @@ class ReminderScheduler:
         form_id = None
         deliver_subject = subject
         if channel == "telegram":
-            from ..channels.telegram.reply_dispatch import build_reply_keyboard, attach_form_message_id
+            from ..telegram.reply_dispatch import build_reply_keyboard, attach_form_message_id
 
             dispatch_text = response_text
             if subject:
@@ -538,10 +538,10 @@ class ReminderScheduler:
         if not msg_id:
             self._handle_delivery_failure(task)
             if form_id:
-                from ..core import form_state
+                from ...core import form_state
                 form_state.delete_form(form_id)
         elif form_id:
-            from ..channels.telegram.reply_dispatch import attach_form_message_id
+            from ..telegram.reply_dispatch import attach_form_message_id
             attach_form_message_id(form_id, msg_id, result.session_id)
 
     def _handle_delivery_failure(self, task: str) -> None:
