@@ -68,9 +68,9 @@ def _load_options_config(config_path: Optional[str] = None) -> dict:
 
 
 def _authenticate(env: dict):
-    from services.ingestion.tools.stocks.auth import ETradeAuth
-    from services.ingestion.tools.stocks.wetrade_auth import WetradeAuth, WETRADE_AVAILABLE
-    from services.ingestion.tools.stocks.etrade_client import ETradeClient
+    from services.ingestion.services.etrade.stocks.auth import ETradeAuth
+    from services.ingestion.services.etrade.stocks.wetrade_auth import WetradeAuth, WETRADE_AVAILABLE
+    from services.ingestion.services.etrade.stocks.etrade_client import ETradeClient
 
     if not env["consumer_key"] or not env["consumer_secret"]:
         _err("ETRADE_CONSUMER_KEY and ETRADE_CONSUMER_SECRET must be set in .env", "config_error")
@@ -430,9 +430,9 @@ def _build_html(
 
 def cmd_scan(args) -> None:
     """Run the weekday options scan for a given list of tickers."""
-    from services.ingestion.tools.stocks.etrade_client import ETradeClient
-    from services.ingestion.tools.stocks.analyzer import OptionsAnalyzer
-    from services.ingestion.tools.stocks.position_analyzer import PositionAnalyzer
+    from services.ingestion.services.etrade.stocks.etrade_client import ETradeClient
+    from services.ingestion.services.etrade.stocks.analyzer import OptionsAnalyzer
+    from services.ingestion.services.etrade.stocks.position_analyzer import PositionAnalyzer
 
     tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
     if not tickers:

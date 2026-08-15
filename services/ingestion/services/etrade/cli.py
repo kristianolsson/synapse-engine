@@ -29,10 +29,10 @@ from typing import Optional
 # Resolve stocks package path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
-from services.ingestion.tools.stocks.auth import ETradeAuth
-from services.ingestion.tools.stocks.wetrade_auth import WetradeAuth, WETRADE_AVAILABLE
-from services.ingestion.tools.stocks.etrade_client import ETradeClient
-from services.ingestion.tools.stocks.analyzer import OptionsAnalyzer
+from services.ingestion.services.etrade.stocks.auth import ETradeAuth
+from services.ingestion.services.etrade.stocks.wetrade_auth import WetradeAuth, WETRADE_AVAILABLE
+from services.ingestion.services.etrade.stocks.etrade_client import ETradeClient
+from services.ingestion.services.etrade.stocks.analyzer import OptionsAnalyzer
 
 logger = logging.getLogger("etrade-cli")
 
