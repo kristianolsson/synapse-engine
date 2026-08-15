@@ -139,17 +139,17 @@ On Mac:
 ```bash
 # 1. Log into Amazon Fresh headed (browser opens automatically)
 cd ~/Documents/code/synapse-engine
-python3 -m services.ingestion.tools.amazon_fresh_cli auth
+python3 -m services.ingestion.services.amazon_fresh.cli auth
 
 # 2. Bootstrap selectors from the live pages (also headed)
-python3 -m services.ingestion.tools.amazon_fresh_cli heal
+python3 -m services.ingestion.services.amazon_fresh.cli heal
 
 # 3. Transfer the browser session profile to QNAP
 scp -r ~/.amazon-fresh-session admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/amazon/
 
 # 4. Also transfer the updated selectors.json
-scp ~/Documents/code/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json \
-  admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/synapse-engine/services/ingestion/tools/amazon_fresh/
+scp ~/Documents/code/synapse-engine/services/ingestion/services/amazon_fresh/internal/selectors.json \
+  admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/synapse-engine/services/ingestion/services/amazon_fresh/internal/
 ```
 
 On QNAP:
@@ -158,7 +158,7 @@ mkdir -p /share/CE_CACHEDEV2_DATA/synapse/credentials/amazon
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/credentials/amazon
 
 # Note: scp runs as admin, so we must re-chown selectors.json so the container can update it
-chown synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json
+chown synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine/services/ingestion/services/amazon_fresh/internal/selectors.json
 ```
 
 ## 9. Set up .env and config files

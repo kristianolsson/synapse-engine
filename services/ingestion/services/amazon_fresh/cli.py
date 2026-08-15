@@ -66,7 +66,7 @@ def _out(data: dict) -> None:
 
 def _open_page(context, url: str, wait_until: str = "domcontentloaded", timeout: int = 30000):
     """Navigate to URL and return page. Exits with auth_expired if redirected to login."""
-    from services.ingestion.tools.amazon_fresh.browser import get_page
+    from .internal.browser import get_page
     try:
         return get_page(context, url, wait_until=wait_until, timeout=timeout)
     except PermissionError as e:
@@ -77,7 +77,7 @@ def _open_page(context, url: str, wait_until: str = "domcontentloaded", timeout:
 
 def cmd_auth(args) -> None:
     """One-time headed login to Amazon Fresh. Saves Firefox profile for future headless runs."""
-    from services.ingestion.tools.amazon_fresh.browser import (
+    from .internal.browser import (
         DEFAULT_PROFILE_DIR,
         launch_browser,
         close_browser,
@@ -121,9 +121,9 @@ def cmd_auth(args) -> None:
 
 def cmd_past_purchases(args) -> None:
     """List past Amazon Fresh purchases using selectors from selectors.json."""
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import scrape_items, scroll_to_load
+    from .internal.browser import launch_browser, close_browser
+    from .internal.selectors import get_page_selectors
+    from .internal.scraper import scrape_items, scroll_to_load
 
     try:
         sel = get_page_selectors("past_purchases")
@@ -144,9 +144,9 @@ def cmd_past_purchases(args) -> None:
 
 def cmd_saved_items(args) -> None:
     """List Amazon Fresh saved items using selectors from selectors.json."""
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import scrape_items, scroll_to_load
+    from .internal.browser import launch_browser, close_browser
+    from .internal.selectors import get_page_selectors
+    from .internal.scraper import scrape_items, scroll_to_load
 
     try:
         sel = get_page_selectors("saved_items")
@@ -170,9 +170,9 @@ def cmd_saved_items(args) -> None:
 
 def cmd_search(args) -> None:
     """Search Amazon Fresh. Results with purchase badges sorted first (most recent)."""
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import scrape_search_results
+    from .internal.browser import launch_browser, close_browser
+    from .internal.selectors import get_page_selectors
+    from .internal.scraper import scrape_search_results
 
     try:
         sel = get_page_selectors("search")
@@ -196,9 +196,9 @@ def cmd_search(args) -> None:
 def cmd_add(args) -> None:
     """Add a product to the Amazon Fresh cart by ASIN."""
     import urllib.parse
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import add_to_cart
+    from .internal.browser import launch_browser, close_browser
+    from .internal.selectors import get_page_selectors
+    from .internal.scraper import add_to_cart
 
     try:
         sel = get_page_selectors("add")
@@ -224,9 +224,9 @@ def cmd_add(args) -> None:
 
 def cmd_cart(args) -> None:
     """View current Amazon Fresh cart contents."""
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import scrape_cart_items
+    from .internal.browser import launch_browser, close_browser
+    from .internal.selectors import get_page_selectors
+    from .internal.scraper import scrape_cart_items
 
     try:
         sel = get_page_selectors("cart")
@@ -246,9 +246,9 @@ def cmd_cart(args) -> None:
 
 def cmd_remove(args) -> None:
     """Remove a product from the Amazon Fresh cart by ASIN."""
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import remove_from_cart
+    from .internal.browser import launch_browser, close_browser
+    from .internal.selectors import get_page_selectors
+    from .internal.scraper import remove_from_cart
 
     try:
         sel = get_page_selectors("cart")
@@ -272,9 +272,9 @@ def cmd_remove(args) -> None:
 
 def cmd_edit(args) -> None:
     """Update the quantity of a product in the Amazon Fresh cart by ASIN."""
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import get_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import edit_cart_qty
+    from .internal.browser import launch_browser, close_browser
+    from .internal.selectors import get_page_selectors
+    from .internal.scraper import edit_cart_qty
 
     try:
         sel = get_page_selectors("cart")
@@ -327,7 +327,7 @@ def cmd_sync_history(args) -> None:
     # ── Step 1: fetch past purchases via the existing CLI command ──────────────
     print(_json.dumps({"status": "loading_past_purchases"}), flush=True)
 
-    cmd = [sys.executable, "-m", "services.ingestion.tools.amazon_fresh_cli", "past-purchases"]
+    cmd = [sys.executable, "-m", "services.ingestion.services.amazon_fresh.cli", "past-purchases"]
     if args.headed:
         cmd.append("--headed")
 
@@ -425,9 +425,9 @@ def cmd_heal(args) -> None:
 
     Always runs headed so the page renders fully (Amazon uses heavy JS).
     """
-    from services.ingestion.tools.amazon_fresh.browser import launch_browser, close_browser
-    from services.ingestion.tools.amazon_fresh.selectors import load_selectors, merge_page_selectors
-    from services.ingestion.tools.amazon_fresh.scraper import dump_dom_for_heal, scroll_to_load
+    from .internal.browser import launch_browser, close_browser
+    from .internal.selectors import load_selectors, merge_page_selectors
+    from .internal.scraper import dump_dom_for_heal, scroll_to_load
 
     config = load_selectors()
 

@@ -321,7 +321,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             try:
                 # Run headlessly in the container
                 result = subprocess.run(
-                    ["python3", "-m", "services.ingestion.tools.amazon_fresh_cli", "heal"],
+                    ["python3", "-m", "services.ingestion.services.amazon_fresh.cli", "heal"],
                     cwd=Path(__file__).resolve().parents[4],
                     capture_output=True, text=True, timeout=300
                 )

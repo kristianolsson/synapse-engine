@@ -1,0 +1,15 @@
+{
+  "name": "amazon-fresh",
+  "kind": "tool",
+  "description": "Amazon Fresh grocery browsing/cart CLI (Playwright)",
+  "module": "services.ingestion.services.amazon_fresh.cli",
+  "mcp_module": null,
+  "credential_group": null,
+  "depends_on": [],
+  "env_vars": {"required": [], "optional": []},
+  "vault_protocol": "groceries/PROTOCOL.md",
+  "router_entry": {
+    "classification": "Groceries",
+    "routing_rule": "Load `groceries/PROTOCOL.md`, execute grocery protocols."
+  }
+}
