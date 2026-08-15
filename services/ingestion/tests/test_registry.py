@@ -77,3 +77,45 @@ def test_validate_enabled_checks_depends_on(services_dir):
     write_manifest(services_dir, "email", kind="channel")
     registry = ServiceRegistry.discover(services_dir)
     registry.validate_enabled({"etrade", "options-bot", "email"})  # should not raise
+
+
+def test_discover_rejects_malformed_json(services_dir):
+    folder = services_dir / "broken"
+    folder.mkdir()
+    (folder / "manifest.json").write_text("{ this is not json ]")
+    with pytest.raises(RegistryError, match="invalid JSON"):
+        ServiceRegistry.discover(services_dir)
+
+
+def test_discover_reports_offending_path_for_malformed_json(services_dir):
+    folder = services_dir / "broken"
+    folder.mkdir()
+    (folder / "manifest.json").write_text("{")
+    with pytest.raises(RegistryError, match="broken/manifest.json"):
+        ServiceRegistry.discover(services_dir)
+
+
+def test_discover_rejects_missing_required_field(services_dir):
+    manifest = write_manifest(services_dir, "calendar")
+    del manifest["module"]
+    (services_dir / "calendar" / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(RegistryError, match="missing required manifest field"):
+        ServiceRegistry.discover(services_dir)
+
+
+def test_discover_rejects_invalid_kind(services_dir):
+    write_manifest(services_dir, "calendar", kind="widget")
+    with pytest.raises(RegistryError, match="invalid kind 'widget'"):
+        ServiceRegistry.discover(services_dir)
+
+
+def test_discover_rejects_duplicate_service_names(services_dir):
+    write_manifest(services_dir, "calendar")
+    write_manifest(services_dir, "calendar_v2", manifest_name="calendar")
+    with pytest.raises(RegistryError) as exc:
+        ServiceRegistry.discover(services_dir)
+    msg = str(exc.value)
+    assert "duplicate service name 'calendar'" in msg
+    # Both offending manifest paths are named.
+    assert "calendar/manifest.json" in msg
+    assert "calendar_v2/manifest.json" in msg

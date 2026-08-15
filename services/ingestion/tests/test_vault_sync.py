@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 import pytest
 from services.ingestion.registry import ServiceRegistry
@@ -90,3 +91,26 @@ def test_apply_regenerates_router_marker_block_only(tmp_path):
     assert "# Footer here" in content
     assert "stale content" not in content
     assert "Calendar" in content and "Load calendar/PROTOCOL.md" in content
+
+
+def test_apply_warns_when_claude_md_has_no_router_markers(tmp_path, caplog):
+    """A CLAUDE.md without the marker block can't be regenerated — that must be
+    logged loudly rather than silently skipped (fail loudly, never silently)."""
+    services_dir = tmp_path / "services"
+    vault = tmp_path / "notes"
+    vault.mkdir()
+    (vault / "CLAUDE.md").write_text("# Personal mandates\nSome routing rules, no markers.\n")
+    make_service(services_dir, "calendar", protocol_content="calendar rules",
+                 vault_protocol="calendar/PROTOCOL.md",
+                 router_entry={"classification": "Calendar", "routing_rule": "Load calendar/PROTOCOL.md"})
+    registry = ServiceRegistry.discover(services_dir)
+
+    with caplog.at_level(logging.WARNING, logger="services.ingestion.vault_sync"):
+        apply(registry, {"calendar"}, vault, services_dir)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings, "expected a warning when CLAUDE.md has no router markers"
+    assert "marker" in warnings[0].getMessage()
+    assert "CLAUDE.md" in warnings[0].getMessage()
+    # Behavior is unchanged: the file is left exactly as-is, nothing crashes.
+    assert (vault / "CLAUDE.md").read_text() == "# Personal mandates\nSome routing rules, no markers.\n"

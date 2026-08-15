@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Literal, Optional
 
 
+VALID_KINDS = ("channel", "tool")
+
+
 class RegistryError(Exception):
     """Raised when service discovery or ENABLED_SERVICES validation fails."""
 
@@ -47,10 +50,39 @@ class ServiceRegistry:
     @classmethod
     def discover(cls, services_dir: Path) -> "ServiceRegistry":
         services = {}
+        origins: dict = {}
         for manifest_path in sorted(services_dir.glob("*/manifest.json")):
-            data = json.loads(manifest_path.read_text())
-            spec = ServiceSpec.from_manifest(data)
+            try:
+                data = json.loads(manifest_path.read_text())
+            except json.JSONDecodeError as e:
+                raise RegistryError(f"{manifest_path}: invalid JSON — {e}") from e
+
+            if not isinstance(data, dict):
+                raise RegistryError(
+                    f"{manifest_path}: manifest must be a JSON object, got {type(data).__name__}"
+                )
+
+            try:
+                spec = ServiceSpec.from_manifest(data)
+            except KeyError as e:
+                raise RegistryError(
+                    f"{manifest_path}: missing required manifest field {e}"
+                ) from e
+
+            if spec.kind not in VALID_KINDS:
+                raise RegistryError(
+                    f"{manifest_path}: invalid kind '{spec.kind}' "
+                    f"(must be one of {', '.join(sorted(VALID_KINDS))})"
+                )
+
+            if spec.name in services:
+                raise RegistryError(
+                    f"duplicate service name '{spec.name}' declared by both "
+                    f"{origins[spec.name]} and {manifest_path}"
+                )
+
             services[spec.name] = spec
+            origins[spec.name] = manifest_path
         return cls(services)
 
     def validate_enabled(self, enabled_names: set) -> None:
