@@ -2,6 +2,7 @@
 regenerates the CLAUDE.md service-router marker block. Runs on every
 process startup (see main.py) — idempotent, safe to call every boot."""
 
+import subprocess
 from pathlib import Path
 
 from .registry import ServiceRegistry
@@ -56,3 +57,15 @@ def apply(registry: ServiceRegistry, enabled: set, vault_path: Path, services_di
         changed = True
 
     return changed
+
+
+def commit_and_push_if_changed(vault_path: Path, changed: bool, push: bool = True) -> None:
+    if not changed:
+        return
+    subprocess.run(["git", "add", "."], cwd=vault_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "synapse-engine apply(): sync service protocols"],
+        cwd=vault_path, check=True, capture_output=True,
+    )
+    if push:
+        subprocess.run(["git", "push"], cwd=vault_path, check=True, capture_output=True)

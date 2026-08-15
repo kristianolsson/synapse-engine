@@ -42,6 +42,14 @@ def main():
         logger.error("Startup validation failed: %s", e)
         sys.exit(1)
 
+    from .vault_sync import apply, commit_and_push_if_changed
+
+    vault_path = Path(config.VAULT_PATH)
+    changed = apply(registry, enabled, vault_path, SERVICES_DIR)
+    if changed:
+        logger.info("apply(): vault protocol files updated, committing...")
+        commit_and_push_if_changed(vault_path, changed=True, push=True)
+
     logger.info("Enabled services: %s", ", ".join(sorted(enabled)))
 
     rate_limiter = RateLimiter(
