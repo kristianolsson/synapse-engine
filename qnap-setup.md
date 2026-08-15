@@ -198,12 +198,16 @@ docker compose logs -f
 
 ## Update workflow
 
-**Code changes** (most updates) — send `/update` via Telegram. Synapse pulls the latest code and restarts automatically.
-
-**Dockerfile or requirements.txt changes** — SSH into QNAP and run:
+**Any change** — send `/update` via Telegram (pulls + restarts; a rebuild is
+only needed for `Dockerfile`/`requirements.txt` changes, which `/update` itself
+doesn't detect — see below), or SSH in and run:
 ```bash
-bash /share/CE_CACHEDEV2_DATA/synapse/synapse-engine/update.sh
+cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
+./synapse update
 ```
+`./synapse update` auto-detects whether the pulled commits touched
+`Dockerfile`/`requirements.txt` and only rebuilds the image when needed —
+otherwise it just restarts, same as `/update` via Telegram.
 
 ## Logs
 

@@ -209,19 +209,19 @@ Fresh browser auth), and `docker-compose.yml` mounts the Vault, CLI credentials,
 and SSH key from persistent storage.
 
 ```bash
-docker compose build
-docker compose up -d
-docker compose logs -f
+./synapse setup
 ```
 
+Prompts for which services to enable, then builds and starts the container.
 The compose file expects an `.env` and mounted credential directories on the
 host. For a full walkthrough on the QNAP TS-264 (creating the `synapse` user,
-folder layout, seeding Claude/Gemini/Antigravity/E\*TRADE/Amazon credentials,
-and the OAuth token), see **[`qnap-setup.md`](qnap-setup.md)**.
+folder layout, seeding credentials), see **[`qnap-setup.md`](qnap-setup.md)**.
+For migrating an existing live QNAP deploy to this plugin system, see
+**[`docs/qnap-migration.md`](docs/qnap-migration.md)**.
 
-**Updating:** send `/update` via Telegram (git pull + graceful restart — the
-container's `restart: always` brings it back). For `Dockerfile`/`requirements.txt`
-changes, rebuild with `docker compose build && docker compose up -d`.
+**Updating:** send `/update` via Telegram (git pull + graceful restart), or
+run `./synapse update` directly on the QNAP box — it only rebuilds the image
+when `Dockerfile`/`requirements.txt` actually changed, otherwise just restarts.
 
 ## Development
 

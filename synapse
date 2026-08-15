@@ -133,6 +133,50 @@ cmd_update_mac() {
     cmd_restart_mac
 }
 
+cmd_setup_qnap() {
+    _prompt_services
+    echo "Building and starting containers..."
+    docker compose build
+    docker compose up -d
+    echo "✅ Started. Logs: ./synapse logs"
+}
+
+cmd_start_qnap() {
+    docker compose up -d
+}
+
+cmd_stop_qnap() {
+    docker compose down
+}
+
+cmd_restart_qnap() {
+    docker compose restart
+}
+
+cmd_update_qnap() {
+    before_sha="$(git rev-parse HEAD)"
+    echo "Pulling latest code..."
+    git pull
+    after_sha="$(git rev-parse HEAD)"
+
+    if [[ "$before_sha" == "$after_sha" ]]; then
+        echo "Already up to date."
+        return
+    fi
+
+    if git diff --name-only "$before_sha" "$after_sha" | grep -qE "^(Dockerfile|requirements\.txt)$"; then
+        echo "Dockerfile or requirements.txt changed — rebuilding image..."
+        docker compose build
+    else
+        echo "Code-only change — no rebuild needed."
+    fi
+
+    echo "Restarting..."
+    docker compose down
+    docker compose up -d
+    docker compose logs --tail=20
+}
+
 _prompt_services() {
     PYTHON="python3"
     [ -x "$PROJECT_DIR/venv/bin/python3" ] && PYTHON="$PROJECT_DIR/venv/bin/python3"
