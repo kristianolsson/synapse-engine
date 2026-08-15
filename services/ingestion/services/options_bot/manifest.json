@@ -1,0 +1,12 @@
+{
+  "name": "options-bot",
+  "kind": "tool",
+  "description": "Weekday options-opportunity scan → HTML report",
+  "module": "services.ingestion.services.options_bot.cli",
+  "mcp_module": null,
+  "credential_group": "etrade",
+  "depends_on": ["etrade"],
+  "env_vars": {"required": [], "optional": []},
+  "vault_protocol": null,
+  "router_entry": null
+}

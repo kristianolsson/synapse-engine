@@ -1,0 +1,18 @@
+{
+  "name": "etrade",
+  "kind": "tool",
+  "description": "E*TRADE CLI — quotes, options, positions, accounts",
+  "module": "services.ingestion.services.etrade.cli",
+  "mcp_module": null,
+  "credential_group": "etrade",
+  "depends_on": [],
+  "env_vars": {
+    "required": ["ETRADE_CONSUMER_KEY", "ETRADE_CONSUMER_SECRET", "ETRADE_USERNAME", "ETRADE_PASSWORD"],
+    "optional": ["ETRADE_TOTP_SECRET", "ETRADE_MODE", "ETRADE_ACCOUNT_SUFFIX"]
+  },
+  "vault_protocol": "stocks/PROTOCOL.md",
+  "router_entry": {
+    "classification": "Stocks",
+    "routing_rule": "Load `stocks/PROTOCOL.md`, execute stock/options/market protocols."
+  }
+}
