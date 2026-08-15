@@ -88,7 +88,6 @@ The service is organized into the following layers under `services/ingestion/`:
 | | `services/options_bot/` | Weekday options scan (tool, depends on etrade) |
 | | `services/amazon_fresh/` | Amazon Fresh CLI + `internal/` (tool) |
 | **Core** | `core/pipe.py` | Prompt standardization + Vault git sync + provider dispatch |
-| | `core/scheduler.py` | Reminder scheduler (heapq two-tier queue; recurring + one-shot) |
 | | `core/session_manager.py` | Per-user/provider session state (TTL + midnight reset) |
 | | `core/rate_limiter.py` | Shared sliding-window rate limiter |
 | **Providers** | `providers/` | Pluggable AI backends via `AIProvider` ABC + factory (`gemini`, `claude`, `agy`, `echo`) |
@@ -160,8 +159,8 @@ The service is organized into the following layers under `services/ingestion/`:
        ```
     7. Test both CLIs:
        ```bash
-       python -m services.ingestion.tools.calendar_cli list-events --days 7
-       python -m services.ingestion.tools.gmail_cli list-inbox --limit 5
+       python -m services.ingestion.services.calendar.cli list-events --days 7
+       python -m services.ingestion.services.gmail.cli list-inbox --limit 5
        ```
     8. Both integrations are automatically injected as global `calendar` and `gmail` commands to AI providers — no additional configuration needed.
 

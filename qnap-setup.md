@@ -119,7 +119,7 @@ On Mac:
 ```bash
 # 1. Run etrade auth locally to generate tokens and trust the browser profile
 cd ~/Documents/code/synapse-engine
-python3 -m services.ingestion.tools.etrade_cli balance
+python3 -m services.ingestion.services.etrade.cli balance
 
 # 2. Transfer the API tokens and browser profile
 scp ~/.etrade_tokens admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/.etrade_tokens
@@ -174,7 +174,7 @@ scp ~/Documents/code/synapse-engine/calendars.json \
 
 > **Note:** `token.json` covers both Google Calendar and Gmail (single shared OAuth token).
 > If you have just added Gmail to an existing setup, delete the old `token.json` first and
-> re-run `python -m services.ingestion.tools.setup_google` on your Mac to get a token with
+> re-run `python -m services.ingestion.shared.google_auth` on your Mac to get a token with
 > both scopes before copying it to QNAP.
 
 On QNAP:
@@ -191,10 +191,20 @@ chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 
 ```bash
 cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
+./synapse setup
+./synapse logs
+```
+
+`./synapse setup` prompts you for which services to enable (writing
+`ENABLED_SERVICES` into `/share/CE_CACHEDEV2_DATA/synapse/.env`), then builds
+and starts the container. Under the hood it runs:
+
+```bash
 docker compose build
 docker compose up -d
-docker compose logs -f
 ```
+
+Those raw commands still work if you'd rather set `ENABLED_SERVICES` by hand.
 
 ## Update workflow
 
@@ -230,7 +240,7 @@ docker compose logs --tail=100
 ```bash
 # On Mac — delete old token to force re-auth
 rm ~/Documents/code/synapse-engine/token.json
-python -m services.ingestion.tools.setup_google
+python -m services.ingestion.shared.google_auth
 
 # Copy fresh token to QNAP
 scp ~/Documents/code/synapse-engine/token.json \

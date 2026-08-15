@@ -63,12 +63,13 @@ old `main.py` and is easy to forget since it was never something you
 ```bash
 cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 git pull
-./synapse update
+docker compose build && docker compose up -d
 ```
-(`./synapse update` will detect this pull touched more than just
-`Dockerfile`/`requirements.txt` isn't the right signal here for a first-time
-migration with a large diff — for this one-time cutover, force a rebuild
-explicitly instead: `docker compose build && docker compose up -d`.)
+Use these explicit commands rather than `./synapse update` for this one-time
+cutover: `./synapse update` compares HEAD before and after its own pull, so
+after a manual `git pull` it would see no change and return early without
+rebuilding or restarting anything. Use `./synapse update` for routine updates
+from here on.
 
 ## 5. Verify
 
