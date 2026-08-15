@@ -140,7 +140,7 @@ The service is organized into the following layers under `services/ingestion/`:
     1. Message [@BotFather](https://t.me/BotFather) on Telegram and create a bot (`/newbot`).
     2. Copy the token to `TELEGRAM_BOT_TOKEN` in `.env`.
     3. Get your Telegram user ID (message [@userinfobot](https://t.me/userinfobot)) and add it to `TELEGRAM_ALLOWED_USER_IDS`.
-    4. Set `ENABLED_CHANNELS=email,telegram` (or `telegram` for Telegram only).
+    4. Set `ENABLED_SERVICES=email,telegram` (or `telegram` for Telegram only).
 
     **Google API Setup (Calendar + Gmail):**
 
