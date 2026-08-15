@@ -5,12 +5,16 @@ Google Calendar CLI tool for synapse-engine.
 Provides subcommands to list events across multiple calendars,
 create/edit/delete events on the primary calendar, and list configured calendars.
 
+Invoke via the ./bin/calendar wrapper (recommended) or as a module:
+    ./bin/calendar <subcommand> ...
+    python -m services.ingestion.services.calendar.cli <subcommand> ...
+
 Usage:
-    python calendar_cli.py list-events [--days N] [--date YYYY-MM-DD] [--calendar LABEL]
-    python calendar_cli.py add-event --title "..." --start "ISO" --end "ISO" [--description "..."] [--guests "e1,e2"]
-    python calendar_cli.py edit-event --event-id "ID" [--title "..."] [--start "ISO"] [--end "ISO"] [--description "..."] [--guests "e1,e2"]
-    python calendar_cli.py delete-event --event-id "ID"
-    python calendar_cli.py list-calendars
+    ./bin/calendar list-events [--days N] [--date YYYY-MM-DD] [--calendar LABEL]
+    ./bin/calendar add-event --title "..." --start "ISO" --end "ISO" [--description "..."] [--guests "e1,e2"]
+    ./bin/calendar edit-event --event-id "ID" [--title "..."] [--start "ISO"] [--end "ISO"] [--description "..."] [--guests "e1,e2"]
+    ./bin/calendar delete-event --event-id "ID"
+    ./bin/calendar list-calendars
 """
 
 import argparse

@@ -26,7 +26,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 # Resolve package path so `services.ingestion` is importable when run standalone
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent))
 from services.ingestion import config as syn_config
 
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")

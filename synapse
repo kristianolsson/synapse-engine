@@ -6,17 +6,48 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
+# QNAP data root — the live .env lives here, not in the repo (see docker-compose.yml's
+# env_file: directive and qnap-setup.md).
+QNAP_DATA_DIR="/share/CE_CACHEDEV2_DATA/synapse"
+
+TARGET=""
+ENV_FILE=""
+
+# Sets the TARGET and ENV_FILE globals. Must be called directly (not in a
+# `$(...)` subshell) or the assignments are lost.
 detect_target() {
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        echo "mac"
+        TARGET="mac"
+        ENV_FILE="$PROJECT_DIR/.env"
     else
-        echo "qnap"
+        TARGET="qnap"
+        ENV_FILE="$QNAP_DATA_DIR/.env"
+    fi
+}
+
+detect_target
+
+# Prefer .venv, fall back to venv, then the system python3 — matches _detect_venv_dir.
+_detect_python() {
+    if [ -x "$PROJECT_DIR/.venv/bin/python3" ]; then
+        echo "$PROJECT_DIR/.venv/bin/python3"
+    elif [ -x "$PROJECT_DIR/venv/bin/python3" ]; then
+        echo "$PROJECT_DIR/venv/bin/python3"
+    else
+        echo "python3"
     fi
 }
 
 cmd_services() {
-    PYTHON="python3"
-    [ -x "$PROJECT_DIR/venv/bin/python3" ] && PYTHON="$PROJECT_DIR/venv/bin/python3"
+    PYTHON="$(_detect_python)"
+    # Source the env file so ENABLED_SERVICES is visible to the python subprocess.
+    # Missing file (fresh install) is fine — everything just reports as disabled.
+    if [ -f "$ENV_FILE" ]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "$ENV_FILE" 2>/dev/null || true
+        set +a
+    fi
     "$PYTHON" -c "
 from pathlib import Path
 from services.ingestion.registry import ServiceRegistry
@@ -30,8 +61,7 @@ for name, spec in sorted(registry.services.items()):
 }
 
 cmd_logs() {
-    target="$(detect_target)"
-    if [[ "$target" == "mac" ]]; then
+    if [[ "$TARGET" == "mac" ]]; then
         tail -f /tmp/synapse-ingestion.out.log /tmp/synapse-ingestion.err.log
     else
         docker compose logs -f
@@ -124,6 +154,7 @@ cmd_stop_mac() {
 
 cmd_restart_mac() {
     cmd_stop_mac
+    sleep 2  # ensures the old process has fully exited before reloading
     cmd_start_mac
 }
 
@@ -153,10 +184,26 @@ cmd_restart_qnap() {
     docker compose restart
 }
 
+# QNAP has no usable host git and the repo is owned by the `synapse` user, so the
+# pull runs in a throwaway alpine/git container with the SSH deploy key mounted
+# (same pattern as the old update.sh), then ownership is restored afterwards.
+_qnap_git_pull() {
+    docker run --rm --entrypoint sh \
+        -v "$QNAP_DATA_DIR:$QNAP_DATA_DIR" \
+        -v "$QNAP_DATA_DIR/ssh/id_ed25519:/root/.ssh/id_ed25519" \
+        alpine/git \
+        -c "chmod 600 /root/.ssh/id_ed25519 && \
+            git config --global --add safe.directory $PROJECT_DIR && \
+            cd $PROJECT_DIR && \
+            GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git pull"
+
+    chown -R synapse "$PROJECT_DIR"
+}
+
 cmd_update_qnap() {
     before_sha="$(git rev-parse HEAD)"
     echo "Pulling latest code..."
-    git pull
+    _qnap_git_pull
     after_sha="$(git rev-parse HEAD)"
 
     if [[ "$before_sha" == "$after_sha" ]]; then
@@ -178,8 +225,7 @@ cmd_update_qnap() {
 }
 
 _prompt_services() {
-    PYTHON="python3"
-    [ -x "$PROJECT_DIR/venv/bin/python3" ] && PYTHON="$PROJECT_DIR/venv/bin/python3"
+    PYTHON="$(_detect_python)"
     echo "Available services:"
     "$PYTHON" -c "
 from pathlib import Path
@@ -189,39 +235,37 @@ for name, spec in sorted(registry.services.items()):
     print(f'  {name} ({spec.kind}): {spec.description}')
 "
     echo ""
-    echo "Current ENABLED_SERVICES in .env:"
-    grep "^ENABLED_SERVICES=" "$PROJECT_DIR/.env" || echo "  (not set)"
+    echo "Current ENABLED_SERVICES in $ENV_FILE:"
+    grep "^ENABLED_SERVICES=" "$ENV_FILE" 2>/dev/null || echo "  (not set)"
     read -rp "Enter comma-separated services to enable (blank = keep current): " selection
     if [ -n "$selection" ]; then
-        if grep -q "^ENABLED_SERVICES=" "$PROJECT_DIR/.env"; then
-            sed -i.bak "s|^ENABLED_SERVICES=.*|ENABLED_SERVICES=$selection|" "$PROJECT_DIR/.env"
-            rm -f "$PROJECT_DIR/.env.bak"
+        if grep -q "^ENABLED_SERVICES=" "$ENV_FILE" 2>/dev/null; then
+            sed -i.bak "s|^ENABLED_SERVICES=.*|ENABLED_SERVICES=$selection|" "$ENV_FILE"
+            rm -f "$ENV_FILE.bak"
         else
-            echo "ENABLED_SERVICES=$selection" >> "$PROJECT_DIR/.env"
+            echo "ENABLED_SERVICES=$selection" >> "$ENV_FILE"
         fi
-        echo "✅ .env updated."
+        echo "✅ $ENV_FILE updated."
     fi
 }
-
-target="$(detect_target)"
 
 case "${1:-}" in
     services) cmd_services ;;
     logs) cmd_logs ;;
     setup)
-        if [[ "$target" == "mac" ]]; then cmd_setup_mac; else cmd_setup_qnap; fi
+        if [[ "$TARGET" == "mac" ]]; then cmd_setup_mac; else cmd_setup_qnap; fi
         ;;
     start)
-        if [[ "$target" == "mac" ]]; then cmd_start_mac; else cmd_start_qnap; fi
+        if [[ "$TARGET" == "mac" ]]; then cmd_start_mac; else cmd_start_qnap; fi
         ;;
     stop)
-        if [[ "$target" == "mac" ]]; then cmd_stop_mac "$@"; else cmd_stop_qnap; fi
+        if [[ "$TARGET" == "mac" ]]; then cmd_stop_mac "$@"; else cmd_stop_qnap; fi
         ;;
     restart)
-        if [[ "$target" == "mac" ]]; then cmd_restart_mac; else cmd_restart_qnap; fi
+        if [[ "$TARGET" == "mac" ]]; then cmd_restart_mac; else cmd_restart_qnap; fi
         ;;
     update)
-        if [[ "$target" == "mac" ]]; then cmd_update_mac; else cmd_update_qnap; fi
+        if [[ "$TARGET" == "mac" ]]; then cmd_update_mac; else cmd_update_qnap; fi
         ;;
     *)
         echo "Usage: ./synapse {setup|start|stop|restart|update|services|logs}"

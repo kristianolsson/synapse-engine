@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 # Resolve stocks package path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent))
 
 from services.ingestion.services.etrade.stocks.auth import ETradeAuth
 from services.ingestion.services.etrade.stocks.wetrade_auth import WetradeAuth, WETRADE_AVAILABLE
@@ -48,7 +48,7 @@ def _err(message: str, code: str) -> None:
 def _load_env() -> dict:
     """Load E*TRADE credentials from environment."""
     from dotenv import load_dotenv
-    env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+    env_path = Path(__file__).resolve().parent.parent.parent.parent.parent / ".env"
     load_dotenv(env_path)
 
     return {

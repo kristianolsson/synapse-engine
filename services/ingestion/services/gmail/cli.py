@@ -3,20 +3,24 @@
 Gmail CLI tool for synapse-engine.
 
 Provides subcommands to read inbox, manage labels, and create drafts.
-Shares token.json and credentials.json with calendar_cli — one auth covers both.
+Shares token.json and credentials.json with the calendar CLI — one auth covers both.
+
+Invoke via the ./bin/gmail wrapper (recommended) or as a module:
+    ./bin/gmail <subcommand> ...
+    python -m services.ingestion.services.gmail.cli <subcommand> ...
 
 Usage:
-    python gmail_cli.py list-inbox [--limit N] [--query Q]
-    python gmail_cli.py search <query> [--limit N]
-    python gmail_cli.py read-thread <thread-id>
-    python gmail_cli.py list-labels
-    python gmail_cli.py apply-label <thread-id> <label>
-    python gmail_cli.py remove-label <thread-id> <label>
-    python gmail_cli.py create-label <name>
-    python gmail_cli.py create-draft --to <email> --subject <subject> --body <body>
-    python gmail_cli.py reply-draft <thread-id> --body <body>
-    python gmail_cli.py list-drafts [--limit N]
-    python gmail_cli.py read-draft <draft-id>
+    ./bin/gmail list-inbox [--limit N] [--query Q]
+    ./bin/gmail search <query> [--limit N]
+    ./bin/gmail read-thread <thread-id>
+    ./bin/gmail list-labels
+    ./bin/gmail apply-label <thread-id> <label>
+    ./bin/gmail remove-label <thread-id> <label>
+    ./bin/gmail create-label <name>
+    ./bin/gmail create-draft --to <email> --subject <subject> --body <body>
+    ./bin/gmail reply-draft <thread-id> --body <body>
+    ./bin/gmail list-drafts [--limit N]
+    ./bin/gmail read-draft <draft-id>
 
 Gated commands (disabled unless env flag is set):
     GMAIL_ALLOW_ARCHIVE=true  →  archive-thread <thread-id>

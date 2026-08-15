@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Optional
 
 # Resolve package path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent))
 
 logger = logging.getLogger("amazon-fresh")
 
