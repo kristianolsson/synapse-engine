@@ -1,0 +1,15 @@
+{
+  "name": "email",
+  "kind": "channel",
+  "description": "IMAP IDLE email ingestion + SMTP replies",
+  "module": "services.ingestion.services.email.listener",
+  "mcp_module": null,
+  "credential_group": null,
+  "depends_on": [],
+  "env_vars": {
+    "required": ["IMAP_HOST", "EMAIL_ADDRESS", "EMAIL_APP_PASSWORD", "ALLOWED_SENDERS"],
+    "optional": ["REPLY_TO_ADDRESS", "IMAP_PORT", "SMTP_HOST", "SMTP_PORT"]
+  },
+  "vault_protocol": null,
+  "router_entry": null
+}

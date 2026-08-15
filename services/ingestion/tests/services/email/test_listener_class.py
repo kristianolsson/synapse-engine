@@ -2,7 +2,7 @@
 
 import unittest
 from unittest.mock import MagicMock, patch
-from services.ingestion.channels.email.listener import EmailListener
+from services.ingestion.services.email.listener import EmailListener
 from services.ingestion import config
 
 class TestEmailListenerClass(unittest.TestCase):
@@ -17,7 +17,7 @@ class TestEmailListenerClass(unittest.TestCase):
         config.EMAIL_ADDRESS = "test@example.com"
         config.EMAIL_APP_PASSWORD = "password"
 
-    @patch("services.ingestion.channels.email.listener.IMAPClient")
+    @patch("services.ingestion.services.email.listener.IMAPClient")
     def test_connect_success(self, mock_imap_cls):
         mock_client = MagicMock()
         mock_imap_cls.return_value = mock_client
@@ -33,8 +33,8 @@ class TestEmailListenerClass(unittest.TestCase):
         mock_client.select_folder.assert_called_with("INBOX")
         self.assertEqual(self.listener._archive_folder, "[Gmail]/All Mail")
 
-    @patch("services.ingestion.channels.email.listener.IMAPClient")
-    @patch("services.ingestion.channels.email.listener.time")
+    @patch("services.ingestion.services.email.listener.IMAPClient")
+    @patch("services.ingestion.services.email.listener.time")
     def test_reconnect_retry_logic(self, mock_time, mock_imap_cls):
         # First attempt raises exception, second succeeds
         mock_imap_cls.side_effect = [Exception("Connection failed"), MagicMock()]
@@ -44,8 +44,8 @@ class TestEmailListenerClass(unittest.TestCase):
         self.assertEqual(mock_imap_cls.call_count, 2)
         mock_time.sleep.assert_called_once()
 
-    @patch("services.ingestion.channels.email.listener.process_email")
-    @patch("services.ingestion.channels.email.listener.email.message_from_bytes")
+    @patch("services.ingestion.services.email.listener.process_email")
+    @patch("services.ingestion.services.email.listener.email.message_from_bytes")
     def test_fetch_and_process_success(self, mock_msg_from_bytes, mock_process):
         # Setup mocks
         mock_client = MagicMock()
@@ -69,8 +69,8 @@ class TestEmailListenerClass(unittest.TestCase):
         mock_client.add_flags.assert_called_with([uid], [b"\\Seen"])
         mock_client.move.assert_called_with([uid], "Archive")
 
-    @patch("services.ingestion.channels.email.reply.send_reply")
-    @patch("services.ingestion.channels.email.listener.process_email")
+    @patch("services.ingestion.services.email.reply.send_reply")
+    @patch("services.ingestion.services.email.listener.process_email")
     def test_fetch_and_process_reply(self, mock_process, mock_send_reply):
         mock_client = MagicMock()
         self.listener.client = mock_client
@@ -85,9 +85,9 @@ class TestEmailListenerClass(unittest.TestCase):
 
         mock_send_reply.assert_called_once()
 
-    @patch("services.ingestion.channels.email.listener.config")
-    @patch("services.ingestion.channels.email.reply.send_reply")
-    @patch("services.ingestion.channels.email.listener.process_email")
+    @patch("services.ingestion.services.email.listener.config")
+    @patch("services.ingestion.services.email.reply.send_reply")
+    @patch("services.ingestion.services.email.listener.process_email")
     def test_fetch_and_process_rate_limit_sends_reply(self, mock_process, mock_send_reply, mock_config):
         self.mock_rate_limiter.allow.return_value = False
         mock_config.REPLY_TO_ADDRESS = "reply@example.com"
@@ -107,7 +107,7 @@ class TestEmailListenerClass(unittest.TestCase):
         reply_body = mock_send_reply.call_args[1].get("body") or mock_send_reply.call_args[0][2]
         assert "Rate limit" in reply_body
 
-    @patch("services.ingestion.channels.email.listener.IMAPClient")
+    @patch("services.ingestion.services.email.listener.IMAPClient")
     def test_run_loop_basics(self, mock_imap_cls):
         mock_client = MagicMock()
         mock_imap_cls.return_value = mock_client

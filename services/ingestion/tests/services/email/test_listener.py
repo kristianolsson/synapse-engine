@@ -7,7 +7,7 @@ from email.mime.image import MIMEImage
 from unittest.mock import patch, MagicMock
 
 
-from services.ingestion.channels.email.listener import (
+from services.ingestion.services.email.listener import (
     EmailListener,
     extract_sender,
     extract_text_body,
@@ -101,7 +101,7 @@ class TestExtractAttachments:
         attachments = extract_attachments(msg)
         assert attachments == []
 
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.config")
     def test_with_image_attachment(self, mock_config, tmp_path):
         mock_config.VAULT_PATH = str(tmp_path)
         msg = MIMEMultipart()
@@ -115,7 +115,7 @@ class TestExtractAttachments:
         assert len(attachments) == 1
         assert "test.png" in attachments[0]
 
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.config")
     def test_with_pdf_attachment(self, mock_config, tmp_path):
         from email.mime.base import MIMEBase
         from email import encoders
@@ -138,8 +138,8 @@ class TestExtractAttachments:
 
 
 class TestProcessEmail:
-    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.pipe_to_provider")
+    @patch("services.ingestion.services.email.listener.config")
     def test_rejects_unauthorized_sender(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["allowed@example.com"]
         raw = _make_simple_email(from_addr="hacker@evil.com")
@@ -149,8 +149,8 @@ class TestProcessEmail:
         assert stats is None
         mock_pipe.assert_not_called()
 
-    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.pipe_to_provider")
+    @patch("services.ingestion.services.email.listener.config")
     def test_success_silent(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
@@ -161,8 +161,8 @@ class TestProcessEmail:
         assert text == ""
         assert stats is None
 
-    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.pipe_to_provider")
+    @patch("services.ingestion.services.email.listener.config")
     def test_error_triggers_reply(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="", stats={"models": {}})
@@ -173,8 +173,8 @@ class TestProcessEmail:
         assert "Repo is locked" in text
         assert stats is not None
 
-    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.pipe_to_provider")
+    @patch("services.ingestion.services.email.listener.config")
     def test_process_done_subject_from_body(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
@@ -190,8 +190,8 @@ class TestProcessEmail:
         args = mock_pipe.call_args[0]
         assert "Mark the following task as completed: Buy groceries" in args[0]
         
-    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.pipe_to_provider")
+    @patch("services.ingestion.services.email.listener.config")
     def test_process_undo_subject_from_history(self, mock_config, mock_pipe):
         from services.ingestion.utils.task_formatter import _hash_task
         task_hash = _hash_task("Fix the fence")
@@ -211,8 +211,8 @@ class TestProcessEmail:
         args = mock_pipe.call_args[0]
         assert "Mark the following task as NOT completed (undo): Fix the fence" in args[0]
 
-    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.pipe_to_provider")
+    @patch("services.ingestion.services.email.listener.config")
     def test_process_done_subject_hardwrapped_body(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
@@ -239,8 +239,8 @@ class TestProcessEmail:
             'Mitchell on Threads</a> - A fun project.'
         ) in args[0]
 
-    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
-    @patch("services.ingestion.channels.email.listener.config")
+    @patch("services.ingestion.services.email.listener.pipe_to_provider")
+    @patch("services.ingestion.services.email.listener.config")
     def test_process_done_requires_reply_relays_message(self, mock_config, mock_pipe):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         mock_pipe.return_value = MagicMock(
@@ -256,7 +256,7 @@ class TestProcessEmail:
 
 
 class TestSendReplyWithRetry:
-    @patch("services.ingestion.channels.email.reply.send_reply")
+    @patch("services.ingestion.services.email.reply.send_reply")
     def test_succeeds_on_first_try(self, mock_send_reply):
         mock_send_reply.return_value = True
 
@@ -265,7 +265,7 @@ class TestSendReplyWithRetry:
         assert result is True
         assert mock_send_reply.call_count == 1
 
-    @patch("services.ingestion.channels.email.reply.send_reply")
+    @patch("services.ingestion.services.email.reply.send_reply")
     def test_retries_once_then_succeeds(self, mock_send_reply):
         mock_send_reply.side_effect = [False, True]
 
@@ -274,8 +274,8 @@ class TestSendReplyWithRetry:
         assert result is True
         assert mock_send_reply.call_count == 2
 
-    @patch("services.ingestion.channels.email.listener.logger")
-    @patch("services.ingestion.channels.email.reply.send_reply")
+    @patch("services.ingestion.services.email.listener.logger")
+    @patch("services.ingestion.services.email.reply.send_reply")
     def test_logs_critical_when_both_attempts_fail(self, mock_send_reply, mock_logger):
         mock_send_reply.return_value = False
 
@@ -287,9 +287,9 @@ class TestSendReplyWithRetry:
 
 
 class TestEmailReplyLogic:
-    @patch("services.ingestion.channels.email.reply.send_reply")
-    @patch("services.ingestion.channels.email.listener.config")
-    @patch("services.ingestion.channels.email.listener.process_email")
+    @patch("services.ingestion.services.email.reply.send_reply")
+    @patch("services.ingestion.services.email.listener.config")
+    @patch("services.ingestion.services.email.listener.process_email")
     def test_reply_to_override(self, mock_process, mock_config, mock_send_reply):
         # Config: Reply to admin, not sender
         mock_config.REPLY_TO_ADDRESS = "admin@example.com"
@@ -321,9 +321,9 @@ class TestEmailReplyLogic:
         assert args["to_addr"] == "admin@example.com"
         assert args["body"] == "Error details"
 
-    @patch("services.ingestion.channels.email.reply.send_reply")
-    @patch("services.ingestion.channels.email.listener.config")
-    @patch("services.ingestion.channels.email.listener.process_email")
+    @patch("services.ingestion.services.email.reply.send_reply")
+    @patch("services.ingestion.services.email.listener.config")
+    @patch("services.ingestion.services.email.listener.process_email")
     def test_reply_strict_to_reply_address(self, mock_process, mock_config, mock_send_reply):
         # Config: strict reply-to behavior
         mock_config.REPLY_TO_ADDRESS = "admin@example.com"
