@@ -1,5 +1,6 @@
 # Vault (separate repo)
 notes/
+vault/
 
 # Environment
 .env

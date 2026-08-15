@@ -93,6 +93,8 @@ _detect_venv_dir() {
 }
 
 cmd_setup_mac() {
+    _maybe_scaffold_vault
+
     NODE_BIN="$(_detect_node_bin)"
     if [ -z "$NODE_BIN" ]; then
         echo "⚠️  Could not find node. Gemini CLI may not work."
@@ -239,6 +241,89 @@ cmd_update_qnap() {
     docker compose down
     docker compose up -d
     docker compose logs --tail=20
+}
+
+_env_var() {
+    grep "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-
+}
+
+_maybe_scaffold_vault() {
+    local current_vault_path
+    current_vault_path="$(_env_var VAULT_PATH)"
+    if [ -n "$current_vault_path" ] && [ -d "$current_vault_path" ]; then
+        return
+    fi
+
+    echo ""
+    echo "No vault configured (VAULT_PATH is unset or points nowhere)."
+    read -rp "Scaffold a new one now? [Y/n]: " scaffold_answer
+    if [[ "$scaffold_answer" =~ ^[Nn] ]]; then
+        echo "Skipping vault scaffolding. Services will have nowhere to write until VAULT_PATH is set."
+        return
+    fi
+
+    read -rp "Vault path [$PROJECT_DIR/vault]: " new_vault_path
+    new_vault_path="${new_vault_path:-$PROJECT_DIR/vault}"
+
+    read -rp "Personal context for the assistant (name, household, location — free text): " personal_context
+
+    PYTHON="$(_detect_python)"
+    VAULT_SCAFFOLD_PATH="$new_vault_path" VAULT_SCAFFOLD_CONTEXT="$personal_context" "$PYTHON" -c "
+import os
+from pathlib import Path
+from services.ingestion.vault_scaffold import scaffold
+scaffold(Path(os.environ['VAULT_SCAFFOLD_PATH']), os.environ['VAULT_SCAFFOLD_CONTEXT'], Path('vault_template'))
+"
+    echo "✅ Vault scaffolded at $new_vault_path"
+
+    _init_vault_git "$new_vault_path"
+
+    if grep -q "^VAULT_PATH=" "$ENV_FILE" 2>/dev/null; then
+        sed -i.bak "s|^VAULT_PATH=.*|VAULT_PATH=$new_vault_path|" "$ENV_FILE"
+        rm -f "$ENV_FILE.bak"
+    else
+        echo "VAULT_PATH=$new_vault_path" >> "$ENV_FILE"
+    fi
+    echo "✅ $ENV_FILE updated with VAULT_PATH=$new_vault_path"
+}
+
+# Git-initializes a freshly scaffolded vault and optionally wires up a
+# remote. Never pushes without an explicit "y" to the second prompt below —
+# scaffolding a vault must never silently push anywhere.
+_init_vault_git() {
+    local vault_dir="$1"
+
+    if [[ "$TARGET" == "mac" ]]; then
+        (cd "$vault_dir" && git init -q && git add -A && git commit -q -m "Initial vault scaffold")
+    else
+        _qnap_vault_git_init "$vault_dir"
+    fi
+    echo "✅ Vault git-initialized at $vault_dir"
+
+    read -rp "Git remote URL for this vault (blank to skip): " vault_remote
+    if [ -z "$vault_remote" ]; then
+        return
+    fi
+
+    if [[ "$TARGET" == "mac" ]]; then
+        (cd "$vault_dir" && git remote add origin "$vault_remote")
+    else
+        _qnap_vault_git_remote "$vault_dir" "$vault_remote"
+    fi
+    echo "✅ Remote 'origin' set to $vault_remote"
+
+    read -rp "Push now? [y/N]: " push_answer
+    if [[ ! "$push_answer" =~ ^[Yy] ]]; then
+        echo "Skipped push — the vault has a remote configured but nothing pushed yet."
+        return
+    fi
+
+    if [[ "$TARGET" == "mac" ]]; then
+        (cd "$vault_dir" && git push -u origin HEAD)
+    else
+        _qnap_vault_git_push "$vault_dir"
+    fi
+    echo "✅ Pushed."
 }
 
 _prompt_services() {
