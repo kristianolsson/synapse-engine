@@ -208,7 +208,7 @@ _qnap_git_in_container() {
         alpine/git \
         -c "git config --global --add safe.directory '$vault_dir' && \
             cd '$vault_dir' && $script" || rc=$?
-    chown -R synapse "$vault_dir" || true
+    chown -R synapse "$vault_dir" || echo "⚠️  Could not restore ownership of $vault_dir to synapse — the service may be unable to write to it."
     return $rc
 }
 
@@ -231,7 +231,7 @@ _qnap_git_in_container_with_ssh() {
         -c "chmod 600 /root/.ssh/id_ed25519 && \
             git config --global --add safe.directory '$vault_dir' && \
             cd '$vault_dir' && $script" || rc=$?
-    chown -R synapse "$vault_dir" || true
+    chown -R synapse "$vault_dir" || echo "⚠️  Could not restore ownership of $vault_dir to synapse — the service may be unable to write to it."
     return $rc
 }
 

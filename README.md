@@ -120,7 +120,7 @@ The service is organized into the following layers under `services/ingestion/`:
     nano .env
     ```
 
-    If you don't already have a notes vault, leave `VAULT_PATH` unset (or blank) — `./synapse setup` will then offer to scaffold a fresh one for you: it creates the vault (defaults to a nested `vault/` folder in the project), initializes it as its own git repo, optionally wires up a git remote, and writes the resulting path back into `.env`.
+    If you don't already have a notes vault, clear `VAULT_PATH` (the example file ships a placeholder) and leave it unset or blank — `./synapse setup` will then offer to scaffold a fresh one for you: it writes `VAULT_PATH` into `.env` as soon as the vault (defaults to a nested `vault/` folder in the project) is created, then initializes it as its own git repo and optionally wires up a git remote.
 
     **Key Configuration** (see `.env.example` for the full list, including model, timeout, retry, and E\*TRADE options):
     - `VAULT_PATH`: Absolute path to your Obsidian/markdown vault. Leave unset to have `./synapse setup` scaffold one (see above).
