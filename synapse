@@ -267,10 +267,16 @@ _qnap_vault_git_push() {
 # must never assume host git works. Results come back as SYNAPSE_*=value lines
 # on stdout, which the caller parses; nothing outside the container touches git.
 _qnap_git_pull() {
+    local key_path="$QNAP_DATA_DIR/ssh/id_ed25519"
+    if [ ! -f "$key_path" ]; then
+        echo "⚠️  SSH deploy key not found at $key_path — cannot update, aborting." >&2
+        return 1
+    fi
+
     local pull_output
     pull_output="$(docker run --rm --entrypoint sh \
         -v "$QNAP_DATA_DIR:$QNAP_DATA_DIR" \
-        -v "$QNAP_DATA_DIR/ssh/id_ed25519:/root/.ssh/id_ed25519" \
+        -v "$key_path:/root/.ssh/id_ed25519" \
         alpine/git \
         -c "chmod 600 /root/.ssh/id_ed25519 && \
             git config --global --add safe.directory $PROJECT_DIR && \

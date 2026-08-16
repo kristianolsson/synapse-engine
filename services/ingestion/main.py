@@ -15,6 +15,7 @@ from pathlib import Path
 from . import config
 from .core.rate_limiter import RateLimiter
 from .registry import ServiceRegistry, RegistryError
+from .vault_sync import apply, commit_and_push_if_changed
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,26 @@ SERVICES_DIR = Path(__file__).resolve().parent / "services"
 def validate_startup(registry: ServiceRegistry, enabled: set) -> None:
     """Raises RegistryError with a specific message on any misconfiguration."""
     registry.validate_enabled(enabled)
+
+
+def sync_vault(registry: ServiceRegistry, enabled: set, vault_path: Path, services_dir: Path) -> None:
+    """Applies vault protocol templates and commits/pushes any changes.
+
+    Never raises — runs at boot before any listener thread starts, so a
+    failure here (e.g. a misconfigured VAULT_PATH) must not crash the
+    process, which under a supervisor means a crash loop. Matches
+    commit_and_push_if_changed's own fail-soft contract.
+    """
+    try:
+        changed_paths = apply(registry, enabled, vault_path, services_dir)
+        if changed_paths:
+            logger.info("apply(): vault protocol files updated, committing...")
+            commit_and_push_if_changed(vault_path, changed_paths, push=True)
+    except Exception as e:
+        logger.error(
+            "apply() failed (VAULT_PATH=%s): %s — continuing without vault sync so listeners can still start",
+            vault_path, e,
+        )
 
 
 def main():
@@ -42,13 +63,8 @@ def main():
         logger.error("Startup validation failed: %s", e)
         sys.exit(1)
 
-    from .vault_sync import apply, commit_and_push_if_changed
-
     vault_path = Path(config.VAULT_PATH)
-    changed_paths = apply(registry, enabled, vault_path, SERVICES_DIR)
-    if changed_paths:
-        logger.info("apply(): vault protocol files updated, committing...")
-        commit_and_push_if_changed(vault_path, changed_paths, push=True)
+    sync_vault(registry, enabled, vault_path, SERVICES_DIR)
 
     logger.info("Enabled services: %s", ", ".join(sorted(enabled)))
 
@@ -69,10 +85,6 @@ def main():
         logger.info("Email channel enabled.")
 
     if "telegram" in enabled:
-        if not config.TELEGRAM_BOT_TOKEN:
-            logger.error("TELEGRAM_BOT_TOKEN not set. Cannot start Telegram channel.")
-            sys.exit(1)
-
         from .services.telegram.listener import TelegramListener
 
         telegram_listener = TelegramListener(rate_limiter=rate_limiter)

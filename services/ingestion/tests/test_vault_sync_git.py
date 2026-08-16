@@ -75,6 +75,49 @@ def test_does_not_raise_when_subprocess_raises_called_process_error(git_vault, m
     assert any(r.levelno >= logging.ERROR for r in caplog.records)
 
 
+def test_rebase_conflict_does_not_leave_vault_mid_rebase(tmp_path):
+    """A conflicting upstream change must not leave .git/rebase-merge/ in
+    place with HEAD detached — that silently orphans every future commit
+    onto the detached HEAD instead of the branch (see vault_sync.py's
+    rebase --abort comment)."""
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", origin], check=True, capture_output=True)
+
+    def clone(path):
+        subprocess.run(["git", "clone", str(origin), str(path)], check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=path, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
+
+    seed = tmp_path / "seed"
+    clone(seed)
+    (seed / "file.md").write_text("line1\n")
+    subprocess.run(["git", "add", "."], cwd=seed, check=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=seed, check=True, capture_output=True)
+    subprocess.run(["git", "push", "origin", "main"], cwd=seed, check=True, capture_output=True)
+
+    vault_a = tmp_path / "vault_a"
+    vault_b = tmp_path / "vault_b"
+    clone(vault_a)
+    clone(vault_b)
+
+    # A pushes a conflicting change to the same line to the remote.
+    (vault_a / "file.md").write_text("line1-changed-by-A\n")
+    subprocess.run(["git", "commit", "-am", "A change"], cwd=vault_a, check=True, capture_output=True)
+    subprocess.run(["git", "push"], cwd=vault_a, check=True, capture_output=True)
+
+    # B has a local apply()-style change to the same line -> rebase conflict.
+    (vault_b / "file.md").write_text("line1-changed-by-B\n")
+
+    commit_and_push_if_changed(vault_b, changed_paths=["file.md"], push=True)  # must not raise
+
+    status = subprocess.run(["git", "status"], cwd=vault_b, capture_output=True, text=True).stdout
+    assert "rebase in progress" not in status.lower()
+    assert not (vault_b / ".git" / "rebase-merge").exists()
+    assert not (vault_b / ".git" / "rebase-apply").exists()
+    head = subprocess.run(["git", "symbolic-ref", "-q", "HEAD"], cwd=vault_b, capture_output=True)
+    assert head.returncode == 0, "HEAD should be on a branch, not detached"
+
+
 def test_push_failure_does_not_raise(git_vault, caplog):
     """No remote is configured, so `git push` genuinely fails here."""
     (git_vault / "file.md").write_text("modified by apply()")

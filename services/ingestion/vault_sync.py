@@ -106,8 +106,16 @@ def commit_and_push_if_changed(vault_path: Path, changed_paths: list, push: bool
             )
             if result.returncode != 0:
                 logger.warning(
-                    "Vault git pull --rebase failed (continuing): %s",
+                    "Vault git pull --rebase failed, aborting rebase (continuing): %s",
                     result.stderr.strip().replace("\n", " ")[:200],
+                )
+                # A conflict leaves .git/rebase-merge/ in place with HEAD detached.
+                # Abort it so the vault isn't left mid-rebase — otherwise the next
+                # boot's commit would land on the detached HEAD instead of the
+                # branch, silently orphaning it. Harmless (and a no-op) if the
+                # failure wasn't a conflict and no rebase is actually in progress.
+                subprocess.run(
+                    ["git", "rebase", "--abort"], cwd=vault_path, capture_output=True, timeout=30,
                 )
         except Exception as e:
             logger.warning("Vault git pull --rebase exception (continuing): %s", e)

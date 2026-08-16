@@ -187,7 +187,7 @@ echo "REMINDERS_JSON_PATH=/app/notes/reminders/reminders.json" >> /share/CE_CACH
 chown -R synapse /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
 ```
 
-## 9. Build and start
+## 10. Build and start
 
 ```bash
 cd /share/CE_CACHEDEV2_DATA/synapse/synapse-engine
