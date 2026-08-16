@@ -20,6 +20,7 @@ def test_scaffold_claude_md_has_empty_router_markers(tmp_path):
     scaffold(vault, "Jane Doe", TEMPLATE_DIR)
     content = (vault / "CLAUDE.md").read_text()
     assert "<!-- SERVICE_ROUTER_START -->\n<!-- SERVICE_ROUTER_END -->" in content
+    assert "<!-- CLASSIFICATION_START -->\n<!-- CLASSIFICATION_END -->" in content
 
 
 def test_scaffold_copies_core_protocol_files_verbatim(tmp_path):

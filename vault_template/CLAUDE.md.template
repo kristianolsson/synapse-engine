@@ -79,17 +79,8 @@ For every incoming message (except scheduler prompts), classify and route it.
 
 After daily log (if applicable), classify the content as one of:
 
-| Type | Description |
-|---|---|
-| **TODO / Task** | Deferred items for the USER to act on later (e.g., logging tasks for future tracking) |
-| **Link URL** | A URL to save and categorize |
-| **Question / Work** | Requests for the AI to execute immediately (e.g., questions, web research, complex live tasks). **You must use web-search tools to retrieve facts. NEVER guess or rely solely on pre-trained knowledge.** |
-| **Calendar** | Schedule queries, adding/editing/deleting events, forwarded emails with dates |
-| **Stocks** | Stock quotes, options analysis, watchlist management, portfolio queries, market research |
-| **Project** | Managing personal projects |
-| **Groceries** | Manage grocery cart — add, remove, update, or search for grocery items |
-| **Email** | Gmail operations — reading inbox, managing labels, composing or replying as drafts |
-| **Undefined** | No clear classification |
+<!-- CLASSIFICATION_START -->
+<!-- CLASSIFICATION_END -->
 
 > **Note:** Reminder intent (e.g., "remind me...", "every morning...") can coexist with any classification above. See `reminders/PROTOCOL.md`.
 

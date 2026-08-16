@@ -10,6 +10,7 @@
   "vault_protocol": "email/PROTOCOL.md",
   "router_entry": {
     "classification": "Email",
+    "classification_description": "Gmail operations — reading inbox, managing labels, composing or replying as drafts",
     "routing_rule": "Load `email/PROTOCOL.md`, execute email protocols. Email queries should NOT be logged to the daily log."
   }
 }

@@ -10,6 +10,7 @@
   "vault_protocol": "calendar/PROTOCOL.md",
   "router_entry": {
     "classification": "Calendar",
+    "classification_description": "Schedule queries, adding/editing/deleting events, forwarded emails with dates",
     "routing_rule": "Load `calendar/PROTOCOL.md`, execute calendar protocols. Calendar queries are read-only and should NOT be logged to daily log."
   }
 }

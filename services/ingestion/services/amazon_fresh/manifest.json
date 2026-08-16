@@ -10,6 +10,7 @@
   "vault_protocol": "groceries/PROTOCOL.md",
   "router_entry": {
     "classification": "Groceries",
+    "classification_description": "Manage grocery cart — add, remove, update, or search for grocery items",
     "routing_rule": "Load `groceries/PROTOCOL.md`, execute grocery protocols."
   }
 }

@@ -12,6 +12,22 @@ logger = logging.getLogger(__name__)
 
 ROUTER_START = "<!-- SERVICE_ROUTER_START -->"
 ROUTER_END = "<!-- SERVICE_ROUTER_END -->"
+CLASSIFICATION_START = "<!-- CLASSIFICATION_START -->"
+CLASSIFICATION_END = "<!-- CLASSIFICATION_END -->"
+
+# Classification buckets that aren't tied to any service — always present,
+# regardless of which services are enabled.
+_CORE_CLASSIFICATIONS_BEFORE = [
+    ("TODO / Task", "Deferred items for the USER to act on later (e.g., logging tasks for future tracking)"),
+    ("Link URL", "A URL to save and categorize"),
+    ("Question / Work", "Requests for the AI to execute immediately (e.g., questions, web research, complex live "
+                         "tasks). **You must use web-search tools to retrieve facts. NEVER guess or rely solely "
+                         "on pre-trained knowledge.**"),
+    ("Project", "Managing personal projects"),
+]
+_CORE_CLASSIFICATIONS_AFTER = [
+    ("Undefined", "No clear classification"),
+]
 
 
 def _router_table(registry: ServiceRegistry, enabled: set) -> str:
@@ -23,26 +39,48 @@ def _router_table(registry: ServiceRegistry, enabled: set) -> str:
     return "\n".join(rows)
 
 
+def _classification_table(registry: ServiceRegistry, enabled: set) -> str:
+    rows = ["| Type | Description |", "|---|---|"]
+    rows += [f"| **{name}** | {desc} |" for name, desc in _CORE_CLASSIFICATIONS_BEFORE]
+    for name in sorted(enabled):
+        spec = registry.services[name]
+        if spec.router_entry and spec.router_entry.get("classification_description"):
+            rows.append(
+                f"| **{spec.router_entry['classification']}** | {spec.router_entry['classification_description']} |"
+            )
+    rows += [f"| **{name}** | {desc} |" for name, desc in _CORE_CLASSIFICATIONS_AFTER]
+    return "\n".join(rows)
+
+
+def _replace_marker_block(claude_md: Path, content: str, start: str, end: str, table: str, label: str) -> str:
+    if start not in content or end not in content:
+        logger.warning(
+            "%s exists but has no %s marker block (%s ... %s) — the table cannot be "
+            "regenerated and will be stale. Add the two marker lines to the vault's "
+            "CLAUDE.md to enable automatic regeneration.",
+            claude_md, label, start, end,
+        )
+        return content
+    before, rest = content.split(start, 1)
+    _, after = rest.split(end, 1)
+    return f"{before}{start}\n{table}\n{end}{after}"
+
+
 def _regenerate_router(vault_path: Path, registry: ServiceRegistry, enabled: set) -> bool:
     claude_md = vault_path / "CLAUDE.md"
     if not claude_md.exists():
         return False
-    content = claude_md.read_text()
-    if ROUTER_START not in content or ROUTER_END not in content:
-        logger.warning(
-            "%s exists but has no service-router marker block (%s ... %s) — "
-            "the service router table cannot be regenerated and will be stale. "
-            "Add the two marker lines to the vault's CLAUDE.md around the "
-            "service-routing table to enable automatic regeneration.",
-            claude_md, ROUTER_START, ROUTER_END,
-        )
+    original = claude_md.read_text()
+    content = _replace_marker_block(
+        claude_md, original, ROUTER_START, ROUTER_END, _router_table(registry, enabled), "service-router"
+    )
+    content = _replace_marker_block(
+        claude_md, content, CLASSIFICATION_START, CLASSIFICATION_END,
+        _classification_table(registry, enabled), "classification",
+    )
+    if content == original:
         return False
-    before, rest = content.split(ROUTER_START, 1)
-    _, after = rest.split(ROUTER_END, 1)
-    new_content = f"{before}{ROUTER_START}\n{_router_table(registry, enabled)}\n{ROUTER_END}{after}"
-    if new_content == content:
-        return False
-    claude_md.write_text(new_content)
+    claude_md.write_text(content)
     return True
 
 

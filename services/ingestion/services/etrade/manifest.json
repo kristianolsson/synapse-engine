@@ -13,6 +13,7 @@
   "vault_protocol": "stocks/PROTOCOL.md",
   "router_entry": {
     "classification": "Stocks",
+    "classification_description": "Stock quotes, options analysis, watchlist management, portfolio queries, market research",
     "routing_rule": "Load `stocks/PROTOCOL.md`, execute stock/options/market protocols."
   }
 }

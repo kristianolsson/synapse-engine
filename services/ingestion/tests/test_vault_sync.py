@@ -22,11 +22,17 @@ def make_service(services_dir, name, protocol_content=None, router_entry=None, v
         (folder / "PROTOCOL.md").write_text(protocol_content)
 
 
+MARKERS = (
+    "<!-- SERVICE_ROUTER_START -->\n<!-- SERVICE_ROUTER_END -->\n"
+    "<!-- CLASSIFICATION_START -->\n<!-- CLASSIFICATION_END -->\n"
+)
+
+
 def test_apply_creates_protocol_file_in_empty_vault(tmp_path):
     services_dir = tmp_path / "services"
     vault = tmp_path / "notes"
     vault.mkdir()
-    (vault / "CLAUDE.md").write_text("# Header\n<!-- SERVICE_ROUTER_START -->\n<!-- SERVICE_ROUTER_END -->\n# Footer\n")
+    (vault / "CLAUDE.md").write_text(f"# Header\n{MARKERS}# Footer\n")
     make_service(services_dir, "calendar", protocol_content="calendar rules",
                  vault_protocol="calendar/PROTOCOL.md",
                  router_entry={"classification": "Calendar", "routing_rule": "Load calendar/PROTOCOL.md"})
@@ -42,7 +48,7 @@ def test_apply_is_noop_when_vault_already_matches(tmp_path):
     services_dir = tmp_path / "services"
     vault = tmp_path / "notes"
     vault.mkdir()
-    (vault / "CLAUDE.md").write_text("# Header\n<!-- SERVICE_ROUTER_START -->\n<!-- SERVICE_ROUTER_END -->\n# Footer\n")
+    (vault / "CLAUDE.md").write_text(f"# Header\n{MARKERS}# Footer\n")
     make_service(services_dir, "calendar", protocol_content="calendar rules",
                  vault_protocol="calendar/PROTOCOL.md",
                  router_entry={"classification": "Calendar", "routing_rule": "Load calendar/PROTOCOL.md"})
@@ -58,7 +64,7 @@ def test_apply_overwrites_hand_edited_protocol_file(tmp_path):
     services_dir = tmp_path / "services"
     vault = tmp_path / "notes"
     vault.mkdir()
-    (vault / "CLAUDE.md").write_text("<!-- SERVICE_ROUTER_START -->\n<!-- SERVICE_ROUTER_END -->\n")
+    (vault / "CLAUDE.md").write_text(MARKERS)
     make_service(services_dir, "calendar", protocol_content="template rules",
                  vault_protocol="calendar/PROTOCOL.md",
                  router_entry={"classification": "Calendar", "routing_rule": "Load calendar/PROTOCOL.md"})
@@ -77,7 +83,8 @@ def test_apply_regenerates_router_marker_block_only(tmp_path):
     vault = tmp_path / "notes"
     vault.mkdir()
     (vault / "CLAUDE.md").write_text(
-        "# Personal mandates here\n<!-- SERVICE_ROUTER_START -->\nstale content\n<!-- SERVICE_ROUTER_END -->\n# Footer here\n"
+        "# Personal mandates here\n<!-- SERVICE_ROUTER_START -->\nstale content\n<!-- SERVICE_ROUTER_END -->\n"
+        "<!-- CLASSIFICATION_START -->\n<!-- CLASSIFICATION_END -->\n# Footer here\n"
     )
     make_service(services_dir, "calendar", protocol_content="rules",
                  vault_protocol="calendar/PROTOCOL.md",
@@ -91,6 +98,72 @@ def test_apply_regenerates_router_marker_block_only(tmp_path):
     assert "# Footer here" in content
     assert "stale content" not in content
     assert "Calendar" in content and "Load calendar/PROTOCOL.md" in content
+
+
+def test_apply_regenerates_classification_marker_block_from_enabled_services(tmp_path):
+    services_dir = tmp_path / "services"
+    vault = tmp_path / "notes"
+    vault.mkdir()
+    (vault / "CLAUDE.md").write_text(MARKERS)
+    make_service(services_dir, "calendar", protocol_content="rules",
+                 vault_protocol="calendar/PROTOCOL.md",
+                 router_entry={
+                     "classification": "Calendar",
+                     "classification_description": "Schedule queries and events",
+                     "routing_rule": "Load calendar/PROTOCOL.md",
+                 })
+    registry = ServiceRegistry.discover(services_dir)
+
+    apply(registry, {"calendar"}, vault, services_dir)
+
+    content = (vault / "CLAUDE.md").read_text()
+    assert "**Calendar**" in content and "Schedule queries and events" in content
+    # Core, service-independent buckets are always present.
+    assert "**TODO / Task**" in content
+    assert "**Undefined**" in content
+
+
+def test_apply_classification_table_omits_disabled_service(tmp_path):
+    services_dir = tmp_path / "services"
+    vault = tmp_path / "notes"
+    vault.mkdir()
+    (vault / "CLAUDE.md").write_text(MARKERS)
+    make_service(services_dir, "calendar", protocol_content="rules",
+                 vault_protocol="calendar/PROTOCOL.md",
+                 router_entry={
+                     "classification": "Calendar",
+                     "classification_description": "Schedule queries and events",
+                     "routing_rule": "Load calendar/PROTOCOL.md",
+                 })
+    registry = ServiceRegistry.discover(services_dir)
+
+    apply(registry, set(), vault, services_dir)  # calendar not enabled
+
+    content = (vault / "CLAUDE.md").read_text()
+    assert "Calendar" not in content
+    assert "**TODO / Task**" in content
+
+
+def test_apply_classification_table_omits_service_without_classification_description(tmp_path):
+    services_dir = tmp_path / "services"
+    vault = tmp_path / "notes"
+    vault.mkdir()
+    (vault / "CLAUDE.md").write_text(MARKERS)
+    make_service(services_dir, "reminder", protocol_content="rules",
+                 vault_protocol="reminders/PROTOCOL.md",
+                 router_entry={
+                     "classification": "Reminder co-routing",
+                     "routing_rule": "Load reminders/PROTOCOL.md",
+                 })
+    registry = ServiceRegistry.discover(services_dir)
+
+    apply(registry, {"reminder"}, vault, services_dir)
+
+    content = (vault / "CLAUDE.md").read_text()
+    router_block = content.split("<!-- SERVICE_ROUTER_START -->")[1].split("<!-- SERVICE_ROUTER_END -->")[0]
+    classification_block = content.split("<!-- CLASSIFICATION_START -->")[1].split("<!-- CLASSIFICATION_END -->")[0]
+    assert "Reminder co-routing" in router_block
+    assert "Reminder co-routing" not in classification_block
 
 
 def test_apply_warns_when_claude_md_has_no_router_markers(tmp_path, caplog):
