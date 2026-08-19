@@ -177,7 +177,11 @@ class TestProcessEmail:
         extra_env = mock_pipe.call_args.kwargs["extra_env"]
         assert extra_env["SYNAPSE_CHANNEL"] == "email"
         assert extra_env["SYNAPSE_EMAIL_TO"] == "user@example.com"
-        mock_etrade.backfill_session_id.assert_called_once()
+        # session_key here is derived from process_email's threading logic:
+        # references/in-reply-to/message-id are all empty on this bare
+        # _make_simple_email fixture, so session_key falls through to the
+        # (empty) Message-ID.
+        mock_etrade.backfill_session_id.assert_called_once_with("", "sess-new")
 
     @patch("services.ingestion.channels.email.listener.pipe_to_provider")
     @patch("services.ingestion.channels.email.listener.config")
