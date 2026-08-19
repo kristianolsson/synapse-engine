@@ -113,7 +113,7 @@ def test_headless_failure_with_pending_already_in_flight_reports_auth_pending(mo
 def test_headless_failure_captures_session_correlation_for_retry(monkeypatch, capsys):
     import services.ingestion.config as real_config
     monkeypatch.setattr(real_config, "TELEGRAM_BOT_TOKEN", "token")
-    monkeypatch.setattr(real_config, "TELEGRAM_ALLOWED_USER_IDS", [123])
+    monkeypatch.setattr(real_config, "TELEGRAM_ALLOWED_USER_IDS", [555])
     monkeypatch.setattr(real_config, "REPLY_TO_ADDRESS", "")
     monkeypatch.setenv("SYNAPSE_SESSION_KEY", "user-1")
     monkeypatch.setenv("SYNAPSE_SESSION_ID", "sess-abc")

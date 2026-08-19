@@ -79,15 +79,10 @@ def _send_pin_auth_prompt(pending: dict) -> bool:
 
     if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_ALLOWED_USER_IDS:
         from services.ingestion.channels.telegram.sender import send_telegram_message
-        # Prefer SYNAPSE_CHAT_ID (from the original request) if available,
-        # otherwise use the default configured user
-        if os.environ.get("SYNAPSE_CHAT_ID"):
-            chat_id = int(os.environ["SYNAPSE_CHAT_ID"])
-        else:
-            chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
+        chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
         message_id = send_telegram_message(chat_id, prompt_text)
         if message_id:
-            etrade_pin_auth.mark_prompt_sent(channel="telegram", prompt_message_id=message_id)
+            etrade_pin_auth.mark_prompt_sent(channel="telegram", chat_id=chat_id, prompt_message_id=message_id)
             return True
 
     if config.REPLY_TO_ADDRESS:
