@@ -83,10 +83,25 @@ class TestPipeToGeminiDelegation:
 
         result = pipe_to_provider("test prompt", session_id="old-session")
 
-        mock_provider.generate_response.assert_called_once_with("test prompt", session_id="old-session", attachments=[], model=None, auto_retry=True, cleanup_on_error=False)
+        mock_provider.generate_response.assert_called_once_with("test prompt", session_id="old-session", attachments=[], model=None, auto_retry=True, cleanup_on_error=False, extra_env=None)
 
         assert isinstance(result, PipeResult)
         assert result.output == "Done"
         assert result.is_error is False
         assert result.requires_reply is True
         assert result.session_id == "session-123"
+
+    @patch("services.ingestion.core.pipe.get_provider")
+    def test_delegation_passes_extra_env(self, mock_get_provider):
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+        mock_provider.generate_response.return_value = ProviderResult(
+            text="Done", is_error=False, requires_reply=True, session_id="session-123"
+        )
+
+        pipe_to_provider("test prompt", extra_env={"SYNAPSE_SESSION_KEY": "user-1"})
+
+        mock_provider.generate_response.assert_called_once_with(
+            "test prompt", session_id=None, attachments=[], model=None, auto_retry=True,
+            cleanup_on_error=False, extra_env={"SYNAPSE_SESSION_KEY": "user-1"},
+        )

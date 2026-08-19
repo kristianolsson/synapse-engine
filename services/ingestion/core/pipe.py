@@ -110,7 +110,7 @@ class PipeResult:
     provider_name: str = ""
 
 
-def pipe_to_provider(prompt: str, session_id: Optional[str] = None, model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, provider_name: Optional[str] = None) -> PipeResult:
+def pipe_to_provider(prompt: str, session_id: Optional[str] = None, model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, provider_name: Optional[str] = None, extra_env: Optional[dict] = None) -> PipeResult:
     """
     Execute the AI provider with the given prompt.
     Kept as 'pipe_to_provider' for backward compatibility, but now delegates to the configured provider.
@@ -119,7 +119,7 @@ def pipe_to_provider(prompt: str, session_id: Optional[str] = None, model: Optio
 
     # We don't support attachments in this signature yet, but Provider supports it.
     # Future work: update this signature to accept attachments.
-    result = provider.generate_response(prompt, session_id=session_id, attachments=[], model=model, auto_retry=auto_retry, cleanup_on_error=cleanup_on_error)
+    result = provider.generate_response(prompt, session_id=session_id, attachments=[], model=model, auto_retry=auto_retry, cleanup_on_error=cleanup_on_error, extra_env=extra_env)
 
     return PipeResult(
         is_error=result.is_error,
