@@ -451,6 +451,30 @@ class TestWorkReminder:
         assert "<b>Fitness Focus Check-in</b>" in dispatch_text
         assert mock_deliver.call_args.kwargs["subject"] == ""
 
+    @patch.object(ReminderScheduler, "_deliver")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.core.scheduler.config")
+    def test_work_reminder_passes_reminder_correlation_extra_env(self, mock_config, mock_pipe, mock_deliver, scheduler):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.REPLY_TO_ADDRESS = "user@example.com"
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+
+        mock_pipe.return_value = MagicMock(
+            is_error=False,
+            output="Found 2 opportunities",
+            requires_reply=False,
+            session_id=None,
+        )
+        mock_deliver.return_value = True
+
+        scheduler._handle_work_reminder("email", "Run options-bot scan --tickers AAPL,MSFT")
+
+        extra_env = mock_pipe.call_args.kwargs["extra_env"]
+        assert extra_env == {
+            "SYNAPSE_CHANNEL": "email",
+            "SYNAPSE_REMINDER_TASK": "Run options-bot scan --tickers AAPL,MSFT",
+        }
+
 
 # ── Delivery Failure ─────────────────────────────────────────────────
 

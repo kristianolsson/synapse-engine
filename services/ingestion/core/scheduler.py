@@ -463,7 +463,10 @@ class ReminderScheduler:
 
         # Use the stronger work model for scheduled tasks that modify files.
         # Pass intent-based model so each provider can resolve its own best model
-        result = pipe_to_provider(prompt, model="work")
+        result = pipe_to_provider(
+            prompt, model="work",
+            extra_env={"SYNAPSE_CHANNEL": channel, "SYNAPSE_REMINDER_TASK": task},
+        )
 
         if result.is_error and 'quota' in result.output.lower():
             alt_provider = config.get_next_provider(config.get_ai_provider())
