@@ -1,6 +1,6 @@
 import json
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -175,3 +175,96 @@ def test_backfill_session_id_noop_when_new_session_id_empty(pending_file):
 def test_backfill_session_id_noop_when_no_pending_request():
     etrade_pin_auth.backfill_session_id("user-1", "sess-abc")  # must not raise
     assert etrade_pin_auth.load_pending() is None
+
+
+def test_complete_and_maybe_retry_resumes_session_and_delivers_via_telegram():
+    pending = {
+        "session_key": "user-1", "session_id": "sess-abc",
+        "failed_command": "etrade balance", "retry_channel": "telegram", "chat_id": 555,
+    }
+    fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000")
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
+         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send, \
+         patch("services.ingestion.core.session_manager.SessionManager") as mock_sm_cls:
+        mock_sm = MagicMock()
+        mock_sm_cls.return_value = mock_sm
+
+        etrade_pin_auth.complete_and_maybe_retry(pending)
+
+    mock_pipe.assert_called_once_with(ANY, session_id="sess-abc")
+    retry_prompt = mock_pipe.call_args.args[0]
+    assert "etrade balance" in retry_prompt
+    assert "complete my full original request" in retry_prompt
+    mock_sm.save_session.assert_called_once_with("user-1", "sess-new")
+    mock_send.assert_called_once_with(555, "Your balance is $1,000")
+
+
+def test_complete_and_maybe_retry_resumes_session_and_delivers_via_email():
+    pending = {
+        "session_key": "<thread@synapse.local>", "session_id": "",
+        "failed_command": "etrade balance", "retry_channel": "email",
+        "email_to": "user@example.com", "email_subject": "Check my balance",
+        "email_message_id": "<orig@example.com>", "email_references": "<orig@example.com>",
+    }
+    fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000")
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
+         patch("services.ingestion.channels.email.reply.send_reply") as mock_send, \
+         patch("services.ingestion.core.session_manager.SessionManager") as mock_sm_cls:
+        mock_sm = MagicMock()
+        mock_sm_cls.return_value = mock_sm
+
+        etrade_pin_auth.complete_and_maybe_retry(pending)
+
+    mock_pipe.assert_called_once_with(ANY, session_id=None)  # empty session_id -> fresh session
+    mock_sm.save_session.assert_called_once_with("<thread@synapse.local>", "sess-new")
+    mock_send.assert_called_once_with(
+        to_addr="user@example.com", subject="Check my balance", body="Your balance is $1,000",
+        original_message_id="<orig@example.com>", original_references="<orig@example.com>",
+    )
+
+
+def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_email():
+    pending = {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "email"}
+    fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities")
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
+         patch("services.ingestion.channels.email.reply.send_reply") as mock_send, \
+         patch("services.ingestion.config") as mock_config:
+        mock_config.REPLY_TO_ADDRESS = "user@example.com"
+
+        etrade_pin_auth.complete_and_maybe_retry(pending)
+
+    mock_pipe.assert_called_once()
+    assert mock_pipe.call_args.kwargs["model"] == "work"
+    prompt_arg = mock_pipe.call_args.args[0]
+    assert "Run options-bot scan --tickers AAPL,MSFT" in prompt_arg
+    mock_send.assert_called_once_with(
+        to_addr="user@example.com", subject="Synapse: E*TRADE retry result", body="Found 2 opportunities",
+        original_message_id="", original_references="",
+    )
+
+
+def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_telegram():
+    pending = {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "telegram", "chat_id": 555}
+    fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities")
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
+         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send:
+        etrade_pin_auth.complete_and_maybe_retry(pending)
+
+    mock_send.assert_called_once_with(555, "Found 2 opportunities")
+
+
+def test_complete_and_maybe_retry_noop_when_no_retry_fields():
+    pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider") as mock_pipe, \
+         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send, \
+         patch("services.ingestion.channels.email.reply.send_reply") as mock_send_email:
+        etrade_pin_auth.complete_and_maybe_retry(pending)
+
+    mock_pipe.assert_not_called()
+    mock_send.assert_not_called()
+    mock_send_email.assert_not_called()

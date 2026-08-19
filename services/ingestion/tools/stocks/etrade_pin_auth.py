@@ -125,3 +125,67 @@ def save_access_token(access_token: str, access_token_secret: str, sandbox: bool
     data = {"access_token": access_token, "access_token_secret": access_token_secret, "sandbox": sandbox}
     TOKEN_FILE.write_text(json.dumps(data))
     TOKEN_FILE.chmod(0o600)
+
+
+def complete_and_maybe_retry(pending: dict) -> None:
+    """After a successful PIN completion, resume the exact session that
+    failed (interactive case) or replay the reminder task fresh
+    (scheduled case) — whichever fields `_fallback_to_pin_auth` recorded
+    on `pending`. No-op if neither is present (e.g. a manual
+    /update-etrade-auth run has nothing to retry)."""
+    session_key = pending.get("session_key")
+    reminder_task = pending.get("reminder_task")
+
+    if session_key:
+        from ...core.pipe import pipe_to_provider
+        from ...core.session_manager import SessionManager
+
+        failed_command = pending.get("failed_command", "")
+        retry_prompt = (
+            "E*TRADE authentication just completed successfully. You were "
+            f"blocked earlier in this conversation when running `{failed_command}` "
+            "— retry that now and complete my full original request."
+        )
+        result = pipe_to_provider(retry_prompt, session_id=pending.get("session_id") or None)
+        if result.session_id:
+            SessionManager().save_session(session_key, result.session_id)
+        _deliver_retry_result(pending, result.output or "✓")
+
+    elif reminder_task:
+        from ...core.pipe import pipe_to_provider, build_prompt, IncomingMessage
+
+        incoming = IncomingMessage(
+            source_type="scheduled_work",
+            sender="system",
+            subject="Scheduled Work Task",
+            body=reminder_task,
+        )
+        prompt = build_prompt(incoming)
+        result = pipe_to_provider(prompt, model="work")
+        text = result.output or f"✓ Scheduled task completed: {reminder_task}"
+        _deliver_retry_result(pending, text)
+
+
+def _deliver_retry_result(pending: dict, text: str) -> None:
+    """Send the retry/replay result to wherever the original request
+    came from (not necessarily wherever the PIN reply was completed)."""
+    channel = pending.get("retry_channel")
+    if channel == "telegram":
+        from ...channels.telegram.sender import send_telegram_message
+
+        chat_id = pending.get("chat_id")
+        if chat_id:
+            send_telegram_message(chat_id, text)
+    elif channel == "email":
+        from ... import config
+        from ...channels.email.reply import send_reply
+
+        to_addr = pending.get("email_to") or config.REPLY_TO_ADDRESS
+        if to_addr:
+            send_reply(
+                to_addr=to_addr,
+                subject=pending.get("email_subject") or "Synapse: E*TRADE retry result",
+                body=text,
+                original_message_id=pending.get("email_message_id", ""),
+                original_references=pending.get("email_references", ""),
+            )
