@@ -126,3 +126,52 @@ def test_save_access_token_writes_expected_schema(token_file):
     data = json.loads(token_file.read_text())
     assert data == {"access_token": "ACCESS_TOKEN", "access_token_secret": "ACCESS_SECRET", "sandbox": False}
     assert oct(token_file.stat().st_mode)[-3:] == "600"
+
+
+def test_backfill_session_id_fills_empty_session_id_when_key_matches(pending_file):
+    pending_file.write_text(json.dumps({
+        "oauth_token": "t", "oauth_token_secret": "s", "created_at": time.time(),
+        "session_key": "user-1", "session_id": "",
+    }))
+
+    etrade_pin_auth.backfill_session_id("user-1", "sess-abc")
+
+    assert etrade_pin_auth.load_pending()["session_id"] == "sess-abc"
+
+
+def test_backfill_session_id_noop_when_key_does_not_match(pending_file):
+    pending_file.write_text(json.dumps({
+        "oauth_token": "t", "oauth_token_secret": "s", "created_at": time.time(),
+        "session_key": "user-1", "session_id": "",
+    }))
+
+    etrade_pin_auth.backfill_session_id("user-2", "sess-abc")
+
+    assert etrade_pin_auth.load_pending()["session_id"] == ""
+
+
+def test_backfill_session_id_noop_when_already_set(pending_file):
+    pending_file.write_text(json.dumps({
+        "oauth_token": "t", "oauth_token_secret": "s", "created_at": time.time(),
+        "session_key": "user-1", "session_id": "sess-original",
+    }))
+
+    etrade_pin_auth.backfill_session_id("user-1", "sess-new")
+
+    assert etrade_pin_auth.load_pending()["session_id"] == "sess-original"
+
+
+def test_backfill_session_id_noop_when_new_session_id_empty(pending_file):
+    pending_file.write_text(json.dumps({
+        "oauth_token": "t", "oauth_token_secret": "s", "created_at": time.time(),
+        "session_key": "user-1", "session_id": "",
+    }))
+
+    etrade_pin_auth.backfill_session_id("user-1", "")
+
+    assert etrade_pin_auth.load_pending()["session_id"] == ""
+
+
+def test_backfill_session_id_noop_when_no_pending_request():
+    etrade_pin_auth.backfill_session_id("user-1", "sess-abc")  # must not raise
+    assert etrade_pin_auth.load_pending() is None

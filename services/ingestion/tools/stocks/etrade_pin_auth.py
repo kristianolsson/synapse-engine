@@ -58,6 +58,18 @@ def mark_prompt_sent(**fields) -> None:
     PENDING_FILE.write_text(json.dumps(pending))
 
 
+def backfill_session_id(session_key: str, session_id: str) -> None:
+    """If a pending E*TRADE auth request is waiting on this exact
+    session_key but didn't yet know its session_id (it was the first
+    message in a brand-new thread when the auth fallback fired), fill
+    it in now that the provider has assigned one. No-op otherwise."""
+    if not session_id:
+        return
+    pending = load_pending()
+    if pending and pending.get("session_key") == session_key and not pending.get("session_id"):
+        mark_prompt_sent(session_id=session_id)
+
+
 def start_pin_auth(consumer_key: str, consumer_secret: str) -> dict:
     """Fetch a request token + authorize URL from E*TRADE and persist
     pending state for finish_pin_auth to complete later, possibly from a
