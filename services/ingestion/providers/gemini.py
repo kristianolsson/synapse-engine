@@ -67,7 +67,7 @@ class GeminiProvider(AIProvider):
     Implementation of Gemini provider using the Gemini CLI.
     """
     
-    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False) -> ProviderResult:
+    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, extra_env: Optional[dict] = None) -> ProviderResult:
         """
         Execute the Gemini CLI with the given prompt inside the vault directory.
         """
@@ -81,6 +81,8 @@ class GeminiProvider(AIProvider):
             env["PATH"] = custom_bin + ":" + gemini_dir + ":" + env.get("PATH", "")
         else:
             env["PATH"] = custom_bin + ":" + env.get("PATH", "")
+        if extra_env:
+            env.update(extra_env)
 
         def _run_cmd(current_cmd: list[str]) -> ProviderResult:
             logger.debug("Waiting for GLOBAL_PROVIDER_LOCK...")

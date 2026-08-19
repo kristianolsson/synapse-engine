@@ -61,10 +61,20 @@ class TestGeminiProvider:
             MagicMock(returncode=1, stdout="", stderr="Quota error"),
             MagicMock(returncode=0, stdout='{"response": "OK"}', stderr="")
         ]
-        
+
         result = self.provider.generate_response("test")
-        
+
         assert result.is_error is False
         assert "⚠️ Processed using fallback model" in result.text
         assert "OK" in result.text
         assert mock_run.call_count == 2
+
+    @patch("subprocess.run")
+    def test_generate_response_merges_extra_env(self, mock_run):
+        json_output = '{"response": "ok", "session_id": "abc-123"}'
+        mock_run.return_value = MagicMock(returncode=0, stdout=json_output, stderr="")
+
+        result = self.provider.generate_response("test", extra_env={"SYNAPSE_SESSION_KEY": "user-1"})
+
+        called_env = mock_run.call_args.kwargs["env"]
+        assert called_env["SYNAPSE_SESSION_KEY"] == "user-1"

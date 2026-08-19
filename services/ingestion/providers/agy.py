@@ -15,7 +15,7 @@ class AgyProvider(AIProvider):
     Implementation of Agy provider using the Antigravity CLI (agy).
     """
 
-    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False) -> ProviderResult:
+    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, extra_env: Optional[dict] = None) -> ProviderResult:
         """
         Execute the agy CLI with the given prompt inside the vault directory.
         """
@@ -29,6 +29,8 @@ class AgyProvider(AIProvider):
             env["PATH"] = custom_bin + ":" + agy_dir + ":" + env.get("PATH", "")
         else:
             env["PATH"] = custom_bin + ":" + env.get("PATH", "")
+        if extra_env:
+            env.update(extra_env)
 
         def _run_cmd(current_cmd: List[str]) -> ProviderResult:
             logger.debug("Waiting for GLOBAL_PROVIDER_LOCK...")

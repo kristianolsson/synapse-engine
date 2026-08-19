@@ -126,3 +126,12 @@ class TestAgyProvider:
     def test_cleanup_session_noop(self):
         # Agy cleanup is a no-op, shouldn't raise any errors
         self.provider.cleanup_session("session-id")
+
+    @patch("subprocess.run")
+    def test_generate_response_merges_extra_env(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        result = self.provider.generate_response("test", extra_env={"SYNAPSE_SESSION_KEY": "user-1"})
+
+        called_env = mock_run.call_args.kwargs["env"]
+        assert called_env["SYNAPSE_SESSION_KEY"] == "user-1"
