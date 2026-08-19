@@ -36,6 +36,7 @@ from ...utils.stats_formatter import format_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
 from ...utils.task_formatter import recover_task_from_callback
 from ...utils.form_formatter import render_form_display
+from ...tools.stocks import etrade_pin_auth
 from .form_buttons import build_form_keyboard
 from .reply_dispatch import build_reply_keyboard, attach_form_message_id
 
@@ -218,6 +219,37 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             await message.reply_text(f"❌ Claude login failed:\n{output[-1500:]}")
         return
 
+    # Pending E*TRADE re-auth: only a genuine Telegram reply to the prompt
+    # message we sent counts as the pasted verification code — this must
+    # never fall through to the general assistant/session dispatch below,
+    # whether the prompt was sent by /update-etrade-auth or by an
+    # unattended scheduled job's auth fallback (etrade_cli.py).
+    if message.reply_to_message and text.strip():
+        pending_etrade = etrade_pin_auth.load_pending()
+        if (
+            pending_etrade
+            and pending_etrade.get("channel") == "telegram"
+            and pending_etrade.get("chat_id") == chat.id
+            and pending_etrade.get("prompt_message_id") == message.reply_to_message.message_id
+        ):
+            await message.reply_text("Completing E*TRADE login...")
+            try:
+                tokens = etrade_pin_auth.finish_pin_auth(
+                    pending_etrade, text.strip(), config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
+                )
+                etrade_pin_auth.save_access_token(
+                    tokens["access_token"],
+                    tokens["access_token_secret"],
+                    sandbox=config.ETRADE_MODE.lower() == "sandbox",
+                )
+            except Exception as e:
+                await message.reply_text(f"❌ E*TRADE login failed: {e}")
+                return
+            finally:
+                etrade_pin_auth.clear_pending()
+            await message.reply_text("✅ E*TRADE login successful.")
+            return
+
     if text.strip() in ("/new", "/clear"):
         if session_manager.clear_session(user_key):
             await message.reply_text("Session cleared. Starting a fresh context.")
@@ -234,6 +266,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             "/update — Pulls the latest code via git and restarts the bot.\n"
             "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
             "/update-claude-auth — Re-authenticates the Claude CLI (OAuth login).\n"
+            "/update-etrade-auth — Re-authenticates E*TRADE (manual OAuth PIN).\n"
             "/provider <gemini|claude|agy> — Switches the active AI provider.\n"
             "/help — Shows this help message."
         )
@@ -310,6 +343,29 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             "Open this URL, sign in, and reply here with the code it gives you "
             f"(expires in {CLAUDE_AUTH_TIMEOUT_SECONDS // 60} min):\n{url}"
         )
+        return
+
+    # /update-etrade-auth command — start the manual E*TRADE OAuth PIN
+    # flow in place. Automated Playwright login is blocked by E*TRADE's
+    # bot detection (confirmed), so this is the only reliable path: open
+    # the link in a real phone browser, log in normally, paste the code
+    # back here. The same flow also gets triggered automatically by a
+    # scheduled job's auth fallback (etrade_cli.py) — this command just
+    # lets you kick it off proactively instead of waiting for one to fail.
+    if stripped == "/update-etrade-auth":
+        etrade_pin_auth.clear_pending()
+        await message.reply_text("Starting E*TRADE login...")
+        try:
+            pending = etrade_pin_auth.start_pin_auth(config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET)
+        except Exception as e:
+            await message.reply_text(f"Failed to start E*TRADE login:\n{e}")
+            return
+        sent = await message.reply_text(
+            "Open this URL on your phone, log in normally, and reply to THIS message "
+            f"with the verification code it shows (expires in {etrade_pin_auth.PENDING_TTL_SECONDS // 60} min):\n"
+            f"{pending['authorize_url']}"
+        )
+        etrade_pin_auth.mark_prompt_sent(channel="telegram", chat_id=chat.id, prompt_message_id=sent.message_id)
         return
 
     # /amazon command — interact with Amazon Fresh CLI

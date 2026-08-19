@@ -61,8 +61,88 @@ def _load_env() -> dict:
     }
 
 
+def _send_pin_auth_prompt(pending: dict) -> bool:
+    """Notify the user that E*TRADE needs manual re-authentication, via
+    whichever channel is configured, and record which one so the reply
+    can be matched back to this prompt. Returns True if a prompt was
+    actually delivered."""
+    from services.ingestion import config
+    from services.ingestion.tools.stocks import etrade_pin_auth
+
+    prompt_text = (
+        "E*TRADE needs manual re-authentication — automated login is blocked "
+        "by their fraud detection.\n\n"
+        f"Open this link on your phone and log in normally:\n{pending['authorize_url']}\n\n"
+        "E*TRADE will show a verification code on screen — reply to this "
+        "message with that code to finish."
+    )
+
+    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_ALLOWED_USER_IDS:
+        from services.ingestion.channels.telegram.sender import send_telegram_message
+        chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
+        message_id = send_telegram_message(chat_id, prompt_text)
+        if message_id:
+            etrade_pin_auth.mark_prompt_sent(channel="telegram", chat_id=chat_id, prompt_message_id=message_id)
+            return True
+
+    if config.REPLY_TO_ADDRESS:
+        import email.utils
+        from services.ingestion.channels.email.reply import send_reply
+        subject = "Synapse: E*TRADE re-authentication needed"
+        prompt_message_id = email.utils.make_msgid()
+        if send_reply(
+            to_addr=config.REPLY_TO_ADDRESS, subject=subject, body=prompt_text, message_id=prompt_message_id
+        ):
+            etrade_pin_auth.mark_prompt_sent(channel="email", prompt_message_id=prompt_message_id)
+            return True
+
+    return False
+
+
+def _fallback_to_pin_auth(env: dict, original_error: Exception) -> None:
+    """Automated login failed with no one there to complete it — send a
+    manual PIN-auth prompt via Telegram/email and exit. The listener that
+    receives the reply completes the exchange (see etrade_pin_auth.py and
+    the /update-etrade-auth wiring). Always exits via _err()."""
+    from services.ingestion.tools.stocks import etrade_pin_auth
+
+    logger.warning("Automated E*TRADE login failed (%s) — sending manual re-auth prompt", original_error)
+
+    if etrade_pin_auth.load_pending():
+        _err(
+            "E*TRADE authentication failed and a re-auth prompt is already pending — "
+            "reply to it with the verification code.",
+            "auth_pending",
+        )
+
+    try:
+        pending = etrade_pin_auth.start_pin_auth(env["consumer_key"], env["consumer_secret"])
+    except Exception as e:
+        _err(f"E*TRADE authentication failed ({original_error}); could not start PIN fallback: {e}", "auth_failed")
+
+    if not _send_pin_auth_prompt(pending):
+        etrade_pin_auth.clear_pending()
+        _err(
+            f"E*TRADE authentication failed ({original_error}); no Telegram/email channel "
+            "configured to send a manual re-auth prompt.",
+            "auth_failed",
+        )
+
+    _err(
+        "E*TRADE authentication failed — sent a manual re-authentication prompt, waiting on a reply.",
+        "auth_pending",
+    )
+
+
 def _authenticate(env: dict, headless: bool = True) -> ETradeClient:
-    """Authenticate with E*TRADE and return a client. Calls _err() on failure."""
+    """Authenticate with E*TRADE and return a client. Calls _err() on failure.
+
+    When unattended (headless=True, the default — no one present to
+    complete a stuck login), a failed automated attempt falls back to a
+    manual OAuth PIN prompt via Telegram/email instead of erroring out
+    silently. --headed runs (a human already watching) just report the
+    failure directly.
+    """
     if not env["consumer_key"] or not env["consumer_secret"]:
         _err("ETRADE_CONSUMER_KEY and ETRADE_CONSUMER_SECRET must be set in .env", "config_error")
 
@@ -72,6 +152,10 @@ def _authenticate(env: dict, headless: bool = True) -> ETradeClient:
         and env["username"]
         and env["password"]
     )
+    # An unattended caller has no one to complete a stuck login — fail
+    # fast instead of waiting the full manual-SMS window before falling
+    # back to the PIN-code flow.
+    login_timeout_ms = 120000 if not headless else 20000
 
     try:
         if use_wetrade:
@@ -83,15 +167,21 @@ def _authenticate(env: dict, headless: bool = True) -> ETradeClient:
                 sandbox=sandbox,
                 totp_secret=env.get("totp_secret") or None,
             )
+            access_token, access_token_secret = auth.authenticate(
+                headless=headless, login_timeout_ms=login_timeout_ms
+            )
         else:
             auth = ETradeAuth(
                 consumer_key=env["consumer_key"],
                 consumer_secret=env["consumer_secret"],
                 sandbox=sandbox,
             )
-        access_token, access_token_secret = auth.authenticate(headless=headless)
+            access_token, access_token_secret = auth.authenticate(headless=headless)
     except Exception as e:
-        _err(f"E*TRADE authentication failed: {e}", "auth_failed")
+        if headless:
+            _fallback_to_pin_auth(env, e)
+        else:
+            _err(f"E*TRADE authentication failed: {e}", "auth_failed")
 
     return ETradeClient(
         consumer_key=env["consumer_key"],
@@ -113,7 +203,7 @@ def _get_account_suffix(args_account: Optional[str]) -> Optional[str]:
 
 def cmd_quote(args, env: dict) -> None:
     """Fetch real-time quotes for one or more tickers."""
-    client = _authenticate(env)
+    client = _authenticate(env, headless=not args.headed)
     results = {}
 
     for ticker in args.tickers:
@@ -164,7 +254,7 @@ def cmd_options(args, env: dict) -> None:
     min_days = thresholds.get("min_days_to_expiry", 30)
     max_days = thresholds.get("max_days_to_expiry", 60)
 
-    client = _authenticate(env)
+    client = _authenticate(env, headless=not args.headed)
     analyzer = OptionsAnalyzer(thresholds)
 
     ticker = args.ticker.upper()
@@ -216,7 +306,7 @@ def cmd_options(args, env: dict) -> None:
 def cmd_positions(args, env: dict) -> None:
     """List all open positions."""
     suffix = _get_account_suffix(getattr(args, "account", None))
-    client = _authenticate(env)
+    client = _authenticate(env, headless=not args.headed)
     client.account_suffix = suffix
 
     try:
@@ -229,7 +319,7 @@ def cmd_positions(args, env: dict) -> None:
 def cmd_balance(args, env: dict) -> None:
     """Get account buying power and balance."""
     suffix = _get_account_suffix(getattr(args, "account", None))
-    client = _authenticate(env)
+    client = _authenticate(env, headless=not args.headed)
     client.account_suffix = suffix
 
     try:
@@ -243,7 +333,7 @@ def cmd_balance(args, env: dict) -> None:
 
 def cmd_accounts(args, env: dict) -> None:
     """List all E*TRADE accounts."""
-    client = _authenticate(env)
+    client = _authenticate(env, headless=not args.headed)
 
     try:
         data = client.accounts.list_accounts()
@@ -287,6 +377,12 @@ def main():
     parser = argparse.ArgumentParser(
         prog="etrade",
         description="E*TRADE CLI for Synapse — query quotes, options, positions, and accounts.",
+    )
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Show the browser for manual login/SMS entry instead of running headless "
+             "(use this for the one-time bootstrap auth on a machine with a display)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

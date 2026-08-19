@@ -799,6 +799,133 @@ class TestTelegramClaudeAuth:
         update.message.reply_text.assert_called_once_with("Stats display turned on.")
 
 
+# ── E*TRADE re-auth tests ───────────────────────────────────────────
+
+
+class TestTelegramEtradeAuth:
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_update_etrade_auth_replies_with_url_and_marks_prompt_sent(self, mock_etrade, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.ETRADE_CONSUMER_KEY = "key"
+        mock_config.ETRADE_CONSUMER_SECRET = "secret"
+        mock_etrade.start_pin_auth.return_value = {"authorize_url": "https://us.etrade.com/authorize?token=abc"}
+        mock_etrade.PENDING_TTL_SECONDS = 1800
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-etrade-auth")
+        update.message.reply_text.return_value = MagicMock(message_id=555)
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.clear_pending.assert_called_once()
+        mock_etrade.start_pin_auth.assert_called_once_with("key", "secret")
+        replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+        assert any("https://us.etrade.com/authorize?token=abc" in r for r in replies)
+        mock_etrade.mark_prompt_sent.assert_called_once_with(
+            channel="telegram", chat_id=12345, prompt_message_id=555
+        )
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_update_etrade_auth_start_failure(self, mock_etrade, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_etrade.start_pin_auth.side_effect = RuntimeError("boom")
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-etrade-auth")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.mark_prompt_sent.assert_not_called()
+        reply = update.message.reply_text.call_args[0][0]
+        assert "Failed to start E*TRADE login" in reply
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_genuine_reply_to_prompt_completes_login(self, mock_etrade, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.ETRADE_CONSUMER_KEY = "key"
+        mock_config.ETRADE_CONSUMER_SECRET = "secret"
+        mock_config.ETRADE_MODE = "production"
+        pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}
+        mock_etrade.load_pending.return_value = pending
+        mock_etrade.finish_pin_auth.return_value = {"access_token": "AT", "access_token_secret": "AS"}
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="123456")
+        update.message.reply_to_message = MagicMock(message_id=555)
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.finish_pin_auth.assert_called_once_with(pending, "123456", "key", "secret")
+        mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
+        mock_etrade.clear_pending.assert_called_once()
+        replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+        assert any("successful" in r.lower() for r in replies)
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_finish_failure_still_clears_pending_and_reports_error(self, mock_etrade, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}
+        mock_etrade.load_pending.return_value = pending
+        mock_etrade.finish_pin_auth.side_effect = RuntimeError("invalid verifier")
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="wrong-code")
+        update.message.reply_to_message = MagicMock(message_id=555)
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.clear_pending.assert_called_once()
+        reply = update.message.reply_text.call_args[0][0]
+        assert "failed" in reply.lower()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    async def test_reply_to_wrong_message_is_not_intercepted(self, mock_pipe, mock_etrade, mock_config):
+        """A reply to some other message while a pending auth exists must
+        not be swallowed as the code — this is the 'don't leak into the
+        general session' scoping requirement."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}
+        mock_etrade.load_pending.return_value = pending
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=False, output="", session_id=None, stats={}
+        )
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="unrelated reply")
+        update.message.reply_to_message = MagicMock(message_id=999)  # not the prompt message
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.finish_pin_auth.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    async def test_reply_from_different_chat_is_not_intercepted(self, mock_pipe, mock_etrade, mock_config):
+        """A pending auth for one chat must not be completable by a reply
+        from a different chat, even to the right message_id."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345, 99999]
+        pending = {"channel": "telegram", "chat_id": 99999, "prompt_message_id": 555}
+        mock_etrade.load_pending.return_value = pending
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=False, output="", session_id=None, stats={}
+        )
+        rl = RateLimiter(10, 60)
+        update = _make_update(user_id=12345, text="123456")
+        update.message.reply_to_message = MagicMock(message_id=555)
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.finish_pin_auth.assert_not_called()
+
+
 @patch("services.ingestion.channels.telegram.listener.config")
 class TestFormDispatch:
     """Tests for Actionable Form dispatch in handle_message and the quota-retry callback."""

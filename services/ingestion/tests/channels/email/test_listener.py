@@ -348,3 +348,82 @@ class TestEmailReplyLogic:
         mock_send_reply.assert_called_once()
         args = mock_send_reply.call_args[1]
         assert args["to_addr"] == "admin@example.com"
+
+
+def _make_reply_email(in_reply_to, body, from_addr="user@example.com", subject="Re: Synapse: E*TRADE re-authentication needed"):
+    msg = MIMEText(body)
+    msg["From"] = from_addr
+    msg["Subject"] = subject
+    msg["To"] = "inbox@lifeos.com"
+    msg["In-Reply-To"] = in_reply_to
+    return msg.as_bytes()
+
+
+class TestProcessEmailEtradeAuth:
+    @patch("services.ingestion.channels.email.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_genuine_reply_completes_login(self, mock_config, mock_pipe, mock_etrade):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_config.ETRADE_CONSUMER_KEY = "key"
+        mock_config.ETRADE_CONSUMER_SECRET = "secret"
+        mock_config.ETRADE_MODE = "production"
+        pending = {"channel": "email", "prompt_message_id": "<abc123@synapse>"}
+        mock_etrade.load_pending.return_value = pending
+        mock_etrade.finish_pin_auth.return_value = {"access_token": "AT", "access_token_secret": "AS"}
+
+        raw = _make_reply_email("<abc123@synapse>", "654321")
+        should_reply, text, stats = process_email(raw, MagicMock(spec=SessionManager))
+
+        mock_etrade.finish_pin_auth.assert_called_once_with(pending, "654321", "key", "secret")
+        mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
+        mock_etrade.clear_pending.assert_called_once()
+        mock_pipe.assert_not_called()
+        assert should_reply is True
+        assert "successful" in text.lower()
+
+    @patch("services.ingestion.channels.email.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_finish_failure_still_clears_pending(self, mock_config, mock_pipe, mock_etrade):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        pending = {"channel": "email", "prompt_message_id": "<abc123@synapse>"}
+        mock_etrade.load_pending.return_value = pending
+        mock_etrade.finish_pin_auth.side_effect = RuntimeError("invalid verifier")
+
+        raw = _make_reply_email("<abc123@synapse>", "wrong-code")
+        should_reply, text, stats = process_email(raw, MagicMock(spec=SessionManager))
+
+        mock_etrade.clear_pending.assert_called_once()
+        assert should_reply is True
+        assert "failed" in text.lower()
+
+    @patch("services.ingestion.channels.email.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_reply_to_unrelated_message_is_not_intercepted(self, mock_config, mock_pipe, mock_etrade):
+        """A reply to some other thread while a pending auth exists must
+        not be swallowed as the code."""
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_etrade.load_pending.return_value = {"channel": "email", "prompt_message_id": "<abc123@synapse>"}
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
+
+        raw = _make_reply_email("<some-other-thread@gmail.com>", "hello there", subject="Re: Buy milk")
+        process_email(raw, MagicMock(spec=SessionManager))
+
+        mock_etrade.finish_pin_auth.assert_not_called()
+        mock_pipe.assert_called_once()
+
+    @patch("services.ingestion.channels.email.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_no_pending_auth_falls_through_normally(self, mock_config, mock_pipe, mock_etrade):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_etrade.load_pending.return_value = None
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
+
+        raw = _make_simple_email(from_addr="user@example.com", body="Buy milk")
+        process_email(raw, MagicMock(spec=SessionManager))
+
+        mock_etrade.finish_pin_auth.assert_not_called()
+        mock_pipe.assert_called_once()

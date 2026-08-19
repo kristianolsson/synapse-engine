@@ -150,12 +150,17 @@ class BrowserAuth:
             logger.info(f"Token renewal failed, will re-authenticate: {e}")
             return False
     
-    def authenticate(self, headless: bool = False) -> Tuple[str, str]:
+    def authenticate(self, headless: bool = False, login_timeout_ms: int = 120000) -> Tuple[str, str]:
         """Perform authentication, using saved tokens if available.
-        
+
         Args:
             headless: If True and TOTP configured, run headless (not for SMS)
-        
+            login_timeout_ms: How long to wait for the post-submit navigation
+                (manual SMS entry needs the full default; an unattended
+                caller that will fall back to the PIN-code flow on failure
+                should pass a short value instead of waiting the full window
+                for a login attempt no one is there to complete)
+
         Returns:
             Tuple of (access_token, access_token_secret)
         """
@@ -166,16 +171,17 @@ class BrowserAuth:
                 return self._access_token, self._access_token_secret
             else:
                 logger.info("Saved tokens expired, need fresh authentication")
-        
+
         # Need browser-based login
-        return self._browser_authenticate(headless)
-    
-    def _browser_authenticate(self, headless: bool = False) -> Tuple[str, str]:
+        return self._browser_authenticate(headless, login_timeout_ms)
+
+    def _browser_authenticate(self, headless: bool = False, login_timeout_ms: int = 120000) -> Tuple[str, str]:
         """Perform browser-based OAuth authentication.
-        
+
         Args:
             headless: If True and TOTP configured, run headless (not for SMS)
-        
+            login_timeout_ms: passed through to _do_browser_login
+
         Returns:
             Tuple of (access_token, access_token_secret)
         """
@@ -201,7 +207,7 @@ class BrowserAuth:
         )
         
         # Step 2: Browser login to get verification code
-        verification_code = self._browser_login(authorize_url, headless)
+        verification_code = self._browser_login(authorize_url, headless, login_timeout_ms)
         
         if not verification_code:
             raise ValueError("Failed to get verification code from browser login")
@@ -225,25 +231,26 @@ class BrowserAuth:
         logger.info("Authentication successful!")
         return self._access_token, self._access_token_secret
     
-    def _browser_login(self, authorize_url: str, headless: bool = False) -> Optional[str]:
+    def _browser_login(self, authorize_url: str, headless: bool = False, login_timeout_ms: int = 120000) -> Optional[str]:
         """Perform browser-based login and return verification code.
-        
+
         Args:
             authorize_url: OAuth authorization URL
             headless: Run browser in headless mode (only for TOTP)
-        
+            login_timeout_ms: How long to wait for the post-submit navigation
+
         Returns:
             Verification code string, or None if failed
         """
         # If headless is explicitly requested, honor it.
         # This is critical for Docker environments where no display exists.
         use_headless = headless
-        
+
         for attempt in range(1, self.MAX_RETRIES + 1):
             logger.info(f"Login attempt {attempt}/{self.MAX_RETRIES}")
-            
+
             try:
-                code = self._do_browser_login(authorize_url, use_headless)
+                code = self._do_browser_login(authorize_url, use_headless, login_timeout_ms)
                 if code:
                     return code
             except Exception as e:
@@ -254,7 +261,7 @@ class BrowserAuth:
         
         return None
     
-    def _do_browser_login(self, authorize_url: str, headless: bool) -> Optional[str]:
+    def _do_browser_login(self, authorize_url: str, headless: bool, login_timeout_ms: int = 120000) -> Optional[str]:
         """Execute the browser login flow."""
         with sync_playwright() as p:
             logger.info("Opening Firefox browser with persistent profile...")
@@ -263,19 +270,19 @@ class BrowserAuth:
                 headless=headless,
                 viewport={'width': 1280, 'height': 800}
             )
-            
+
             try:
                 page = context.pages[0] if context.pages else context.new_page()
-                
+
                 # Navigate to E*TRADE login
                 logger.info("Navigating to E*TRADE login page...")
                 page.goto('https://us.etrade.com/etx/pxy/login', timeout=30000)
-                
+
                 # Fill in credentials
                 logger.info("Entering credentials...")
                 page.locator('#USER').fill(self.username)
                 page.locator('#password').fill(self.password)
-                
+
                 # Handle 2FA
                 if self.totp_secret:
                     # Use TOTP
@@ -286,15 +293,15 @@ class BrowserAuth:
                 else:
                     # SMS 2FA - user will enter code manually
                     logger.info("SMS 2FA - please enter your code in the browser when prompted")
-                
+
                 # Click login
                 page.locator('#mfaLogonButton').click()
                 
                 # Wait for login to complete (give user time for SMS)
-                logger.info("Waiting for login to complete (up to 120 seconds for SMS entry)...")
+                logger.info(f"Waiting for login to complete (up to {login_timeout_ms / 1000:.0f} seconds)...")
                 page.wait_for_url(
                     lambda url: 'etrade.com/etx/pxy/login' not in url,
-                    timeout=120000  # 2 minutes for SMS entry
+                    timeout=login_timeout_ms
                 )
                 
                 # Handle any intermediate pages (like "Continue" prompts)

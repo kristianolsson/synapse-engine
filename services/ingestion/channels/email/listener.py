@@ -20,6 +20,7 @@ from imapclient import IMAPClient
 from ... import config
 from ...core.pipe import IncomingMessage, build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
+from ...tools.stocks import etrade_pin_auth
 from ...core.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,34 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         return False, "", None
 
     body = extract_text_body(msg)
+
+    # --- PENDING E*TRADE RE-AUTH ---
+    # Only a genuine reply to the prompt WE sent (matched by Message-ID,
+    # via In-Reply-To/References) counts as the pasted verification code —
+    # this must never fall through to the general assistant pipeline
+    # below, whether the prompt was sent by a scheduled job's auth
+    # fallback (etrade_cli.py) or a future manual trigger.
+    pending_etrade = etrade_pin_auth.load_pending()
+    if pending_etrade and pending_etrade.get("channel") == "email":
+        prompt_id = pending_etrade.get("prompt_message_id", "")
+        if prompt_id and (in_reply_to == prompt_id or prompt_id in references.split()):
+            code = body.strip().splitlines()[0].strip() if body.strip() else ""
+            if not code:
+                return True, "⚠️ Could not find a verification code in that reply.", None
+            try:
+                tokens = etrade_pin_auth.finish_pin_auth(
+                    pending_etrade, code, config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
+                )
+                etrade_pin_auth.save_access_token(
+                    tokens["access_token"],
+                    tokens["access_token_secret"],
+                    sandbox=config.ETRADE_MODE.lower() == "sandbox",
+                )
+            except Exception as e:
+                etrade_pin_auth.clear_pending()
+                return True, f"❌ E*TRADE login failed: {e}", None
+            etrade_pin_auth.clear_pending()
+            return True, "✅ E*TRADE login successful.", None
 
     # --- ONE-TAP COMPLETION (MAILTO LINKS) ---
     if subject.startswith("DONE:") or subject.startswith("UNDO:"):
