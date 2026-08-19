@@ -17,11 +17,14 @@ long-lived Telegram/email listener process completes the exchange
 """
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Optional
 
 from authlib.integrations.requests_client import OAuth1Session
+
+logger = logging.getLogger(__name__)
 
 PENDING_FILE = Path.home() / ".etrade_pending_auth.json"
 PENDING_TTL_SECONDS = 30 * 60
@@ -47,10 +50,12 @@ def clear_pending() -> None:
 
 
 def mark_prompt_sent(**fields) -> None:
-    """Merge channel-correlation fields (channel, chat_id, prompt_message_id,
-    reply_subject, etc.) into the pending request after the prompt has
-    actually been delivered. No-op if there's no pending request (e.g. it
-    expired between start_pin_auth and the send)."""
+    """Generic merge helper: layers arbitrary fields (channel, chat_id,
+    prompt_message_id, retry correlation, etc.) onto the pending request,
+    usable at any point in the flow — not strictly after the prompt has
+    been delivered (e.g. _fallback_to_pin_auth calls it to record retry
+    correlation before the prompt is actually sent). No-op if there's no
+    pending request (e.g. it expired between start_pin_auth and the call)."""
     pending = load_pending()
     if pending is None:
         return
@@ -137,6 +142,7 @@ def complete_and_maybe_retry(pending: dict) -> None:
     reminder_task = pending.get("reminder_task")
 
     if session_key:
+        logger.info("complete_and_maybe_retry: resuming session %s (session-resume branch)", session_key)
         from ...core.pipe import pipe_to_provider
         from ...core.session_manager import SessionManager
 
@@ -152,8 +158,15 @@ def complete_and_maybe_retry(pending: dict) -> None:
         _deliver_retry_result(pending, result.output or "✓")
 
     elif reminder_task:
+        logger.info("complete_and_maybe_retry: replaying reminder task %r (reminder-replay branch)", reminder_task)
         from ...core.pipe import pipe_to_provider, build_prompt, IncomingMessage
 
+        # Deliberately simplified compared to scheduler.py's
+        # _handle_work_reminder: no quota-fallback provider switch, no
+        # session-save-for-reply-continuation, no form-keyboard rendering.
+        # Acceptable for a degraded auth-recovery path — this isn't meant
+        # to fully replicate the scheduler's normal delivery, just get the
+        # result back to the user once auth is unblocked.
         incoming = IncomingMessage(
             source_type="scheduled_work",
             sender="system",
@@ -169,14 +182,22 @@ def complete_and_maybe_retry(pending: dict) -> None:
 def _deliver_retry_result(pending: dict, text: str) -> None:
     """Send the retry/replay result to wherever the original request
     came from (not necessarily wherever the PIN reply was completed)."""
-    channel = pending.get("retry_channel")
-    if channel == "telegram":
+    retry_channel = pending.get("retry_channel")
+    if retry_channel == "telegram":
         from ...channels.telegram.sender import send_telegram_message
+        from ...utils.html_utils import sanitize_telegram_html
 
-        chat_id = pending.get("chat_id")
+        # Telegram-delivered retries prefer the dedicated retry_chat_id
+        # (the chat of whoever's original REQUEST is being retried) but
+        # fall back to the plain chat_id field, which is always populated
+        # for the scheduled-reminder replay case (no SYNAPSE_CHAT_ID/
+        # retry_chat_id is ever set for reminders).
+        chat_id = pending.get("retry_chat_id") or pending.get("chat_id")
         if chat_id:
-            send_telegram_message(chat_id, text)
-    elif channel == "email":
+            send_telegram_message(chat_id, sanitize_telegram_html(text))
+        else:
+            logger.warning("Retry delivery skipped: retry_channel=telegram but no chat_id/retry_chat_id on pending record")
+    elif retry_channel == "email":
         from ... import config
         from ...channels.email.reply import send_reply
 
@@ -189,3 +210,7 @@ def _deliver_retry_result(pending: dict, text: str) -> None:
                 original_message_id=pending.get("email_message_id", ""),
                 original_references=pending.get("email_references", ""),
             )
+        else:
+            logger.warning("Retry delivery skipped: retry_channel=email but no email_to/REPLY_TO_ADDRESS available")
+    else:
+        logger.warning("Retry delivery skipped: unrecognized or absent retry_channel %r on pending record", retry_channel)

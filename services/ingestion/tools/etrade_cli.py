@@ -139,7 +139,12 @@ def _fallback_to_pin_auth(env: dict, original_error: Exception) -> None:
         if retry_channel:
             correlation["retry_channel"] = retry_channel
         if os.environ.get("SYNAPSE_CHAT_ID"):
-            correlation["chat_id"] = int(os.environ["SYNAPSE_CHAT_ID"])
+            # Separate field from the plain `chat_id` that
+            # _send_pin_auth_prompt's mark_prompt_sent() call writes right
+            # after this (the chat the PIN PROMPT itself was sent to) — a
+            # dict.update() merge would otherwise silently clobber this
+            # with the wrong chat when the two differ.
+            correlation["retry_chat_id"] = int(os.environ["SYNAPSE_CHAT_ID"])
         if os.environ.get("SYNAPSE_EMAIL_TO"):
             correlation["email_to"] = os.environ["SYNAPSE_EMAIL_TO"]
             correlation["email_subject"] = os.environ.get("SYNAPSE_EMAIL_SUBJECT", "")
