@@ -3,7 +3,7 @@ import os
 import subprocess
 import json
 import threading
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from .. import config
 from .base import AIProvider, ProviderResult, GLOBAL_PROVIDER_LOCK
@@ -16,7 +16,7 @@ class ClaudeProvider(AIProvider):
     Implementation of Claude provider using the Claude Code CLI.
     """
 
-    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, extra_env: Optional[dict] = None) -> ProviderResult:
+    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, extra_env: Optional[Dict[str, str]] = None) -> ProviderResult:
         """
         Execute the Claude CLI with the given prompt inside the vault directory.
         """

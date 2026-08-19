@@ -4,7 +4,7 @@ import subprocess
 import json
 import re
 import threading
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from .. import config
 from .base import AIProvider, ProviderResult, GLOBAL_PROVIDER_LOCK
@@ -67,7 +67,7 @@ class GeminiProvider(AIProvider):
     Implementation of Gemini provider using the Gemini CLI.
     """
     
-    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, extra_env: Optional[dict] = None) -> ProviderResult:
+    def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, extra_env: Optional[Dict[str, str]] = None) -> ProviderResult:
         """
         Execute the Gemini CLI with the given prompt inside the vault directory.
         """
