@@ -67,44 +67,11 @@ def _load_options_config(config_path: Optional[str] = None) -> dict:
         _err(f"Failed to load options config from {path}: {e}", "config_error")
 
 
-def _authenticate(env: dict):
-    from services.ingestion.tools.stocks.auth import ETradeAuth
-    from services.ingestion.tools.stocks.wetrade_auth import WetradeAuth, WETRADE_AVAILABLE
-    from services.ingestion.tools.stocks.etrade_client import ETradeClient
-
-    if not env["consumer_key"] or not env["consumer_secret"]:
-        _err("ETRADE_CONSUMER_KEY and ETRADE_CONSUMER_SECRET must be set in .env", "config_error")
-
-    sandbox = env["mode"].lower() == "sandbox"
-    use_wetrade = WETRADE_AVAILABLE and env["username"] and env["password"]
-
-    try:
-        if use_wetrade:
-            auth = WetradeAuth(
-                consumer_key=env["consumer_key"],
-                consumer_secret=env["consumer_secret"],
-                username=env["username"],
-                password=env["password"],
-                sandbox=sandbox,
-                totp_secret=env.get("totp_secret") or None,
-            )
-        else:
-            auth = ETradeAuth(
-                consumer_key=env["consumer_key"],
-                consumer_secret=env["consumer_secret"],
-                sandbox=sandbox,
-            )
-        access_token, access_token_secret = auth.authenticate(headless=True)
-    except Exception as e:
-        _err(f"E*TRADE authentication failed: {e}", "auth_failed")
-
-    return ETradeClient(
-        consumer_key=env["consumer_key"],
-        consumer_secret=env["consumer_secret"],
-        access_token=access_token,
-        access_token_secret=access_token_secret,
-        sandbox=sandbox,
-    )
+# _authenticate lives in etrade_cli.py and is imported lazily where used
+# (cmd_scan) — options-bot always runs unattended (no --headed equivalent
+# here), so it gets the same short-timeout/single-attempt/PIN-auth-fallback
+# behavior as etrade_cli's own headless callers for free, and any future
+# fix to that logic only needs to happen in one place.
 
 
 # ── HTML Builder ──────────────────────────────────────────────────────────────
@@ -430,6 +397,7 @@ def _build_html(
 
 def cmd_scan(args) -> None:
     """Run the weekday options scan for a given list of tickers."""
+    from services.ingestion.tools.etrade_cli import _authenticate
     from services.ingestion.tools.stocks.etrade_client import ETradeClient
     from services.ingestion.tools.stocks.analyzer import OptionsAnalyzer
     from services.ingestion.tools.stocks.position_analyzer import PositionAnalyzer
