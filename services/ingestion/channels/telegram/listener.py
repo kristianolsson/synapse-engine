@@ -6,6 +6,7 @@ extracts content/attachments, and pipes to the AI provider.
 """
 
 import asyncio
+import functools
 import logging
 import os
 import re
@@ -248,27 +249,18 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             finally:
                 etrade_pin_auth.clear_pending()
 
-            # Auto-retry: whatever request triggered the auth prompt is
-            # still sitting in this session's history, so nudge it to
-            # continue rather than making the user re-ask from scratch.
-            await message.reply_text("✅ E*TRADE login successful. Retrying your request...")
-            session_id = session_manager.get_session(user_key)
-            retry_incoming = IncomingMessage(
-                source_type="telegram",
-                sender=user_key,
-                subject="",
-                body="E*TRADE authentication just completed successfully — please retry the "
-                     "E*TRADE request from my last message now.",
-            )
-            retry_prompt = build_prompt(retry_incoming)
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, pipe_to_provider, retry_prompt, session_id, None, True)
-            if result.session_id:
-                session_manager.save_session(user_key, result.session_id)
-            reply_text = result.output or "✓"
-            reply_text, keyboard, form_id = build_reply_keyboard(chat.id, user_key, reply_text)
-            reply_text = sanitize_telegram_html(reply_text)
-            await message.reply_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
+            await message.reply_text("✅ E*TRADE login successful.")
+
+            async def _retry_task():
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, etrade_pin_auth.complete_and_maybe_retry, pending_etrade)
+
+            task = asyncio.create_task(_retry_task())
+            if context is not None:
+                if not hasattr(context, "background_tasks"):
+                    context.background_tasks = set()
+                context.background_tasks.add(task)
+                task.add_done_callback(context.background_tasks.discard)
             return
 
     if text.strip() in ("/new", "/clear"):
@@ -474,8 +466,16 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         session_id = session_manager.get_session(user_key)
 
     prompt = build_prompt(incoming)
+    extra_env = {
+        "SYNAPSE_SESSION_KEY": user_key,
+        "SYNAPSE_SESSION_ID": session_id or "",
+        "SYNAPSE_CHANNEL": "telegram",
+        "SYNAPSE_CHAT_ID": str(chat.id),
+    }
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, pipe_to_provider, prompt, session_id, None, True)
+    result = await loop.run_in_executor(
+        None, functools.partial(pipe_to_provider, prompt, session_id, None, True, extra_env=extra_env)
+    )
 
     if result.is_error and any(s in result.output.lower() for s in ["429", "quota", "rate limit", "capacity", "resource_exhausted", "timeout", "timed out", "hit your limit", "resets"]):
         provider = result.provider_name or config.get_ai_provider()
@@ -503,6 +503,9 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
 
     if result.session_id and not reply_to_id:
         session_manager.save_session(str(user.id), result.session_id)
+
+    if result.session_id:
+        etrade_pin_auth.backfill_session_id(user_key, result.session_id)
 
     reply_text = result.output
     if not reply_text:
