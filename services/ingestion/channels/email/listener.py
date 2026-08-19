@@ -204,7 +204,10 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
                 etrade_pin_auth.clear_pending()
                 return True, f"❌ E*TRADE login failed: {e}", None
             etrade_pin_auth.clear_pending()
-            etrade_pin_auth.complete_and_maybe_retry(pending_etrade)
+            try:
+                etrade_pin_auth.complete_and_maybe_retry(pending_etrade)
+            except Exception as e:
+                logger.exception("E*TRADE retry failed after successful PIN completion: %s", e)
             return True, "✅ E*TRADE login successful.", None
 
     # --- ONE-TAP COMPLETION (MAILTO LINKS) ---
