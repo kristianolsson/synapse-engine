@@ -154,8 +154,10 @@ def _authenticate(env: dict, headless: bool = True) -> ETradeClient:
     )
     # An unattended caller has no one to complete a stuck login — fail
     # fast instead of waiting the full manual-SMS window before falling
-    # back to the PIN-code flow.
+    # back to the PIN-code flow, and don't retry a login we've confirmed
+    # is deterministically blocked (retrying just doubles the wait).
     login_timeout_ms = 120000 if not headless else 20000
+    max_retries = 2 if not headless else 1
 
     try:
         if use_wetrade:
@@ -168,7 +170,7 @@ def _authenticate(env: dict, headless: bool = True) -> ETradeClient:
                 totp_secret=env.get("totp_secret") or None,
             )
             access_token, access_token_secret = auth.authenticate(
-                headless=headless, login_timeout_ms=login_timeout_ms
+                headless=headless, login_timeout_ms=login_timeout_ms, max_retries=max_retries
             )
         else:
             auth = ETradeAuth(

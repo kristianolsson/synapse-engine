@@ -34,9 +34,8 @@ class BrowserAuth:
     enter the SMS code manually. Tokens are saved to disk and reused
     for subsequent runs on the same day.
     """
-    
-    MAX_RETRIES = 2  # Maximum login attempts before giving up
-    
+
+
     def __init__(
         self,
         consumer_key: str,
@@ -150,7 +149,9 @@ class BrowserAuth:
             logger.info(f"Token renewal failed, will re-authenticate: {e}")
             return False
     
-    def authenticate(self, headless: bool = False, login_timeout_ms: int = 120000) -> Tuple[str, str]:
+    def authenticate(
+        self, headless: bool = False, login_timeout_ms: int = 120000, max_retries: int = 2
+    ) -> Tuple[str, str]:
         """Perform authentication, using saved tokens if available.
 
         Args:
@@ -160,6 +161,11 @@ class BrowserAuth:
                 caller that will fall back to the PIN-code flow on failure
                 should pass a short value instead of waiting the full window
                 for a login attempt no one is there to complete)
+            max_retries: Login attempts before giving up. E*TRADE's fraud
+                detection rejects automated submission deterministically —
+                retrying never turns a failure into a success, it only
+                doubles the wait before an unattended caller's fallback
+                kicks in, so pass 1 there.
 
         Returns:
             Tuple of (access_token, access_token_secret)
@@ -173,14 +179,17 @@ class BrowserAuth:
                 logger.info("Saved tokens expired, need fresh authentication")
 
         # Need browser-based login
-        return self._browser_authenticate(headless, login_timeout_ms)
+        return self._browser_authenticate(headless, login_timeout_ms, max_retries)
 
-    def _browser_authenticate(self, headless: bool = False, login_timeout_ms: int = 120000) -> Tuple[str, str]:
+    def _browser_authenticate(
+        self, headless: bool = False, login_timeout_ms: int = 120000, max_retries: int = 2
+    ) -> Tuple[str, str]:
         """Perform browser-based OAuth authentication.
 
         Args:
             headless: If True and TOTP configured, run headless (not for SMS)
             login_timeout_ms: passed through to _do_browser_login
+            max_retries: passed through to _browser_login
 
         Returns:
             Tuple of (access_token, access_token_secret)
@@ -207,7 +216,7 @@ class BrowserAuth:
         )
         
         # Step 2: Browser login to get verification code
-        verification_code = self._browser_login(authorize_url, headless, login_timeout_ms)
+        verification_code = self._browser_login(authorize_url, headless, login_timeout_ms, max_retries)
         
         if not verification_code:
             raise ValueError("Failed to get verification code from browser login")
@@ -231,13 +240,16 @@ class BrowserAuth:
         logger.info("Authentication successful!")
         return self._access_token, self._access_token_secret
     
-    def _browser_login(self, authorize_url: str, headless: bool = False, login_timeout_ms: int = 120000) -> Optional[str]:
+    def _browser_login(
+        self, authorize_url: str, headless: bool = False, login_timeout_ms: int = 120000, max_retries: int = 2
+    ) -> Optional[str]:
         """Perform browser-based login and return verification code.
 
         Args:
             authorize_url: OAuth authorization URL
             headless: Run browser in headless mode (only for TOTP)
             login_timeout_ms: How long to wait for the post-submit navigation
+            max_retries: Login attempts before giving up
 
         Returns:
             Verification code string, or None if failed
@@ -246,8 +258,8 @@ class BrowserAuth:
         # This is critical for Docker environments where no display exists.
         use_headless = headless
 
-        for attempt in range(1, self.MAX_RETRIES + 1):
-            logger.info(f"Login attempt {attempt}/{self.MAX_RETRIES}")
+        for attempt in range(1, max_retries + 1):
+            logger.info(f"Login attempt {attempt}/{max_retries}")
 
             try:
                 code = self._do_browser_login(authorize_url, use_headless, login_timeout_ms)
@@ -255,8 +267,8 @@ class BrowserAuth:
                     return code
             except Exception as e:
                 logger.warning(f"Login attempt {attempt} failed: {e}")
-                if attempt >= self.MAX_RETRIES:
-                    logger.error(f"All {self.MAX_RETRIES} login attempts failed")
+                if attempt >= max_retries:
+                    logger.error(f"All {max_retries} login attempts failed")
                     raise
         
         return None

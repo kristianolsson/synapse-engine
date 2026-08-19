@@ -844,7 +844,10 @@ class TestTelegramEtradeAuth:
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")
     @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
-    async def test_genuine_reply_to_prompt_completes_login(self, mock_etrade, mock_config):
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    async def test_genuine_reply_to_prompt_completes_login_and_retries_original_request(
+        self, mock_pipe, mock_etrade, mock_config
+    ):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_config.ETRADE_CONSUMER_KEY = "key"
         mock_config.ETRADE_CONSUMER_SECRET = "secret"
@@ -852,17 +855,27 @@ class TestTelegramEtradeAuth:
         pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}
         mock_etrade.load_pending.return_value = pending
         mock_etrade.finish_pin_auth.return_value = {"access_token": "AT", "access_token_secret": "AS"}
+        mock_pipe.return_value = MagicMock(
+            is_error=False, output="Your balance is $1,000", session_id="sess-2", stats={}
+        )
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = "sess-1"
+        sm.get_stats_enabled.return_value = False
         rl = RateLimiter(10, 60)
         update = _make_update(text="123456")
         update.message.reply_to_message = MagicMock(message_id=555)
 
-        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+        await handle_message(update, None, rl, sm)
 
         mock_etrade.finish_pin_auth.assert_called_once_with(pending, "123456", "key", "secret")
         mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
         mock_etrade.clear_pending.assert_called_once()
+        mock_pipe.assert_called_once()
+        assert mock_pipe.call_args[0][1] == "sess-1"  # resumed the user's existing session
+        sm.save_session.assert_called_once_with("12345", "sess-2")
         replies = [c[0][0] for c in update.message.reply_text.call_args_list]
         assert any("successful" in r.lower() for r in replies)
+        assert any("Your balance is $1,000" in r for r in replies)
 
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")

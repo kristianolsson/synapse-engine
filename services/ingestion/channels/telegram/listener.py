@@ -247,7 +247,28 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
                 return
             finally:
                 etrade_pin_auth.clear_pending()
-            await message.reply_text("✅ E*TRADE login successful.")
+
+            # Auto-retry: whatever request triggered the auth prompt is
+            # still sitting in this session's history, so nudge it to
+            # continue rather than making the user re-ask from scratch.
+            await message.reply_text("✅ E*TRADE login successful. Retrying your request...")
+            session_id = session_manager.get_session(user_key)
+            retry_incoming = IncomingMessage(
+                source_type="telegram",
+                sender=user_key,
+                subject="",
+                body="E*TRADE authentication just completed successfully — please retry the "
+                     "E*TRADE request from my last message now.",
+            )
+            retry_prompt = build_prompt(retry_incoming)
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, pipe_to_provider, retry_prompt, session_id, None, True)
+            if result.session_id:
+                session_manager.save_session(user_key, result.session_id)
+            reply_text = result.output or "✓"
+            reply_text, keyboard, form_id = build_reply_keyboard(chat.id, user_key, reply_text)
+            reply_text = sanitize_telegram_html(reply_text)
+            await message.reply_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
             return
 
     if text.strip() in ("/new", "/clear"):
