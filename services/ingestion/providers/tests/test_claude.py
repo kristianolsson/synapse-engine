@@ -151,3 +151,29 @@ class TestClaudeProvider:
         call_args = mock_run.call_args[0][0]
         assert "--resume" in call_args
         assert "existing-session" in call_args
+
+    @patch("subprocess.run")
+    def test_generate_response_merges_extra_env(self, mock_run):
+        json_output = json.dumps({
+            "type": "result", "subtype": "success", "is_error": False,
+            "result": "SYNAPSE_OK", "session_id": "abc-123",
+        })
+        mock_run.return_value = MagicMock(returncode=0, stdout=json_output, stderr="")
+
+        self.provider.generate_response("test", extra_env={"SYNAPSE_SESSION_KEY": "user-1"})
+
+        called_env = mock_run.call_args.kwargs["env"]
+        assert called_env["SYNAPSE_SESSION_KEY"] == "user-1"
+
+    @patch("subprocess.run")
+    def test_generate_response_extra_env_none_does_not_raise(self, mock_run):
+        json_output = json.dumps({
+            "type": "result", "subtype": "success", "is_error": False,
+            "result": "SYNAPSE_OK", "session_id": "abc-123",
+        })
+        mock_run.return_value = MagicMock(returncode=0, stdout=json_output, stderr="")
+
+        self.provider.generate_response("test")  # extra_env omitted entirely
+
+        called_env = mock_run.call_args.kwargs["env"]
+        assert "SYNAPSE_SESSION_KEY" not in called_env
