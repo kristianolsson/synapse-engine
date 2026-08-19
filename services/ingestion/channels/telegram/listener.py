@@ -252,8 +252,11 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             await message.reply_text("✅ E*TRADE login successful.")
 
             async def _retry_task():
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, etrade_pin_auth.complete_and_maybe_retry, pending_etrade)
+                try:
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, etrade_pin_auth.complete_and_maybe_retry, pending_etrade)
+                except Exception as e:
+                    logger.error("Error in E*TRADE retry task: %s", e)
 
             task = asyncio.create_task(_retry_task())
             if context is not None:

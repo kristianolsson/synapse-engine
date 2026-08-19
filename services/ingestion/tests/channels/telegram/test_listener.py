@@ -193,6 +193,47 @@ class TestTelegramMessageProcessing:
     @patch("services.ingestion.channels.telegram.listener.config")
     @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
     @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    async def test_success_passes_correlation_extra_env(self, mock_extract, mock_pipe, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_extract.return_value = []
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="sess-new", stats=None)
+        rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        update = _make_update(text="Buy milk", user_id=12345)
+        update.message.reply_to_message = None
+
+        await handle_message(update, None, rl, sm)
+
+        extra_env = mock_pipe.call_args.kwargs["extra_env"]
+        assert extra_env["SYNAPSE_SESSION_KEY"] == "12345"
+        assert extra_env["SYNAPSE_SESSION_ID"] == ""
+        assert extra_env["SYNAPSE_CHANNEL"] == "telegram"
+        assert extra_env["SYNAPSE_CHAT_ID"] == "12345"
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    async def test_success_backfills_session_id(self, mock_extract, mock_pipe, mock_config, mock_etrade):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_extract.return_value = []
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="sess-new", stats=None)
+        rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        update = _make_update(text="Buy milk", user_id=12345)
+        update.message.reply_to_message = None
+
+        await handle_message(update, None, rl, sm)
+
+        mock_etrade.backfill_session_id.assert_called_once_with("12345", "sess-new")
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
     async def test_success_with_tool_stats(self, mock_extract, mock_pipe, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_extract.return_value = []
