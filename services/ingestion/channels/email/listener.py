@@ -204,6 +204,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
                 etrade_pin_auth.clear_pending()
                 return True, f"❌ E*TRADE login failed: {e}", None
             etrade_pin_auth.clear_pending()
+            etrade_pin_auth.complete_and_maybe_retry(pending_etrade)
             return True, "✅ E*TRADE login successful.", None
 
     # --- ONE-TAP COMPLETION (MAILTO LINKS) ---
@@ -299,10 +300,20 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
 
     prompt = build_prompt(incoming)
     session_id = session_manager.get_session(session_key)
-    result = pipe_to_provider(prompt, session_id=session_id)
+    extra_env = {
+        "SYNAPSE_SESSION_KEY": session_key,
+        "SYNAPSE_SESSION_ID": session_id or "",
+        "SYNAPSE_CHANNEL": "email",
+        "SYNAPSE_EMAIL_TO": sender,
+        "SYNAPSE_EMAIL_SUBJECT": subject,
+        "SYNAPSE_EMAIL_MESSAGE_ID": message_id,
+        "SYNAPSE_EMAIL_REFERENCES": references,
+    }
+    result = pipe_to_provider(prompt, session_id=session_id, extra_env=extra_env)
 
     if result.session_id:
         session_manager.save_session(session_key, result.session_id)
+        etrade_pin_auth.backfill_session_id(session_key, result.session_id)
 
     stats_to_return = result.stats if session_manager.get_stats_enabled(sender) else None
 

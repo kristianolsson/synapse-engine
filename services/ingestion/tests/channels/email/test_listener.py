@@ -161,6 +161,24 @@ class TestProcessEmail:
         assert text == ""
         assert stats is None
 
+    @patch("services.ingestion.channels.email.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_success_passes_correlation_extra_env(self, mock_config, mock_pipe, mock_etrade):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_etrade.load_pending.return_value = None
+        mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="sess-new", stats=None)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+
+        raw = _make_simple_email(from_addr="user@example.com", body="Buy milk")
+        process_email(raw, sm)
+
+        extra_env = mock_pipe.call_args.kwargs["extra_env"]
+        assert extra_env["SYNAPSE_CHANNEL"] == "email"
+        assert extra_env["SYNAPSE_EMAIL_TO"] == "user@example.com"
+        mock_etrade.backfill_session_id.assert_called_once()
+
     @patch("services.ingestion.channels.email.listener.pipe_to_provider")
     @patch("services.ingestion.channels.email.listener.config")
     def test_error_triggers_reply(self, mock_config, mock_pipe):
@@ -378,6 +396,7 @@ class TestProcessEmailEtradeAuth:
         mock_etrade.finish_pin_auth.assert_called_once_with(pending, "654321", "key", "secret")
         mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
         mock_etrade.clear_pending.assert_called_once()
+        mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending)
         mock_pipe.assert_not_called()
         assert should_reply is True
         assert "successful" in text.lower()
