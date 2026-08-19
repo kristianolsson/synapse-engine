@@ -79,10 +79,15 @@ def _send_pin_auth_prompt(pending: dict) -> bool:
 
     if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_ALLOWED_USER_IDS:
         from services.ingestion.channels.telegram.sender import send_telegram_message
-        chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
+        # Prefer SYNAPSE_CHAT_ID (from the original request) if available,
+        # otherwise use the default configured user
+        if os.environ.get("SYNAPSE_CHAT_ID"):
+            chat_id = int(os.environ["SYNAPSE_CHAT_ID"])
+        else:
+            chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
         message_id = send_telegram_message(chat_id, prompt_text)
         if message_id:
-            etrade_pin_auth.mark_prompt_sent(channel="telegram", chat_id=chat_id, prompt_message_id=message_id)
+            etrade_pin_auth.mark_prompt_sent(channel="telegram", prompt_message_id=message_id)
             return True
 
     if config.REPLY_TO_ADDRESS:
@@ -119,6 +124,33 @@ def _fallback_to_pin_auth(env: dict, original_error: Exception) -> None:
         pending = etrade_pin_auth.start_pin_auth(env["consumer_key"], env["consumer_secret"])
     except Exception as e:
         _err(f"E*TRADE authentication failed ({original_error}); could not start PIN fallback: {e}", "auth_failed")
+
+    # Capture retry correlation, if the caller supplied any (set by the
+    # channel listeners / scheduler via pipe_to_provider's extra_env).
+    # Presence of session_key or reminder_task is what marks this pending
+    # request as retryable — a manual /update-etrade-auth run never sets
+    # these, so it's correctly excluded from any retry attempt.
+    correlation = {}
+    session_key = os.environ.get("SYNAPSE_SESSION_KEY", "")
+    reminder_task = os.environ.get("SYNAPSE_REMINDER_TASK", "")
+    if session_key:
+        correlation["session_key"] = session_key
+        correlation["session_id"] = os.environ.get("SYNAPSE_SESSION_ID", "")
+        correlation["failed_command"] = " ".join(sys.argv)
+    elif reminder_task:
+        correlation["reminder_task"] = reminder_task
+    if correlation:
+        retry_channel = os.environ.get("SYNAPSE_CHANNEL", "")
+        if retry_channel:
+            correlation["retry_channel"] = retry_channel
+        if os.environ.get("SYNAPSE_CHAT_ID"):
+            correlation["chat_id"] = int(os.environ["SYNAPSE_CHAT_ID"])
+        if os.environ.get("SYNAPSE_EMAIL_TO"):
+            correlation["email_to"] = os.environ["SYNAPSE_EMAIL_TO"]
+            correlation["email_subject"] = os.environ.get("SYNAPSE_EMAIL_SUBJECT", "")
+            correlation["email_message_id"] = os.environ.get("SYNAPSE_EMAIL_MESSAGE_ID", "")
+            correlation["email_references"] = os.environ.get("SYNAPSE_EMAIL_REFERENCES", "")
+        etrade_pin_auth.mark_prompt_sent(**correlation)
 
     if not _send_pin_auth_prompt(pending):
         etrade_pin_auth.clear_pending()
