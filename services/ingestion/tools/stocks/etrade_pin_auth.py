@@ -143,15 +143,22 @@ def complete_and_maybe_retry(pending: dict) -> None:
 
     if session_key:
         logger.info("complete_and_maybe_retry: resuming session %s (session-resume branch)", session_key)
-        from ...core.pipe import pipe_to_provider
+        from ...core.pipe import pipe_to_provider, build_prompt, IncomingMessage
         from ...core.session_manager import SessionManager
 
         failed_command = pending.get("failed_command", "")
-        retry_prompt = (
+        retry_channel = pending.get("retry_channel", "system")
+        # Route through the same envelope every real message gets (Type/
+        # Sender/Context/Current Time) instead of a bare string — an
+        # unattributed instruction arriving mid-session reads as a prompt
+        # injection attempt, and got correctly flagged as one in practice.
+        sender = pending.get("email_to") if retry_channel == "email" else session_key
+        retry_text = (
             "E*TRADE authentication just completed successfully. You were "
             f"blocked earlier in this conversation when running `{failed_command}` "
             "— retry that now and complete my full original request."
         )
+        retry_prompt = build_prompt(IncomingMessage(source_type=retry_channel, sender=sender or "system", body=retry_text))
         result = pipe_to_provider(retry_prompt, session_id=pending.get("session_id") or None)
         if result.session_id:
             SessionManager().save_session(session_key, result.session_id)

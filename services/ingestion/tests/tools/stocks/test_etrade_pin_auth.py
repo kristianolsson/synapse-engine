@@ -196,6 +196,10 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_telegram():
     retry_prompt = mock_pipe.call_args.args[0]
     assert "etrade balance" in retry_prompt
     assert "complete my full original request" in retry_prompt
+    # Must arrive wrapped in the same envelope every real message gets —
+    # a bare unattributed instruction reads as a prompt injection attempt.
+    assert "Type: telegram" in retry_prompt
+    assert "Sender: user-1" in retry_prompt
     mock_sm.save_session.assert_called_once_with("user-1", "sess-new")
     mock_send.assert_called_once_with(555, "Your balance is $1,000")
 
@@ -218,6 +222,9 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_email():
         etrade_pin_auth.complete_and_maybe_retry(pending)
 
     mock_pipe.assert_called_once_with(ANY, session_id=None)  # empty session_id -> fresh session
+    retry_prompt = mock_pipe.call_args.args[0]
+    assert "Type: email" in retry_prompt
+    assert "Sender: user@example.com" in retry_prompt
     mock_sm.save_session.assert_called_once_with("<thread@synapse.local>", "sess-new")
     mock_send.assert_called_once_with(
         to_addr="user@example.com", subject="Check my balance", body="Your balance is $1,000",

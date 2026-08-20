@@ -131,7 +131,16 @@ def _fallback_to_pin_auth(env: dict, original_error: Exception) -> None:
     if session_key:
         correlation["session_key"] = session_key
         correlation["session_id"] = os.environ.get("SYNAPSE_SESSION_ID", "")
-        correlation["failed_command"] = " ".join(sys.argv)
+        # Clean "<tool> <args>" display (e.g. "etrade balance"), not
+        # sys.argv[0]'s raw interpreter path — an absolute internal script
+        # path surfacing in a supposedly-user message reads as an attempt to
+        # redirect tool use, and got correctly flagged as a prompt injection
+        # in practice.
+        tool_name = os.path.basename(sys.argv[0])
+        if tool_name.endswith(".py"):
+            tool_name = tool_name[:-3]
+        tool_name = tool_name.removesuffix("_cli").replace("_", "-")
+        correlation["failed_command"] = " ".join([tool_name] + sys.argv[1:])
     elif reminder_task:
         correlation["reminder_task"] = reminder_task
     if correlation:

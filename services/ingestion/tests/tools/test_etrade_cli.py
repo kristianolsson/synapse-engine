@@ -143,6 +143,74 @@ def test_headless_failure_captures_session_correlation_for_retry(monkeypatch, ca
     assert pending["failed_command"] == "etrade balance"
 
 
+def test_headless_failure_normalizes_full_script_path_in_failed_command(monkeypatch, capsys):
+    """Production argv[0] is the full interpreter path (e.g.
+    /app/synapse-engine/services/ingestion/tools/etrade_cli.py), not the
+    clean "etrade"/"options-bot" name other tests mock — failed_command
+    must normalize it, since a raw absolute path echoed back into the
+    retry prompt reads as an attempt to redirect tool use."""
+    import services.ingestion.config as real_config
+    monkeypatch.setattr(real_config, "TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setattr(real_config, "TELEGRAM_ALLOWED_USER_IDS", [123])
+    monkeypatch.setattr(real_config, "REPLY_TO_ADDRESS", "")
+    monkeypatch.setenv("SYNAPSE_SESSION_KEY", "user-1")
+    monkeypatch.setenv("SYNAPSE_SESSION_ID", "sess-abc")
+    monkeypatch.setenv("SYNAPSE_CHANNEL", "telegram")
+    monkeypatch.setenv("SYNAPSE_CHAT_ID", "555")
+    monkeypatch.setattr(
+        "sys.argv", ["/app/synapse-engine/services/ingestion/tools/etrade_cli.py", "balance"]
+    )
+
+    def mock_start_pin_auth(key, secret):
+        pending = {"oauth_token": "T", "oauth_token_secret": "S", "authorize_url": "https://x/y", "created_at": __import__("time").time()}
+        etrade_pin_auth.PENDING_FILE.write_text(json.dumps(pending))
+        return pending
+
+    monkeypatch.setattr(etrade_pin_auth, "start_pin_auth", mock_start_pin_auth)
+    monkeypatch.setattr(
+        "services.ingestion.channels.telegram.sender.send_telegram_message",
+        lambda chat_id, text: 999,
+    )
+
+    with pytest.raises(SystemExit):
+        etrade_cli._authenticate(ENV, headless=True)
+
+    pending = etrade_pin_auth.load_pending()
+    assert pending["failed_command"] == "etrade balance"
+
+
+def test_headless_failure_normalizes_options_bot_script_path(monkeypatch, capsys):
+    import services.ingestion.config as real_config
+    monkeypatch.setattr(real_config, "TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setattr(real_config, "TELEGRAM_ALLOWED_USER_IDS", [123])
+    monkeypatch.setattr(real_config, "REPLY_TO_ADDRESS", "")
+    monkeypatch.setenv("SYNAPSE_SESSION_KEY", "user-1")
+    monkeypatch.setenv("SYNAPSE_SESSION_ID", "sess-abc")
+    monkeypatch.setenv("SYNAPSE_CHANNEL", "telegram")
+    monkeypatch.setenv("SYNAPSE_CHAT_ID", "555")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["/app/synapse-engine/services/ingestion/tools/options_bot_cli.py", "scan", "--tickers", "AAPL"],
+    )
+
+    def mock_start_pin_auth(key, secret):
+        pending = {"oauth_token": "T", "oauth_token_secret": "S", "authorize_url": "https://x/y", "created_at": __import__("time").time()}
+        etrade_pin_auth.PENDING_FILE.write_text(json.dumps(pending))
+        return pending
+
+    monkeypatch.setattr(etrade_pin_auth, "start_pin_auth", mock_start_pin_auth)
+    monkeypatch.setattr(
+        "services.ingestion.channels.telegram.sender.send_telegram_message",
+        lambda chat_id, text: 999,
+    )
+
+    with pytest.raises(SystemExit):
+        etrade_cli._authenticate(ENV, headless=True)
+
+    pending = etrade_pin_auth.load_pending()
+    assert pending["failed_command"] == "options-bot scan --tickers AAPL"
+
+
 def test_headless_failure_captures_email_correlation_for_retry(monkeypatch, capsys):
     import services.ingestion.config as real_config
     monkeypatch.setattr(real_config, "TELEGRAM_BOT_TOKEN", "token")
