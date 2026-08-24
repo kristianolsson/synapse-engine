@@ -522,11 +522,6 @@ class TestDeliveryFailure:
         assert "master_todos" in prompt_arg
         assert "Call the dentist" in prompt_arg
 
-        mock_pipe.assert_called_once()
-        prompt_arg = mock_pipe.call_args[0][0]
-        assert "master_todos" in prompt_arg
-        assert "Call the dentist" in prompt_arg
-
     @patch.object(ReminderScheduler, "_send_email")
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_alerts_immediately_with_the_original_error(self, mock_pipe, mock_email, scheduler):
