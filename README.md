@@ -7,6 +7,8 @@ routing them to the configured AI provider for autonomous processing of the
 **Synapse Vault**.
 
 > **Supported providers:** Claude Code CLI, Antigravity CLI (agy), Gemini CLI (deprecated — replaced by agy)
+>
+> **Vault template:** [synapse-vault](https://github.com/kristianolsson/synapse-vault) — a generic, public starter vault (protocols only, no personal data) to pair with this engine.
 
 ![Vault Profile Pic](assets/vault-profile.jpg)
 
