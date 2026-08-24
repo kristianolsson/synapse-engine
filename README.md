@@ -6,7 +6,7 @@ backend — capturing messages, standardizing them into a structured format, and
 routing them to the configured AI provider for autonomous processing of the
 **Synapse Vault**.
 
-> **Supported providers:** Gemini CLI, Claude Code CLI, Antigravity CLI (agy)
+> **Supported providers:** Claude Code CLI, Antigravity CLI (agy), Gemini CLI (deprecated — replaced by agy)
 
 ![Vault Profile Pic](assets/vault-profile.jpg)
 
@@ -45,11 +45,11 @@ flowchart TB
 
     subgraph prov["Provider Layer — Strategy (providers/)"]
         direction LR
-        GEM["Gemini CLI"]
         CLA["Claude Code CLI"]
         AGY["Antigravity CLI"]
+        GEM["Gemini CLI (deprecated)"]
         ECHO["Echo (test stub)"]
-        GEM ~~~ CLA ~~~ AGY ~~~ ECHO
+        CLA ~~~ AGY ~~~ GEM ~~~ ECHO
     end
 
     subgraph exec["Agent Execution — serialized by GLOBAL_PROVIDER_LOCK"]
@@ -87,7 +87,7 @@ The service is organized into the following layers under `services/ingestion/`:
 | | `core/scheduler.py` | Reminder scheduler (heapq two-tier queue; recurring + one-shot) |
 | | `core/session_manager.py` | Per-user/provider session state (TTL + midnight reset) |
 | | `core/rate_limiter.py` | Shared sliding-window rate limiter |
-| **Providers** | `providers/` | Pluggable AI backends via `AIProvider` ABC + factory (`gemini`, `claude`, `agy`, `echo`) |
+| **Providers** | `providers/` | Pluggable AI backends via `AIProvider` ABC + factory (`claude`, `agy`, `gemini` (deprecated), `echo`) |
 | **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
 | _(injected onto the_ | `tools/calendar_mcp.py` | Same calendar functions exposed over MCP |
 | _agent's `PATH`_ | `tools/gmail_cli.py` | Gmail CLI (inbox, labels, drafts) |
@@ -105,7 +105,7 @@ The service is organized into the following layers under `services/ingestion/`:
 
 1.  **Prerequisites:**
     -   Python 3.10+
-    -   At least one AI CLI installed: [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), or [Antigravity CLI (agy)](https://antigravity.google/cli/install.sh).
+    -   At least one AI CLI installed: [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), [Antigravity CLI (agy)](https://antigravity.google/cli/install.sh), or [Gemini CLI](https://github.com/google-gemini/gemini-cli) (deprecated — replaced by agy).
     -   A dedicated Gmail account for ingestion (with App Password).
     -   (Recommended) A Telegram bot token from [@BotFather](https://t.me/BotFather).
 
@@ -125,8 +125,8 @@ The service is organized into the following layers under `services/ingestion/`:
 
     **Key Configuration** (see `.env.example` for the full list, including model, timeout, retry, and E\*TRADE options):
     - `ENABLED_CHANNELS`: Comma-separated list of channels to run (`email`, `telegram`, or `email,telegram`).
-    - `AI_PROVIDERS`: Ordered, comma-separated provider list — the first is the default, the rest are fallbacks on quota errors (e.g. `claude,gemini`). Valid values: `gemini`, `claude`, `agy`, `echo`.
-    - `AI_PROVIDER`: Legacy single-provider variable (still honored if `AI_PROVIDERS` is unset). Defaults to `gemini`.
+    - `AI_PROVIDERS`: Ordered, comma-separated provider list — the first is the default, the rest are fallbacks on quota errors (e.g. `claude,agy`). Valid values: `claude`, `agy`, `gemini` (deprecated — replaced by agy), `echo`.
+    - `AI_PROVIDER`: Legacy single-provider variable (still honored if `AI_PROVIDERS` is unset). Defaults to `gemini` (deprecated — set `AI_PROVIDERS` to `claude` or `agy` instead).
     - `CLAUDE_CMD`: (Optional) Explicit path to `claude` binary. Auto-detected if omitted.
     - `CLAUDE_TIMEOUT_SECONDS`: Max execution time for Claude CLI (default: `300`).
     - `CLAUDE_MAX_BUDGET_USD`: (Optional) Per-request cost cap for Claude.
@@ -176,7 +176,7 @@ When interacting with the bot via Telegram, the following commands are available
 - `/update` — Pulls the latest code via git and gracefully restarts the service.
 - `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
 - `/update-claude-auth` — Re-authenticates the Claude CLI: replies with an OAuth URL, then completes login once you reply with the code (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
-- `/provider <gemini|claude|agy>` — Switches the active AI provider. Without an argument, shows the current provider.
+- `/provider <claude|agy|gemini>` — Switches the active AI provider (`gemini` deprecated — replaced by agy). Without an argument, shows the current provider.
 - `/amazon heal` — Re-bootstraps the Amazon Fresh CSS selectors from the live pages when the scraper breaks.
 - `/help` — Shows the available Telegram commands.
 
@@ -204,10 +204,10 @@ Best for running on a personal Mac. Runs the service in the background via a `la
 
 ### Option B — Docker / QNAP NAS
 
-Best for always-on, headless operation. The `Dockerfile` bundles the Gemini,
-Claude, and Antigravity CLIs plus a Playwright Firefox (for E\*TRADE and Amazon
-Fresh browser auth), and `docker-compose.yml` mounts the Vault, CLI credentials,
-and SSH key from persistent storage.
+Best for always-on, headless operation. The `Dockerfile` bundles the Claude,
+Antigravity, and Gemini (deprecated) CLIs plus a Playwright Firefox (for
+E\*TRADE and Amazon Fresh browser auth), and `docker-compose.yml` mounts the
+Vault, CLI credentials, and SSH key from persistent storage.
 
 ```bash
 docker compose build
@@ -217,7 +217,7 @@ docker compose logs -f
 
 The compose file expects an `.env` and mounted credential directories on the
 host. For a full walkthrough on the QNAP TS-264 (creating the `synapse` user,
-folder layout, seeding Claude/Gemini/Antigravity/E\*TRADE/Amazon credentials,
+folder layout, seeding Claude/Antigravity/Gemini/E\*TRADE/Amazon credentials,
 and the OAuth token), see **[`qnap-setup.md`](qnap-setup.md)**.
 
 **Updating:** send `/update` via Telegram (git pull + graceful restart — the
