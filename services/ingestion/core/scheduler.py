@@ -360,23 +360,29 @@ class ReminderScheduler:
         return send_telegram_message(chat_id, text, reply_markup=reply_markup)
 
     def _send_email(self, text: str, subject: str, session_id: str = None) -> bool:
-        """Send a message via Email."""
-        from ..channels.email.reply import send_reply
+        """Send a message via Email. Never raises — callers (e.g. delivery-
+        failure alerting) depend on this always returning, so any error here
+        is logged and swallowed rather than propagated."""
+        try:
+            from ..channels.email.reply import send_reply
 
-        to_addr = config.REPLY_TO_ADDRESS or (
-            config.ALLOWED_SENDERS[0] if config.ALLOWED_SENDERS else ""
-        )
-        if not to_addr:
-            logger.error("No REPLY_TO_ADDRESS or ALLOWED_SENDERS configured, cannot send reminder")
+            to_addr = config.REPLY_TO_ADDRESS or (
+                config.ALLOWED_SENDERS[0] if config.ALLOWED_SENDERS else ""
+            )
+            if not to_addr:
+                logger.error("No REPLY_TO_ADDRESS or ALLOWED_SENDERS configured, cannot send reminder")
+                return False
+
+            message_id = f"<{session_id}@synapse.local>" if session_id else ""
+            return send_reply(
+                to_addr=to_addr,
+                subject=subject,
+                body=text,
+                message_id=message_id,
+            )
+        except Exception as e:
+            logger.error("Failed to send email (subject=%r): %s", subject, e)
             return False
-
-        message_id = f"<{session_id}@synapse.local>" if session_id else ""
-        return send_reply(
-            to_addr=to_addr,
-            subject=subject,
-            body=text,
-            message_id=message_id,
-        )
 
     def _make_subject(self, text: str, prefix: str = "Reminder") -> str:
         """Generate a concise email subject from the task/message text."""
@@ -422,7 +428,7 @@ class ReminderScheduler:
             subject=subject,
         )
         if not success:
-            self._handle_delivery_failure(task)
+            self._handle_delivery_failure(task, error=f"Failed to deliver message via {channel}.")
 
     def _handle_work_reminder(self, channel: str, task: str, is_missed: bool = False, seconds_late: float = 0, subject_override: str = None) -> None:
         """Re-pipe a work reminder through the normal ingestion flow.
@@ -476,7 +482,7 @@ class ReminderScheduler:
 
         if result.is_error:
             logger.error("Work reminder failed: %s", result.output)
-            self._handle_delivery_failure(task)
+            self._handle_delivery_failure(task, error=result.output)
             return
 
         if not result.requires_reply:
@@ -539,7 +545,7 @@ class ReminderScheduler:
             reply_markup=keyboard,
         )
         if not msg_id:
-            self._handle_delivery_failure(task)
+            self._handle_delivery_failure(task, error=f"Task completed but failed to deliver the response via {channel}.")
             if form_id:
                 from ..core import form_state
                 form_state.delete_form(form_id)
@@ -547,12 +553,17 @@ class ReminderScheduler:
             from ..channels.telegram.reply_dispatch import attach_form_message_id
             attach_form_message_id(form_id, msg_id, result.session_id)
 
-    def _handle_delivery_failure(self, task: str) -> None:
-        """Fallback: ask AI to log the failed reminder to master_todos.
+    def _handle_delivery_failure(self, task: str, error: str = "") -> None:
+        """Alert the user and ask AI to log the failed reminder to master_todos.
 
-        This ensures no reminder is silently lost.
+        This ensures no reminder is silently lost, and the user is always
+        told when a scheduled task fails, regardless of the failure reason.
         """
         logger.warning("Delivery failed, sending fallback to log task: %s", task)
+        self._alert(
+            text=f"A scheduled task failed. The original task was:\n\n{task}\n\nError:\n{error or 'No error detail available.'}",
+            subject="[Synapse Alert] Scheduled task failed",
+        )
         fallback_prompt = FALLBACK_PROMPT_TEMPLATE.format(task=task)
         try:
             result = pipe_to_provider(fallback_prompt)
@@ -565,16 +576,25 @@ class ReminderScheduler:
 
             if result.is_error:
                 logger.error("Fallback logging returned an error: %s", result.output)
-                self._send_email(
+                self._alert(
                     text=f"Failed to execute and log reminder. The original task was:\n\n{task}\n\nError:\n{result.output}",
                     subject="[Synapse Alert] Failed to execute and log reminder"
                 )
         except Exception as e:
             logger.error("Fallback logging also failed: %s", e)
-            self._send_email(
+            self._alert(
                 text=f"Failed to execute and log reminder. The original task was:\n\n{task}\n\nException:\n{e}",
                 subject="[Synapse Alert] Failed to execute and log reminder"
             )
+
+    def _alert(self, text: str, subject: str) -> None:
+        """Best-effort alert email — a notification failure must never mask
+        or interrupt the error-handling flow that triggered it (e.g. logging
+        the failed task to master_todos)."""
+        try:
+            self._send_email(text=text, subject=subject)
+        except Exception as e:
+            logger.error("Failed to send alert email (subject=%r): %s", subject, e)
 
     # ── Dispatch ─────────────────────────────────────────────────────────
 
@@ -610,7 +630,7 @@ class ReminderScheduler:
                 logger.error("Unknown reminder type: %s", reminder_type)
         except Exception as e:
             logger.error("Error firing reminder %s: %s", rid, e, exc_info=True)
-            self._handle_delivery_failure(task)
+            self._handle_delivery_failure(task, error=str(e))
 
         # Post-fire: handle recurring vs one-shot
         if recurring == "none":

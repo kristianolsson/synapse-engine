@@ -255,6 +255,21 @@ class TestDelivery:
         result = scheduler._send_email("Hello!", subject="Reminder: Hello!")
         assert result is False
 
+    @patch("services.ingestion.core.scheduler.config")
+    def test_send_email_swallows_exception(self, mock_config, scheduler):
+        """send_reply (SMTP) raising must not propagate — callers rely on
+        _send_email always returning, never raising."""
+        mock_config.REPLY_TO_ADDRESS = "user@example.com"
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+
+        with patch(
+            "services.ingestion.channels.email.reply.send_reply",
+            side_effect=Exception("SMTP connection refused"),
+        ):
+            result = scheduler._send_email("Hello!", subject="Reminder: Hello!")
+
+        assert result is False
+
     def test_deliver_unknown_channel(self, scheduler):
         result = scheduler._deliver("sms", "Hello!")
         assert result is False
@@ -288,7 +303,7 @@ class TestMessageReminder:
     def test_message_delivery_failure(self, mock_deliver, mock_fallback, scheduler):
         mock_deliver.return_value = False
         scheduler._handle_message_reminder("telegram", "Call the dentist")
-        mock_fallback.assert_called_once_with("Call the dentist")
+        mock_fallback.assert_called_once_with("Call the dentist", error="Failed to deliver message via telegram.")
 
 
 # ── Work Reminder Handling ───────────────────────────────────────────
@@ -338,7 +353,7 @@ class TestWorkReminder:
 
         scheduler._handle_work_reminder("telegram", "Research stocks")
 
-        mock_fallback.assert_called_once_with("Research stocks")
+        mock_fallback.assert_called_once_with("Research stocks", error="API error")
 
     @patch.object(ReminderScheduler, "_deliver")
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
@@ -424,7 +439,9 @@ class TestWorkReminder:
 
         scheduler._handle_work_reminder("telegram", "Fitness check-in")
 
-        mock_fallback.assert_called_once_with("Fitness check-in")
+        mock_fallback.assert_called_once_with(
+            "Fitness check-in", error="Task completed but failed to deliver the response via telegram."
+        )
         mock_delete_form.assert_called_once_with("form-abc")
 
     @patch("services.ingestion.channels.telegram.reply_dispatch.build_reply_keyboard")
@@ -482,11 +499,28 @@ class TestWorkReminder:
 class TestDeliveryFailure:
     """Tests for _handle_delivery_failure."""
 
+    @patch.object(ReminderScheduler, "_send_email")
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
-    def test_fallback_logs_to_master_todos(self, mock_pipe, scheduler):
+    def test_fallback_logs_to_master_todos(self, mock_pipe, mock_email, scheduler):
         mock_pipe.return_value = MagicMock(is_error=False, output="")
 
         scheduler._handle_delivery_failure("Call the dentist")
+
+    @patch.object(ReminderScheduler, "_send_email")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    def test_still_logs_to_master_todos_if_alert_email_raises(self, mock_pipe, mock_email, scheduler):
+        """Even if _send_email somehow raises, the task must still get
+        logged to master_todos — one failure must not sink the other."""
+        mock_email.side_effect = Exception("unexpected email failure")
+        mock_pipe.return_value = MagicMock(is_error=False, output="")
+
+        # Must not raise
+        scheduler._handle_delivery_failure("Call the dentist")
+
+        mock_pipe.assert_called_once()
+        prompt_arg = mock_pipe.call_args[0][0]
+        assert "master_todos" in prompt_arg
+        assert "Call the dentist" in prompt_arg
 
         mock_pipe.assert_called_once()
         prompt_arg = mock_pipe.call_args[0][0]
@@ -495,16 +529,35 @@ class TestDeliveryFailure:
 
     @patch.object(ReminderScheduler, "_send_email")
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    def test_alerts_immediately_with_the_original_error(self, mock_pipe, mock_email, scheduler):
+        """The user should be alerted right away for ANY failure reason, not
+        just when the master_todos fallback logging also fails."""
+        mock_pipe.return_value = MagicMock(is_error=False, output="")
+
+        scheduler._handle_delivery_failure("Call the dentist", error="Claude CLI timed out after 900 seconds.")
+
+        mock_email.assert_called_once()
+        kwargs = mock_email.call_args[1]
+        assert "Call the dentist" in kwargs["text"]
+        assert "Claude CLI timed out after 900 seconds." in kwargs["text"]
+        assert kwargs["subject"] == "[Synapse Alert] Scheduled task failed"
+
+    @patch.object(ReminderScheduler, "_send_email")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
     def test_fallback_handles_exception(self, mock_pipe, mock_email, scheduler):
         mock_pipe.side_effect = Exception("Total failure")
         # Should not raise
         scheduler._handle_delivery_failure("Call the dentist")
 
-        mock_email.assert_called_once()
-        kwargs = mock_email.call_args[1]
-        assert "Call the dentist" in kwargs["text"]
-        assert "Total failure" in kwargs["text"]
-        assert "execute and log" in kwargs["subject"]
+        # First call: immediate alert. Second call: logging fallback also failed.
+        assert mock_email.call_count == 2
+        first_kwargs = mock_email.call_args_list[0][1]
+        assert first_kwargs["subject"] == "[Synapse Alert] Scheduled task failed"
+
+        second_kwargs = mock_email.call_args_list[1][1]
+        assert "Call the dentist" in second_kwargs["text"]
+        assert "Total failure" in second_kwargs["text"]
+        assert "execute and log" in second_kwargs["subject"]
 
     @patch.object(ReminderScheduler, "_send_email")
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
@@ -513,11 +566,12 @@ class TestDeliveryFailure:
 
         scheduler._handle_delivery_failure("Call the dentist")
 
-        mock_email.assert_called_once()
-        kwargs = mock_email.call_args[1]
-        assert "Call the dentist" in kwargs["text"]
-        assert "API error" in kwargs["text"]
-        assert "execute and log" in kwargs["subject"]
+        # First call: immediate alert. Second call: logging fallback also failed.
+        assert mock_email.call_count == 2
+        second_kwargs = mock_email.call_args_list[1][1]
+        assert "Call the dentist" in second_kwargs["text"]
+        assert "API error" in second_kwargs["text"]
+        assert "execute and log" in second_kwargs["subject"]
 
 
 # ── Fire Reminder ────────────────────────────────────────────────────
