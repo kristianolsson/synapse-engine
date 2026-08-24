@@ -1,5 +1,7 @@
 # Synapse Engine
 
+![Vault Profile Pic](assets/vault-profile.jpg)
+
 The ingestion and dispatch layer for the **Synapse** system. Synapse Engine
 bridges external communication channels (Email, Telegram) with a pluggable AI
 backend — capturing messages, standardizing them into a structured format, and
