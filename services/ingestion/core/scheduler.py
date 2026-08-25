@@ -467,11 +467,23 @@ class ReminderScheduler:
 
         prompt = build_prompt(incoming)
 
+        # Precompute the email subject up front (not just at delivery time)
+        # so it can ride along in extra_env: if this task hits an E*TRADE
+        # auth wall and falls back to a PIN-retry prompt, the retry result
+        # needs this same subject to reply with instead of a generic
+        # "Synapse: E*TRADE retry result" fallback (see etrade_pin_auth.py).
+        email_subject = subject_override or self._make_subject(task, prefix="Synapse")
+
+        extra_env = {"SYNAPSE_CHANNEL": channel, "SYNAPSE_REMINDER_TASK": task}
+        if channel == "email":
+            extra_env["SYNAPSE_EMAIL_TO"] = sender
+            extra_env["SYNAPSE_EMAIL_SUBJECT"] = email_subject
+
         # Use the stronger work model for scheduled tasks that modify files.
         # Pass intent-based model so each provider can resolve its own best model
         result = pipe_to_provider(
             prompt, model="work",
-            extra_env={"SYNAPSE_CHANNEL": channel, "SYNAPSE_REMINDER_TASK": task},
+            extra_env=extra_env,
         )
 
         if result.is_error and 'quota' in result.output.lower():
@@ -511,7 +523,7 @@ class ReminderScheduler:
             self.session_manager.save_session(session_key, result.session_id)
 
         if channel == "email":
-            subject = subject_override or self._make_subject(task, prefix="Synapse")
+            subject = email_subject
         else:
             subject = subject_override or ""
 

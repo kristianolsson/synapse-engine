@@ -490,6 +490,8 @@ class TestWorkReminder:
         assert extra_env == {
             "SYNAPSE_CHANNEL": "email",
             "SYNAPSE_REMINDER_TASK": "Run options-bot scan --tickers AAPL,MSFT",
+            "SYNAPSE_EMAIL_TO": "user@example.com",
+            "SYNAPSE_EMAIL_SUBJECT": "Synapse: Run options-bot scan --tickers AAPL,MSFT",
         }
 
 
