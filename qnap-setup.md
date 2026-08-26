@@ -69,8 +69,8 @@ chmod 600 "$SYNAPSE_HOST_DIR"/ssh/id_ed25519
 
 ## 4. Clone repos
 
-Replace `YOUR_GITHUB_USERNAME` below with the account that owns your fork of
-`notes` (your vault, see [synapse-vault](https://github.com/kristianolsson/synapse-vault)
+Replace `YOUR_GITHUB_USERNAME` below with the account that owns your vault
+repo (cloned here as `notes`, see [synapse-vault](https://github.com/kristianolsson/synapse-vault)
 for a starting template) and `synapse-engine`.
 
 ```bash
