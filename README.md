@@ -220,7 +220,7 @@ docker compose logs -f
 ```
 
 The compose file expects an `.env` and mounted credential directories on the
-host. For a full walkthrough on the QNAP TS-264 (creating the `synapse` user,
+host. For a full walkthrough on a QNAP NAS (creating the `synapse` user,
 folder layout, seeding Claude/Antigravity/Gemini/E\*TRADE/Amazon credentials,
 and the OAuth token), see **[`qnap-setup.md`](qnap-setup.md)**.
 
