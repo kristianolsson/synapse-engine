@@ -45,3 +45,6 @@ htmlcov/
 # Local planning docs (superpowers skill specs/plans)
 docs/superpowers/
 
+# Personal, instance-specific runbooks (real paths/identity) — never public
+docs/personal/
+
