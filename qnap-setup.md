@@ -72,9 +72,8 @@ chmod 600 "$SYNAPSE_HOST_DIR"/ssh/id_ed25519
 Replace `YOUR_GITHUB_USERNAME` below with the account that owns your vault
 repo (see [synapse-vault](https://github.com/kristianolsson/synapse-vault)
 for a starting template) and `synapse-engine`. The vault repo can be named
-anything — it's cloned into a local folder named `notes` here because that's
-the folder name `docker-compose.yml`'s mount and the app's `VAULT_PATH`
-convention expect.
+anything on GitHub — it's cloned into a local folder named `vault` here
+because that's the folder name `docker-compose.yml`'s mount expects.
 
 ```bash
 docker run --rm --entrypoint sh \
@@ -83,14 +82,14 @@ docker run --rm --entrypoint sh \
   alpine/git \
   -c "chmod 600 /root/.ssh/id_ed25519 && \
       GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
-      git clone git@github.com:YOUR_GITHUB_USERNAME/vault.git $SYNAPSE_HOST_DIR/notes && \
+      git clone git@github.com:YOUR_GITHUB_USERNAME/vault.git $SYNAPSE_HOST_DIR/vault && \
       GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
       git clone git@github.com:YOUR_GITHUB_USERNAME/synapse-engine.git $SYNAPSE_HOST_DIR/synapse-engine"
 ```
 
 Set ownership:
 ```bash
-chown -R synapse "$SYNAPSE_HOST_DIR"/notes
+chown -R synapse "$SYNAPSE_HOST_DIR"/vault
 chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
 

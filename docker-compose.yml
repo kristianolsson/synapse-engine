@@ -10,7 +10,7 @@ services:
     environment:
       - TZ=America/Los_Angeles
     volumes:
-      - ${SYNAPSE_HOST_DIR}/notes:/app/notes
+      - ${SYNAPSE_HOST_DIR}/vault:/app/notes
       - ${SYNAPSE_HOST_DIR}/synapse-engine:/app/synapse-engine
       - ${SYNAPSE_HOST_DIR}/credentials/claude:/home/synapse/.claude
       - ${SYNAPSE_HOST_DIR}/credentials/gemini:/home/synapse/.gemini
