@@ -9,7 +9,10 @@ drifted from each other (see the code-review finding that flagged it) —
 centralized here so a fix only has to happen once.
 """
 
+import logging
 from typing import Optional
+
+from telegram.error import BadRequest
 
 from ...core import form_state
 from ...utils.form_formatter import format_message_with_form
@@ -17,7 +20,33 @@ from ...utils.task_formatter import format_message_with_tasks
 from .task_buttons import build_task_keyboard
 from .form_buttons import build_form_keyboard
 
+logger = logging.getLogger(__name__)
+
 TELEGRAM_MESSAGE_LIMIT = 4096
+
+
+async def safe_reply_text(message, text: str, parse_mode: Optional[str] = None, **kwargs):
+    """
+    Send a reply, falling back to plain text if `parse_mode` formatting is
+    malformed (unbalanced Markdown entities, stray HTML-like tags, etc).
+
+    Without this, a single unescaped * or < in a reply causes Telegram to
+    reject the whole message with a 400, which python-telegram-bot's default
+    error handler then swallows — the user sees nothing at all.
+    """
+    if parse_mode is None:
+        return await message.reply_text(text, **kwargs)
+
+    try:
+        return await message.reply_text(text, parse_mode=parse_mode, **kwargs)
+    except BadRequest as e:
+        if "parse entities" in str(e).lower() or "unexpected end tag" in str(e).lower():
+            logger.warning(
+                "Failed to send message with parse_mode=%s due to formatting error, retrying as plain text: %s",
+                parse_mode, e,
+            )
+            return await message.reply_text(text, **kwargs)
+        raise
 
 
 def build_reply_keyboard(chat_id, user_key: str, reply_text: str):

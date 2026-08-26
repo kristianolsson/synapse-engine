@@ -39,7 +39,7 @@ from ...utils.task_formatter import recover_task_from_callback
 from ...utils.form_formatter import render_form_display
 from ...tools.stocks import etrade_pin_auth
 from .form_buttons import build_form_keyboard
-from .reply_dispatch import build_reply_keyboard, attach_form_message_id
+from .reply_dispatch import build_reply_keyboard, attach_form_message_id, safe_reply_text
 
 logger = logging.getLogger(__name__)
 
@@ -276,17 +276,17 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # /help command
     if text.strip() == "/help":
         help_text = (
-            "🤖 **Synapse Engine Commands**\n\n"
+            "🤖 *Synapse Engine Commands*\n\n"
             "/new, /clear — Clears the current session and starts a fresh context.\n"
             "/stats on|off — Toggles the display of token usage and request stats.\n"
             "/update — Pulls the latest code via git and restarts the bot.\n"
             "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
             "/update-claude-auth — Re-authenticates the Claude CLI (OAuth login).\n"
-            "/update-etrade-auth — Re-authenticates E*TRADE (manual OAuth PIN).\n"
+            "/update-etrade-auth — Re-authenticates ETRADE (manual OAuth PIN).\n"
             "/provider <gemini|claude|agy> — Switches the active AI provider.\n"
             "/help — Shows this help message."
         )
-        await message.reply_text(help_text, parse_mode='Markdown')
+        await safe_reply_text(message, help_text, parse_mode='Markdown')
         return
 
     # /stats on|off command
@@ -401,9 +401,13 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
                     reply = f"✅ Heal completed:\n```json\n{result.stdout.strip()}\n```"
                     if result.stderr.strip():
                         reply += f"\n\n⚠️ Logs/Warnings:\n```\n{result.stderr.strip()}\n```"
-                    await message.reply_text(reply, parse_mode='Markdown')
+                    await safe_reply_text(message, reply, parse_mode='Markdown')
                 else:
-                    await message.reply_text(f"❌ Heal failed:\n```\n{result.stdout.strip()}\n{result.stderr.strip()}\n```", parse_mode='Markdown')
+                    await safe_reply_text(
+                        message,
+                        f"❌ Heal failed:\n```\n{result.stdout.strip()}\n{result.stderr.strip()}\n```",
+                        parse_mode='Markdown',
+                    )
             except Exception as e:
                 await message.reply_text(f"⚠️ Error running heal: {e}")
         else:
@@ -493,8 +497,8 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             ))
         keyboard = InlineKeyboardMarkup([buttons])
 
-        friendly = f"⚠️ <b>{provider.capitalize()} hit a limit</b>\n\n{result.output}"
-        sent = await message.reply_text(friendly, parse_mode='HTML', reply_markup=keyboard)
+        friendly = f"⚠️ <b>{provider.capitalize()} hit a limit</b>\n\n{sanitize_telegram_html(result.output)}"
+        sent = await safe_reply_text(message, friendly, parse_mode='HTML', reply_markup=keyboard)
 
         # Stash context so the callback handler can re-execute the prompt
         _pending_retries[sent.message_id] = {

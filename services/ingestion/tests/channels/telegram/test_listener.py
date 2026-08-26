@@ -364,6 +364,112 @@ class TestTelegramMessageProcessing:
         update.message.reply_text.assert_called_once_with("Stats display turned off.")
 
 
+# ── /help command tests ─────────────────────────────────────────────
+# A prior bug used **double asterisks** plus a stray asterisk in "E*TRADE",
+# leaving an odd number of '*' in legacy Telegram Markdown. Telegram then
+# rejected the whole message with a 400 "can't parse entities", which had
+# no try/except and so vanished silently. These tests pin the fixed text
+# and prove a future formatting slip degrades to plain text instead.
+
+
+class TestHelpCommand:
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    async def test_help_text_has_balanced_asterisks(self, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/help")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        update.message.reply_text.assert_called_once()
+        help_text = update.message.reply_text.call_args[0][0]
+        assert help_text.count("*") % 2 == 0
+        assert "E*TRADE" not in help_text
+        assert update.message.reply_text.call_args[1]["parse_mode"] == "Markdown"
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    async def test_help_falls_back_to_plain_text_if_markdown_ever_breaks_again(self, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/help")
+        update.message.reply_text.side_effect = [
+            BadRequest("Can't parse entities: can't find end of the entity"),
+            "sent",
+        ]
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        assert update.message.reply_text.await_count == 2
+
+
+# ── Quota/rate-limit message tests ──────────────────────────────────
+# The "hit a limit" notice interpolates the AI provider's raw error text
+# straight into an HTML-parsed message. That text is untrusted (provider
+# stack traces, JSON, etc. can contain '<' or '&') so it must be sanitized,
+# and the send itself must degrade to plain text rather than vanish.
+
+
+class TestQuotaLimitMessage:
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    async def test_provider_error_text_is_sanitized_before_sending(self, mock_extract, mock_pipe, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.get_ai_provider.return_value = "gemini"
+        mock_extract.return_value = []
+        mock_pipe.return_value = MagicMock(
+            is_error=True,
+            provider_name="gemini",
+            output="resource_exhausted: <trace>boom</trace> a < b",
+            session_id="",
+            stats=None,
+        )
+        rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        update = _make_update(text="Do a thing")
+
+        await handle_message(update, None, rl, sm)
+
+        update.message.reply_text.assert_called_once()
+        sent_text = update.message.reply_text.call_args[0][0]
+        assert "<trace>" not in sent_text
+        assert update.message.reply_text.call_args[1]["parse_mode"] == "HTML"
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.telegram.listener.extract_attachments", new_callable=AsyncMock)
+    async def test_falls_back_to_plain_text_if_still_unparseable(self, mock_extract, mock_pipe, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.get_ai_provider.return_value = "gemini"
+        mock_extract.return_value = []
+        mock_pipe.return_value = MagicMock(
+            is_error=True,
+            provider_name="gemini",
+            output="429 quota exceeded",
+            session_id="",
+            stats=None,
+        )
+        rl = RateLimiter(10, 60)
+        sm = MagicMock(spec=SessionManager)
+        sm.get_session.return_value = None
+        update = _make_update(text="Do a thing")
+        update.message.reply_text.side_effect = [
+            BadRequest("Can't parse entities: unsupported start tag"),
+            MagicMock(message_id=1),
+        ]
+
+        await handle_message(update, None, rl, sm)
+
+        assert update.message.reply_text.await_count == 2
+        second_call_kwargs = update.message.reply_text.call_args_list[1][1]
+        assert "parse_mode" not in second_call_kwargs
+
+
 # ── Attachment tests ────────────────────────────────────────────────
 
 

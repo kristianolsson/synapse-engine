@@ -6,12 +6,16 @@ scheduler's reminder delivery) — see the code-review finding that
 flagged the duplication and the bugs it let slip through.
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from telegram.error import BadRequest
 
 from services.ingestion.core import form_state
 from services.ingestion.channels.telegram.reply_dispatch import (
     build_reply_keyboard,
     attach_form_message_id,
+    safe_reply_text,
     TELEGRAM_MESSAGE_LIMIT,
 )
 
@@ -84,3 +88,71 @@ class TestAttachFormMessageId:
         assert form["message_id"] == 999
         assert form["session_id"] is None
         form_state.delete_form(form_id)
+
+
+class TestSafeReplyText:
+    """safe_reply_text degrades unparseable formatted replies to plain text
+    instead of letting python-telegram-bot's default error handler swallow
+    the whole reply on a 400 'can't parse entities' — see the /help asterisk
+    bug this was extracted to fix."""
+
+    @pytest.mark.asyncio
+    async def test_no_parse_mode_sends_plain(self):
+        message = AsyncMock()
+        await safe_reply_text(message, "hello")
+        message.reply_text.assert_awaited_once_with("hello")
+
+    @pytest.mark.asyncio
+    async def test_successful_send_uses_parse_mode(self):
+        message = AsyncMock()
+        await safe_reply_text(message, "*bold*", parse_mode="Markdown")
+        message.reply_text.assert_awaited_once_with("*bold*", parse_mode="Markdown")
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_plain_text_on_unbalanced_entities(self):
+        message = AsyncMock()
+        message.reply_text.side_effect = [
+            BadRequest("Can't parse entities: can't find end of the entity"),
+            "sent",
+        ]
+        result = await safe_reply_text(message, "**bad*", parse_mode="Markdown")
+
+        assert result == "sent"
+        assert message.reply_text.await_count == 2
+        message.reply_text.assert_any_await("**bad*", parse_mode="Markdown")
+        message.reply_text.assert_any_await("**bad*")
+
+    @pytest.mark.asyncio
+    async def test_falls_back_on_unexpected_end_tag(self):
+        message = AsyncMock()
+        message.reply_text.side_effect = [
+            BadRequest("Can't parse entities: unexpected end tag at byte offset 12"),
+            "sent",
+        ]
+        result = await safe_reply_text(message, "<b>oops</i>", parse_mode="HTML")
+
+        assert result == "sent"
+        assert message.reply_text.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_reraises_unrelated_bad_request(self):
+        message = AsyncMock()
+        message.reply_text.side_effect = BadRequest("Chat not found")
+
+        with pytest.raises(BadRequest):
+            await safe_reply_text(message, "hi", parse_mode="Markdown")
+
+        message.reply_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_passes_through_extra_kwargs_on_fallback(self):
+        message = AsyncMock()
+        keyboard = object()
+        message.reply_text.side_effect = [
+            BadRequest("can't parse entities"),
+            "sent",
+        ]
+        await safe_reply_text(message, "*bad", parse_mode="Markdown", reply_markup=keyboard)
+
+        message.reply_text.assert_any_await("*bad", parse_mode="Markdown", reply_markup=keyboard)
+        message.reply_text.assert_any_await("*bad", reply_markup=keyboard)
