@@ -303,7 +303,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         await message.reply_text("Pulling latest code...")
         try:
             result = subprocess.run(
-                ["git", "pull"],
+                ["git", "pull", "--ff-only"],
                 cwd=Path(__file__).resolve().parents[4],
                 capture_output=True, text=True, timeout=30
             )
