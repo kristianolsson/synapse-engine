@@ -214,11 +214,11 @@ scp ~/Documents/code/synapse-engine/calendars.json \
 
 On QNAP:
 ```bash
-sed -i 's|VAULT_PATH=.*|VAULT_PATH=/app/notes|' "$SYNAPSE_HOST_DIR"/.env
+sed -i 's|VAULT_PATH=.*|VAULT_PATH=/app/vault|' "$SYNAPSE_HOST_DIR"/.env
 sed -i 's|CLAUDE_CMD=.*|CLAUDE_CMD=/usr/local/bin/claude|' "$SYNAPSE_HOST_DIR"/.env
 echo "AGY_CMD=/home/synapse/.local/bin/agy" >> "$SYNAPSE_HOST_DIR"/.env
 echo "SESSION_STORAGE_PATH=/app/data/sessions.json" >> "$SYNAPSE_HOST_DIR"/.env
-echo "REMINDERS_JSON_PATH=/app/notes/reminders/reminders.json" >> "$SYNAPSE_HOST_DIR"/.env
+echo "REMINDERS_JSON_PATH=/app/vault/reminders/reminders.json" >> "$SYNAPSE_HOST_DIR"/.env
 chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
 

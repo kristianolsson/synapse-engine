@@ -53,7 +53,7 @@ RUN git config --global gpg.format ssh && \
     git config --global user.name "${GIT_USER_NAME}" && \
     git config --global user.email "${GIT_USER_EMAIL}" && \
     git config --global --add safe.directory /app/synapse-engine && \
-    git config --global --add safe.directory /app/notes
+    git config --global --add safe.directory /app/vault
 
 ENV PATH="/app/venv/bin:/home/synapse/.local/bin:$PATH"
 
