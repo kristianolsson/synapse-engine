@@ -70,8 +70,11 @@ chmod 600 "$SYNAPSE_HOST_DIR"/ssh/id_ed25519
 ## 4. Clone repos
 
 Replace `YOUR_GITHUB_USERNAME` below with the account that owns your vault
-repo (cloned here as `notes`, see [synapse-vault](https://github.com/kristianolsson/synapse-vault)
-for a starting template) and `synapse-engine`.
+repo (see [synapse-vault](https://github.com/kristianolsson/synapse-vault)
+for a starting template) and `synapse-engine`. The vault repo can be named
+anything — it's cloned into a local folder named `notes` here because that's
+the folder name `docker-compose.yml`'s mount and the app's `VAULT_PATH`
+convention expect.
 
 ```bash
 docker run --rm --entrypoint sh \
@@ -80,7 +83,7 @@ docker run --rm --entrypoint sh \
   alpine/git \
   -c "chmod 600 /root/.ssh/id_ed25519 && \
       GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
-      git clone git@github.com:YOUR_GITHUB_USERNAME/notes.git $SYNAPSE_HOST_DIR/notes && \
+      git clone git@github.com:YOUR_GITHUB_USERNAME/vault.git $SYNAPSE_HOST_DIR/notes && \
       GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
       git clone git@github.com:YOUR_GITHUB_USERNAME/synapse-engine.git $SYNAPSE_HOST_DIR/synapse-engine"
 ```
