@@ -11,6 +11,8 @@ routing them to the configured AI provider for autonomous processing of the
 > **Vault template:** [synapse-vault](https://github.com/kristianolsson/synapse-vault) — a generic, public starter vault (protocols only, no personal data) to pair with this engine.
 >
 > **Learn more:** [synapse](https://kristianolsson.github.io/synapse/) — a plain-language overview of what this system actually does.
+>
+> **Working in this repo:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — deeper technical reference (state model, the E\*TRADE retry mechanism, known rough edges). [`CLAUDE.md`](CLAUDE.md) — working guidance for AI sessions making changes here.
 
 ![Vault Profile Pic](assets/vault-profile.jpg)
 
@@ -83,7 +85,7 @@ The service is organized into the following layers under `services/ingestion/`:
 
 | Layer | Path | Responsibility |
 |---|---|---|
-| **Entry Point** | `main.py` | Starts enabled channels + the reminder scheduler in daemon threads |
+| **Entry Point** | `main.py` | Starts enabled channels + the reminder scheduler in daemon threads, sharing one `RateLimiter` and `SessionManager` across all of them |
 | **Config** | `config.py` | Env-driven configuration, provider selection and fallback rotation |
 | **Channels** | `channels/email/` | IMAP IDLE listener + SMTP reply |
 | | `channels/telegram/` | Long-polling bot: listener, standalone sender, inline task buttons |
@@ -93,13 +95,12 @@ The service is organized into the following layers under `services/ingestion/`:
 | | `core/rate_limiter.py` | Shared sliding-window rate limiter |
 | **Providers** | `providers/` | Pluggable AI backends via `AIProvider` ABC + factory (`claude`, `agy`, `gemini` (deprecated), `echo`) |
 | **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
-| _(injected onto the_ | `tools/calendar_mcp.py` | Same calendar functions exposed over MCP |
-| _agent's `PATH`_ | `tools/gmail_cli.py` | Gmail CLI (inbox, labels, drafts) |
-| _via `bin/`)_ | `tools/reminder_cli.py` | Reminder CRUD backing the scheduler |
-| | `tools/etrade_cli.py` + `tools/stocks/` | E\*TRADE quotes, options, and positions (Playwright auth) |
+| _(injected onto the_ | `tools/gmail_cli.py` | Gmail CLI (inbox, labels, drafts) |
+| _agent's `PATH`_ | `tools/reminder_cli.py` | Reminder CRUD backing the scheduler |
+| _via `bin/`)_ | `tools/etrade_cli.py` + `tools/stocks/` | E\*TRADE quotes, options, and positions (Playwright auth; falls back to a manual PIN-auth flow over Telegram/email when automated login is blocked — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)) |
 | | `tools/options_bot_cli.py` | Weekday options-opportunity scan → HTML report |
 | | `tools/amazon_fresh_cli.py` + `tools/amazon_fresh/` | Amazon Fresh grocery browsing (Playwright) |
-| | `tools/setup_google.py` | One-time OAuth2 setup for Calendar + Gmail |
+| **Setup-only** | `tools/setup_google.py` | One-time OAuth2 setup for Calendar + Gmail — run manually, not agent-facing |
 | **Utils** | `utils/stats_formatter.py` | Per-channel token/cost/usage stats formatting |
 | | `utils/task_formatter.py` | Two-way task-completion parsing and formatting |
 | | `utils/html_utils.py` | Telegram HTML sanitization |
