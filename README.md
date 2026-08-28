@@ -34,7 +34,7 @@ flowchart TB
         subgraph core["Core Pipeline (core/)"]
             direction TB
             RL["RateLimiter<br/>sliding window"]
-            PIPE["pipe.py<br/>build_prompt + dispatch<br/>+ vault git sync"]
+            PIPE["pipe.py<br/>sync_and_build_prompt<br/>+ dispatch"]
             SM["SessionManager<br/>TTL sessions<br/>per user / provider"]
             RL --> PIPE
             PIPE <--> SM

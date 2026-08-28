@@ -171,7 +171,7 @@ def complete_and_maybe_retry(pending: dict, session_manager) -> None:
 
     if session_key:
         logger.info("complete_and_maybe_retry: resuming session %s (session-resume branch)", session_key)
-        from ...core.pipe import pipe_to_provider, build_prompt, IncomingMessage
+        from ...core.pipe import pipe_to_provider, sync_and_build_prompt, IncomingMessage
 
         failed_command = pending.get("failed_command", "")
         retry_channel = pending.get("retry_channel", "system")
@@ -185,7 +185,7 @@ def complete_and_maybe_retry(pending: dict, session_manager) -> None:
             f"blocked earlier in this conversation when running `{failed_command}` "
             "— retry that now and complete my full original request."
         )
-        retry_prompt = build_prompt(IncomingMessage(source_type=retry_channel, sender=sender or "system", body=retry_text))
+        retry_prompt = sync_and_build_prompt(IncomingMessage(source_type=retry_channel, sender=sender or "system", body=retry_text))
         result = pipe_to_provider(retry_prompt, session_id=pending.get("session_id") or None)
         if result.session_id:
             session_manager.save_session(session_key, result.session_id)
@@ -195,7 +195,7 @@ def complete_and_maybe_retry(pending: dict, session_manager) -> None:
 
     elif reminder_task:
         logger.info("complete_and_maybe_retry: replaying reminder task %r (reminder-replay branch)", reminder_task)
-        from ...core.pipe import pipe_to_provider, build_prompt, IncomingMessage
+        from ...core.pipe import pipe_to_provider, sync_and_build_prompt, IncomingMessage
 
         # Deliberately simplified compared to scheduler.py's
         # _handle_work_reminder: no quota-fallback provider switch, no
@@ -209,7 +209,7 @@ def complete_and_maybe_retry(pending: dict, session_manager) -> None:
             subject="Scheduled Work Task",
             body=reminder_task,
         )
-        prompt = build_prompt(incoming)
+        prompt = sync_and_build_prompt(incoming)
         result = pipe_to_provider(prompt, model="work")
         text = result.output or f"✓ Scheduled task completed: {reminder_task}"
         retry_channel = pending.get("retry_channel", "system")

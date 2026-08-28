@@ -10,24 +10,27 @@ Every input source — the email listener, the Telegram listener, and the
 reminder scheduler — funnels through the same two-step call:
 
 ```python
-prompt = build_prompt(IncomingMessage(...))
+prompt = sync_and_build_prompt(IncomingMessage(...))
 result = pipe_to_provider(prompt, session_id=..., extra_env=...)
 ```
 
-`build_prompt()` (`core/pipe.py`) wraps the raw message in a standardized YAML
-metadata block (`Type`, `Sender`, `Context`, `Current Time`) and runs a
-pre-flight `git pull --rebase` against the vault. `pipe_to_provider()` resolves
+`sync_and_build_prompt()` (`core/pipe.py`) runs a pre-flight `git pull
+--rebase` against the vault, then wraps the raw message in a standardized
+YAML metadata block (`Type`, `Sender`, `Context`, `Current Time`) that
+includes the git sync result. It's named for both things it does — the git
+status text is embedded in the returned prompt, not a side channel you can
+ignore. `pipe_to_provider()` resolves
 the configured provider via `providers.get_provider()`, invokes its
 `generate_response()`, and normalizes the result.
 
 **This envelope is not optional.** A prompt built as a bare string instead of
-`build_prompt(IncomingMessage(...))` arrives at the AI provider looking like an
+`sync_and_build_prompt(IncomingMessage(...))` arrives at the AI provider looking like an
 unattributed instruction injected mid-conversation — and gets treated as a
 prompt-injection attempt, including by the provider's own safety behavior.
 This has happened in production (an early version of the retry-after-auth
 feature built its retry prompt as a raw string). Any code that needs to feed
 text back into the pipeline — retries, nudges, internally-generated
-follow-ups — must go through `build_prompt`, never around it.
+follow-ups — must go through `sync_and_build_prompt`, never around it.
 
 ### Providers
 
@@ -51,57 +54,47 @@ directory from other threads (`pipe.py`'s pre-flight sync, `scheduler.py`'s
 `reminders.json` auto-commit). `GLOBAL_PROVIDER_LOCK` (`providers/base.py`) is
 a process-wide `threading.Lock` that serializes all of this.
 
-**Any code running as a thread inside the ingestion service that touches
-`git` against `VAULT_PATH` or `REMINDERS_JSON_PATH` must hold this lock
-first.** Skipping it has caused real corruption before (concurrent `git
-pull`s racing and corrupting `FETCH_HEAD`). There is no single chokepoint
-enforcing this today — each in-process call site (`pipe.py`, `scheduler.py`)
-is individually responsible for remembering.
+**Rule: any code running as a thread inside the ingestion service that
+touches `git` against `VAULT_PATH` or `REMINDERS_JSON_PATH` must hold this
+lock first** (`pipe.py`'s pre-flight sync and `scheduler.py`'s
+`reminders.json` auto-commit both do). Skipping it risks corrupting
+`FETCH_HEAD` via racing concurrent `git pull`s. There is no single
+chokepoint enforcing this — each in-process call site is individually
+responsible for acquiring it.
 
-`tools/reminder_cli.py`'s own git sync doesn't acquire the lock itself — but
-that's fine for its normal usage. It's invoked by the AI's shell tool from
-*within* an active provider session, and `with GLOBAL_PROVIDER_LOCK:` wraps
-the *entire* `subprocess.run()` call for that session in all three providers
-(`claude.py`/`gemini.py`/`agy.py`) — which blocks until the CLI process
-exits, including everything it shells out to internally. So the
-ingestion-service thread that spawned that session already holds the lock
-for reminder_cli.py's whole invocation; nothing else in the service can race
-it during that window. The actual gap is narrower: `reminder_cli.py` run
-genuinely standalone — a human at a terminal, no provider session in
-flight — has no ingestion-service thread involved at all, so nothing
-prevents that invocation from racing the service's own git operations.
+**Exception: `tools/reminder_cli.py`'s own git sync doesn't acquire the lock
+itself, and that's fine for its normal usage.** It's invoked by the AI's
+shell tool from *within* an active provider session, and `with
+GLOBAL_PROVIDER_LOCK:` wraps the *entire* `subprocess.run()` call for that
+session in all three providers (`claude.py`/`gemini.py`/`agy.py`) — blocking
+until the CLI process exits, including everything it shells out to
+internally. So the ingestion-service thread that spawned that session
+already holds the lock for reminder_cli.py's whole invocation. The gap is
+narrower than "unprotected": `reminder_cli.py` run genuinely standalone — a
+human at a terminal, no provider session in flight — has no
+ingestion-service thread involved at all, so nothing prevents that
+invocation from racing the service's own git operations.
 
 ## State and lifetime
 
 Three long-running components share one process (wired up in `main.py`):
 `EmailListener`, `TelegramListener`, and `ReminderScheduler`, each running as
-a daemon thread. `main.py` constructs exactly one `RateLimiter` and passes it
-into both listeners for this reason — the class's own docstring says it's
-"shared across all ingestion channels," and a single shared limiter is what
-makes that true.
+a daemon thread.
 
-**`SessionManager` does not get the same treatment.** Each of the three
-components independently constructs its own `SessionManager()`. Session-ID
-data is fine across instances (it's read from and written to one shared JSON
-file), but `SessionManager` also holds a second, purely **in-memory** field —
-`_stats_prefs`, the per-user `/stats on|off` preference set via
-`set_stats_enabled()`. That preference is invisible to any instance other
-than the one it was set on. Toggling `/stats off` in Telegram has no effect
-on a reminder later delivered by `ReminderScheduler`, because
-`ReminderScheduler` is checking its own, separate `SessionManager` instance.
+**Rule: `RateLimiter` and `SessionManager` are each constructed exactly
+once, in `main.py`, and passed as constructor params into all three
+components.** Never construct either one anywhere else — accept it as a
+parameter from whatever constructed you.
 
-This exact bug shape — a fresh `SessionManager()` silently losing a caller's
-live preferences — was found and fixed once already, one call site at a time
-(`tools/stocks/etrade_pin_auth.py`'s `complete_and_maybe_retry`, which now
-takes the caller's live instance as a required parameter instead of
-constructing its own). The same fix has not yet been applied at the
-composition root: **`SessionManager` should be constructed once in `main.py`,
-exactly like `RateLimiter`, and passed into all three components** rather than
-left to each to construct on its own.
-
-If you're writing new code that needs `SessionManager`: accept it as a
-parameter from whatever constructed you. Never call `SessionManager()`
-yourself outside `main.py`.
+This matters most for `SessionManager`, which holds a purely **in-memory**
+field — `_stats_prefs`, the per-user `/stats on|off` preference set via
+`set_stats_enabled()`. A component holding its own separate instance would
+never see another component's `/stats` toggle (session-ID data itself is
+fine across instances, since it's read from and written to one shared JSON
+file — it's specifically this in-memory field that breaks). `RateLimiter`
+matters for the analogous reason: its own docstring says it's "shared across
+all ingestion channels," which is only true if one instance is actually
+shared.
 
 ## Delivery: getting a reply back out
 
@@ -116,23 +109,26 @@ formatting happens:
 - **Telegram** — `channels/telegram/reply_dispatch.py`'s `safe_reply_text()`
   (parse-mode-fallback retry when Telegram rejects malformed HTML/Markdown)
   and `build_reply_keyboard()` (truncation + Actionable-Form/task-checklist
-  detection + keyboard construction). New Telegram-outbound code should call
-  these rather than `message.reply_text()`/`send_telegram_message()` directly.
+  detection + keyboard construction) for inline replies.
+  `channels/telegram/sender.py`'s `send_telegram_message(..., stats=None)`
+  for standalone sends — it takes the same raw-dict `stats` pattern as
+  `send_reply()` and formats it internally via `format_stats_telegram`.
 
-**Telegram's stats delivery is currently asymmetric with email's.**
-`channels/telegram/sender.py`'s `send_telegram_message()` has no `stats`
-parameter — unlike `send_reply()`, it just sends plain text. Every Telegram
-call site that needs to show stats (the listener, the scheduler, the E*TRADE
-retry path) currently does the gating and formatting manually:
+**Rule: pass `stats=` through `send_reply()`/`send_telegram_message()`,
+never pre-format or gate it yourself.**
+
+**Exception:** `channels/telegram/listener.py` (3 call sites) and
+`core/scheduler.py`'s inline-reply path predate `send_telegram_message`'s
+`stats` kwarg and still gate/format it manually:
 
 ```python
 if session_manager.get_stats_enabled(key):
     text += format_stats_telegram(stats)
 ```
 
-...repeated at each call site rather than centralized. Until
-`send_telegram_message` grows an equivalent `stats` kwarg, new code should
-follow this same manual pattern rather than inventing a fourth variant.
+These haven't been migrated to the `stats=` kwarg yet. Don't copy this
+manual pattern into new code — use `stats=` — but expect to see it if you're
+reading these two files.
 
 ## The E*TRADE PIN-auth fallback and retry mechanism
 

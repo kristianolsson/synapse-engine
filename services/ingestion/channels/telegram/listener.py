@@ -30,7 +30,7 @@ from telegram.ext import (
 from ... import config
 from ...config import get_next_provider
 from ...core import form_state
-from ...core.pipe import IncomingMessage, build_prompt, pipe_to_provider
+from ...core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager
 from ...utils.stats_formatter import format_stats_telegram
@@ -474,7 +474,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     else:
         session_id = session_manager.get_session(user_key)
 
-    prompt = build_prompt(incoming)
+    prompt = sync_and_build_prompt(incoming)
     extra_env = {
         "SYNAPSE_SESSION_KEY": user_key,
         "SYNAPSE_SESSION_ID": session_id or "",
@@ -647,7 +647,7 @@ async def _handle_form_submit(query, context, session_manager: SessionManager) -
         subject="",
         body=prompt_text,
     )
-    full_prompt = build_prompt(incoming)
+    full_prompt = sync_and_build_prompt(incoming)
     session_id = form.get("session_id") or session_manager.get_session(user_key)
 
     loop = asyncio.get_running_loop()
@@ -862,7 +862,7 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
                 subject="",
                 body=prompt,
             )
-            full_prompt = build_prompt(incoming)
+            full_prompt = sync_and_build_prompt(incoming)
 
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, pipe_to_provider, full_prompt, session_id)

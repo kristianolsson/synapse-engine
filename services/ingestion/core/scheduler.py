@@ -28,7 +28,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from .. import config
-from ..core.pipe import IncomingMessage, build_prompt, pipe_to_provider
+from ..core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
 from ..core.session_manager import SessionManager
 from ..providers.base import GLOBAL_PROVIDER_LOCK
 
@@ -469,7 +469,7 @@ class ReminderScheduler:
             body=actual_task,
         )
 
-        prompt = build_prompt(incoming)
+        prompt = sync_and_build_prompt(incoming)
 
         # Precompute the email subject up front (not just at delivery time)
         # so it can ride along in extra_env: if this task hits an E*TRADE

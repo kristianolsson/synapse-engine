@@ -18,7 +18,7 @@ from email.message import EmailMessage
 from imapclient import IMAPClient
 
 from ... import config
-from ...core.pipe import IncomingMessage, build_prompt, pipe_to_provider
+from ...core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
 from ...tools.stocks import etrade_pin_auth
 from ...core.session_manager import SessionManager
@@ -244,7 +244,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
             subject="(Task Completion)",
             body=prompt,
         )
-        full_prompt = build_prompt(incoming)
+        full_prompt = sync_and_build_prompt(incoming)
         session_id = session_manager.get_session(session_key)
         result = pipe_to_provider(full_prompt, session_id=session_id)
         
@@ -301,7 +301,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         attachment_paths=attachments,
     )
 
-    prompt = build_prompt(incoming)
+    prompt = sync_and_build_prompt(incoming)
     session_id = session_manager.get_session(session_key)
     extra_env = {
         "SYNAPSE_SESSION_KEY": session_key,
