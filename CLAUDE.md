@@ -78,4 +78,4 @@ python -m services.ingestion.main     # run the service directly (needs .env)
 | Telegram bot behavior | `channels/telegram/listener.py` — large file; command handling, E*TRADE PIN interception, Actionable Forms, and message dispatch all live in it |
 | Email behavior | `channels/email/listener.py` + `reply.py` |
 | E*TRADE / options-bot | `tools/etrade_cli.py`, `tools/stocks/`, `tools/options_bot_cli.py` |
-| Gmail / Calendar | `tools/gmail_cli.py`, `tools/calendar_cli.py` — share OAuth conceptually (`get_credentials()`) though it's duplicated rather than actually shared today |
+| Gmail / Calendar | `tools/gmail_cli.py`, `tools/calendar_cli.py` — share OAuth conceptually (`get_credentials()`) though it's duplicated rather than actually shared today. `tools/calendar_mcp.py` (an MCP-protocol exposure of the same calendar functions, originally for Gemini CLI) is unused legacy — every calendar operation goes through the CLI, not MCP. Don't treat it as a live integration point. |
