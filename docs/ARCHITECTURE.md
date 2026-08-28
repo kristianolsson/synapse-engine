@@ -51,14 +51,25 @@ directory from other threads (`pipe.py`'s pre-flight sync, `scheduler.py`'s
 `reminders.json` auto-commit). `GLOBAL_PROVIDER_LOCK` (`providers/base.py`) is
 a process-wide `threading.Lock` that serializes all of this.
 
-**Any code that runs `git` against `VAULT_PATH` or `REMINDERS_JSON_PATH` must
-hold this lock first.** Skipping it has caused real corruption before
-(concurrent `git pull`s racing and corrupting `FETCH_HEAD`). There is no
-single chokepoint enforcing this today — each call site is individually
-responsible for remembering. `tools/reminder_cli.py`, when run standalone (a
-human or the AI invoking the CLI directly rather than through the running
-service), does its own git sync **without** taking this lock — a known gap,
-not a pattern to copy.
+**Any code running as a thread inside the ingestion service that touches
+`git` against `VAULT_PATH` or `REMINDERS_JSON_PATH` must hold this lock
+first.** Skipping it has caused real corruption before (concurrent `git
+pull`s racing and corrupting `FETCH_HEAD`). There is no single chokepoint
+enforcing this today — each in-process call site (`pipe.py`, `scheduler.py`)
+is individually responsible for remembering.
+
+`tools/reminder_cli.py`'s own git sync doesn't acquire the lock itself — but
+that's fine for its normal usage. It's invoked by the AI's shell tool from
+*within* an active provider session, and `with GLOBAL_PROVIDER_LOCK:` wraps
+the *entire* `subprocess.run()` call for that session in all three providers
+(`claude.py`/`gemini.py`/`agy.py`) — which blocks until the CLI process
+exits, including everything it shells out to internally. So the
+ingestion-service thread that spawned that session already holds the lock
+for reminder_cli.py's whole invocation; nothing else in the service can race
+it during that window. The actual gap is narrower: `reminder_cli.py` run
+genuinely standalone — a human at a terminal, no provider session in
+flight — has no ingestion-service thread involved at all, so nothing
+prevents that invocation from racing the service's own git operations.
 
 ## State and lifetime
 
