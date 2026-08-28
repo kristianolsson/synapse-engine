@@ -182,15 +182,13 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_telegram():
         "session_key": "user-1", "session_id": "sess-abc",
         "failed_command": "etrade balance", "retry_channel": "telegram", "chat_id": 555,
     }
-    fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000")
+    fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000", stats={"cost": 0.01})
+    mock_sm = MagicMock()
+    mock_sm.get_stats_enabled.return_value = False
 
     with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
-         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send, \
-         patch("services.ingestion.core.session_manager.SessionManager") as mock_sm_cls:
-        mock_sm = MagicMock()
-        mock_sm_cls.return_value = mock_sm
-
-        etrade_pin_auth.complete_and_maybe_retry(pending)
+         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send:
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
 
     mock_pipe.assert_called_once_with(ANY, session_id="sess-abc")
     retry_prompt = mock_pipe.call_args.args[0]
@@ -201,7 +199,28 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_telegram():
     assert "Type: telegram" in retry_prompt
     assert "Sender: user-1" in retry_prompt
     mock_sm.save_session.assert_called_once_with("user-1", "sess-new")
+    # Stats lookup uses the same identity (session_key) real telegram
+    # dispatch checks, via the caller's live session_manager instance.
+    mock_sm.get_stats_enabled.assert_called_once_with("user-1")
     mock_send.assert_called_once_with(555, "Your balance is $1,000")
+
+
+def test_complete_and_maybe_retry_resumes_session_appends_stats_when_enabled_telegram():
+    pending = {
+        "session_key": "user-1", "session_id": "sess-abc",
+        "failed_command": "etrade balance", "retry_channel": "telegram", "chat_id": 555,
+    }
+    fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000", stats={"cost_usd": 0.01})
+    mock_sm = MagicMock()
+    mock_sm.get_stats_enabled.return_value = True
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result), \
+         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send, \
+         patch("services.ingestion.utils.stats_formatter.format_stats_telegram", return_value="\n[stats]") as mock_fmt:
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
+
+    mock_fmt.assert_called_once_with({"cost_usd": 0.01})
+    mock_send.assert_called_once_with(555, "Your balance is $1,000\n[stats]")
 
 
 def test_complete_and_maybe_retry_resumes_session_and_delivers_via_email():
@@ -211,66 +230,117 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_email():
         "email_to": "user@example.com", "email_subject": "Check my balance",
         "email_message_id": "<orig@example.com>", "email_references": "<orig@example.com>",
     }
-    fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000")
+    fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000", stats={"cost": 0.01})
+    mock_sm = MagicMock()
+    mock_sm.get_stats_enabled.return_value = False
 
     with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
-         patch("services.ingestion.channels.email.reply.send_reply") as mock_send, \
-         patch("services.ingestion.core.session_manager.SessionManager") as mock_sm_cls:
-        mock_sm = MagicMock()
-        mock_sm_cls.return_value = mock_sm
-
-        etrade_pin_auth.complete_and_maybe_retry(pending)
+         patch("services.ingestion.channels.email.reply.send_reply") as mock_send:
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
 
     mock_pipe.assert_called_once_with(ANY, session_id=None)  # empty session_id -> fresh session
     retry_prompt = mock_pipe.call_args.args[0]
     assert "Type: email" in retry_prompt
     assert "Sender: user@example.com" in retry_prompt
     mock_sm.save_session.assert_called_once_with("<thread@synapse.local>", "sess-new")
+    # Email stats lookup keys off the sender's email address, not the
+    # (message-id-based) session_key — mirrors process_email's own check.
+    mock_sm.get_stats_enabled.assert_called_once_with("user@example.com")
     mock_send.assert_called_once_with(
         to_addr="user@example.com", subject="Check my balance", body="Your balance is $1,000",
         original_message_id="<orig@example.com>", original_references="<orig@example.com>",
+        stats=None,
     )
 
 
+def test_complete_and_maybe_retry_resumes_session_passes_stats_to_send_reply_when_enabled_email():
+    # send_reply() already centralizes email stats formatting (its own
+    # `stats` kwarg -> format_stats_email) — this just has to forward the
+    # gated dict through, not format it itself.
+    pending = {
+        "session_key": "<thread@synapse.local>", "session_id": "",
+        "failed_command": "etrade balance", "retry_channel": "email",
+        "email_to": "user@example.com", "email_subject": "Check my balance",
+        "email_message_id": "<orig@example.com>", "email_references": "<orig@example.com>",
+    }
+    fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000", stats={"cost_usd": 0.01})
+    mock_sm = MagicMock()
+    mock_sm.get_stats_enabled.return_value = True
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result), \
+         patch("services.ingestion.channels.email.reply.send_reply") as mock_send:
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
+
+    assert mock_send.call_args.kwargs["body"] == "Your balance is $1,000"
+    assert mock_send.call_args.kwargs["stats"] == {"cost_usd": 0.01}
+
+
 def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_email():
-    pending = {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "email"}
-    fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities")
+    pending = {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "email", "email_to": "user@example.com"}
+    fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities", stats={"cost": 0.01})
+    mock_sm = MagicMock()
+    mock_sm.get_stats_enabled.return_value = False
 
     with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
-         patch("services.ingestion.channels.email.reply.send_reply") as mock_send, \
-         patch("services.ingestion.config") as mock_config:
-        mock_config.REPLY_TO_ADDRESS = "user@example.com"
-
-        etrade_pin_auth.complete_and_maybe_retry(pending)
+         patch("services.ingestion.channels.email.reply.send_reply") as mock_send:
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
 
     mock_pipe.assert_called_once()
     assert mock_pipe.call_args.kwargs["model"] == "work"
     prompt_arg = mock_pipe.call_args.args[0]
     assert "Run options-bot scan --tickers AAPL,MSFT" in prompt_arg
+    # Reminders carry no session/user key, so the stats lookup for the
+    # email case has to fall back to the reminder's own email_to field.
+    mock_sm.get_stats_enabled.assert_called_once_with("user@example.com")
     mock_send.assert_called_once_with(
         to_addr="user@example.com", subject="Synapse: E*TRADE retry result", body="Found 2 opportunities",
         original_message_id="", original_references="",
+        stats=None,
     )
+
+
+def test_complete_and_maybe_retry_replays_reminder_task_passes_stats_to_send_reply_when_enabled_email():
+    pending = {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "email", "email_to": "user@example.com"}
+    fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities", stats={"cost_usd": 0.02})
+    mock_sm = MagicMock()
+    mock_sm.get_stats_enabled.return_value = True
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result), \
+         patch("services.ingestion.channels.email.reply.send_reply") as mock_send:
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
+
+    assert mock_send.call_args.kwargs["body"] == "Found 2 opportunities"
+    assert mock_send.call_args.kwargs["stats"] == {"cost_usd": 0.02}
 
 
 def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_telegram():
     pending = {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "telegram", "chat_id": 555}
-    fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities")
+    fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities", stats={"cost": 0.01})
+    mock_sm = MagicMock()
+    mock_sm.get_stats_enabled.return_value = False
 
     with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
-         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send:
-        etrade_pin_auth.complete_and_maybe_retry(pending)
+         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send, \
+         patch("services.ingestion.config") as mock_config:
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [999]
 
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
+
+    # Reminders carry no session/user key, so the stats lookup for the
+    # telegram case has to fall back to the configured allowed user id —
+    # the same identity scheduler.py's _handle_work_reminder uses.
+    mock_sm.get_stats_enabled.assert_called_once_with("999")
     mock_send.assert_called_once_with(555, "Found 2 opportunities")
 
 
 def test_complete_and_maybe_retry_noop_when_no_retry_fields():
     pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}
+    mock_sm = MagicMock()
 
     with patch("services.ingestion.core.pipe.pipe_to_provider") as mock_pipe, \
          patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send, \
          patch("services.ingestion.channels.email.reply.send_reply") as mock_send_email:
-        etrade_pin_auth.complete_and_maybe_retry(pending)
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
 
     mock_pipe.assert_not_called()
     mock_send.assert_not_called()

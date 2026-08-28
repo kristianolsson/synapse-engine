@@ -254,7 +254,9 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             async def _retry_task():
                 try:
                     loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(None, etrade_pin_auth.complete_and_maybe_retry, pending_etrade)
+                    await loop.run_in_executor(
+                        None, etrade_pin_auth.complete_and_maybe_retry, pending_etrade, session_manager
+                    )
                 except Exception as e:
                     logger.error("Error in E*TRADE retry task: %s", e)
 

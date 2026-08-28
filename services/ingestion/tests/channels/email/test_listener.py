@@ -395,12 +395,13 @@ class TestProcessEmailEtradeAuth:
         mock_etrade.finish_pin_auth.return_value = {"access_token": "AT", "access_token_secret": "AS"}
 
         raw = _make_reply_email("<abc123@synapse>", "654321")
-        should_reply, text, stats = process_email(raw, MagicMock(spec=SessionManager))
+        session_manager = MagicMock(spec=SessionManager)
+        should_reply, text, stats = process_email(raw, session_manager)
 
         mock_etrade.finish_pin_auth.assert_called_once_with(pending, "654321", "key", "secret")
         mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
         mock_etrade.clear_pending.assert_called_once()
-        mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending)
+        mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending, session_manager)
         mock_pipe.assert_not_called()
         assert should_reply is True
         assert "successful" in text.lower()
