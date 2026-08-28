@@ -17,7 +17,9 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None) -> Optional[int]:
+async def send_telegram_message_async(
+    chat_id: int, text: str, reply_markup=None, stats: Optional[dict] = None
+) -> Optional[int]:
     """
     Send a message to a Telegram chat using the bot API.
 
@@ -25,6 +27,10 @@ async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None
         chat_id: Telegram chat/user ID to send the message to.
         text: Message text to send.
         reply_markup: Optional InlineKeyboardMarkup for interactive buttons.
+        stats: Optional execution statistics to format and append, mirroring
+            channels/email/reply.py's send_reply(stats=...) — callers pass
+            the raw dict (already gated on the user's /stats preference)
+            rather than pre-formatting it themselves.
 
     Returns:
         The message_id if sent successfully, None otherwise.
@@ -32,6 +38,10 @@ async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None
     if not config.TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN not set, cannot send Telegram message")
         return None
+
+    if stats:
+        from ...utils.stats_formatter import format_stats_telegram
+        text += format_stats_telegram(stats)
 
     try:
         bot = telegram.Bot(token=config.TELEGRAM_BOT_TOKEN)
@@ -46,7 +56,9 @@ async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None
         return None
 
 
-def send_telegram_message(chat_id: int, text: str, reply_markup=None) -> Optional[int]:
+def send_telegram_message(
+    chat_id: int, text: str, reply_markup=None, stats: Optional[dict] = None
+) -> Optional[int]:
     """
     Synchronous wrapper for send_telegram_message_async.
 
@@ -64,7 +76,9 @@ def send_telegram_message(chat_id: int, text: str, reply_markup=None) -> Optiona
         # We're inside an existing event loop — use a new thread
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, send_telegram_message_async(chat_id, text, reply_markup))
+            future = pool.submit(
+                asyncio.run, send_telegram_message_async(chat_id, text, reply_markup, stats)
+            )
             return future.result()
     else:
-        return asyncio.run(send_telegram_message_async(chat_id, text, reply_markup))
+        return asyncio.run(send_telegram_message_async(chat_id, text, reply_markup, stats))

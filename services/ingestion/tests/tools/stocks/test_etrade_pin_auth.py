@@ -202,10 +202,13 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_telegram():
     # Stats lookup uses the same identity (session_key) real telegram
     # dispatch checks, via the caller's live session_manager instance.
     mock_sm.get_stats_enabled.assert_called_once_with("user-1")
-    mock_send.assert_called_once_with(555, "Your balance is $1,000")
+    mock_send.assert_called_once_with(555, "Your balance is $1,000", stats=None)
 
 
-def test_complete_and_maybe_retry_resumes_session_appends_stats_when_enabled_telegram():
+def test_complete_and_maybe_retry_resumes_session_passes_stats_to_send_telegram_message_when_enabled():
+    # send_telegram_message() (like send_reply()) centralizes stats
+    # formatting itself — this just has to forward the gated dict through,
+    # not format it.
     pending = {
         "session_key": "user-1", "session_id": "sess-abc",
         "failed_command": "etrade balance", "retry_channel": "telegram", "chat_id": 555,
@@ -215,12 +218,10 @@ def test_complete_and_maybe_retry_resumes_session_appends_stats_when_enabled_tel
     mock_sm.get_stats_enabled.return_value = True
 
     with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result), \
-         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send, \
-         patch("services.ingestion.utils.stats_formatter.format_stats_telegram", return_value="\n[stats]") as mock_fmt:
+         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send:
         etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
 
-    mock_fmt.assert_called_once_with({"cost_usd": 0.01})
-    mock_send.assert_called_once_with(555, "Your balance is $1,000\n[stats]")
+    mock_send.assert_called_once_with(555, "Your balance is $1,000", stats={"cost_usd": 0.01})
 
 
 def test_complete_and_maybe_retry_resumes_session_and_delivers_via_email():
@@ -330,7 +331,7 @@ def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_telegra
     # telegram case has to fall back to the configured allowed user id —
     # the same identity scheduler.py's _handle_work_reminder uses.
     mock_sm.get_stats_enabled.assert_called_once_with("999")
-    mock_send.assert_called_once_with(555, "Found 2 opportunities")
+    mock_send.assert_called_once_with(555, "Found 2 opportunities", stats=None)
 
 
 def test_complete_and_maybe_retry_noop_when_no_retry_fields():

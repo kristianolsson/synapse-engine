@@ -58,6 +58,44 @@ class TestSendTelegramMessage:
 
     @patch("services.ingestion.channels.telegram.sender.config")
     @patch("services.ingestion.channels.telegram.sender.telegram")
+    def test_appends_stats_when_provided(self, mock_telegram, mock_config):
+        mock_config.TELEGRAM_BOT_TOKEN = "test-token"
+
+        mock_message = MagicMock()
+        mock_message.message_id = 102
+        mock_bot = AsyncMock()
+        mock_bot.send_message.return_value = mock_message
+        mock_telegram.Bot.return_value = mock_bot
+
+        from services.ingestion.channels.telegram.sender import send_telegram_message
+
+        result = send_telegram_message(12345, "Balance: $1,000", stats={"duration_api_ms": 1200})
+
+        assert result == 102
+        sent_text = mock_bot.send_message.call_args[1]["text"]
+        assert sent_text.startswith("Balance: $1,000")
+        assert "[Stats: 1200ms]" in sent_text
+
+    @patch("services.ingestion.channels.telegram.sender.config")
+    @patch("services.ingestion.channels.telegram.sender.telegram")
+    def test_no_stats_footer_when_stats_omitted(self, mock_telegram, mock_config):
+        mock_config.TELEGRAM_BOT_TOKEN = "test-token"
+
+        mock_message = MagicMock()
+        mock_message.message_id = 103
+        mock_bot = AsyncMock()
+        mock_bot.send_message.return_value = mock_message
+        mock_telegram.Bot.return_value = mock_bot
+
+        from services.ingestion.channels.telegram.sender import send_telegram_message
+
+        send_telegram_message(12345, "Balance: $1,000")
+
+        sent_text = mock_bot.send_message.call_args[1]["text"]
+        assert sent_text == "Balance: $1,000"
+
+    @patch("services.ingestion.channels.telegram.sender.config")
+    @patch("services.ingestion.channels.telegram.sender.telegram")
     def test_send_message_api_error(self, mock_telegram, mock_config):
         mock_config.TELEGRAM_BOT_TOKEN = "test-token"
 
