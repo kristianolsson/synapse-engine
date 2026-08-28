@@ -16,6 +16,7 @@ from services.ingestion.channels.telegram.reply_dispatch import (
     build_reply_keyboard,
     attach_form_message_id,
     safe_reply_text,
+    safe_edit_text,
     TELEGRAM_MESSAGE_LIMIT,
 )
 
@@ -156,3 +157,59 @@ class TestSafeReplyText:
 
         message.reply_text.assert_any_await("*bad", parse_mode="Markdown", reply_markup=keyboard)
         message.reply_text.assert_any_await("*bad", reply_markup=keyboard)
+
+
+class TestSafeEditText:
+    """The edit_text counterpart to safe_reply_text — used by the
+    quota-retry callback, which edits an existing message rather than
+    sending a new one. Previously that path had no fallback at all: a
+    malformed HTML edit just logged a warning and the user got nothing."""
+
+    @pytest.mark.asyncio
+    async def test_no_parse_mode_edits_plain(self):
+        message = AsyncMock()
+        await safe_edit_text(message, "hello")
+        message.edit_text.assert_awaited_once_with("hello")
+
+    @pytest.mark.asyncio
+    async def test_successful_edit_uses_parse_mode(self):
+        message = AsyncMock()
+        await safe_edit_text(message, "<b>bold</b>", parse_mode="HTML")
+        message.edit_text.assert_awaited_once_with("<b>bold</b>", parse_mode="HTML")
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_plain_text_on_unbalanced_entities(self):
+        message = AsyncMock()
+        message.edit_text.side_effect = [
+            BadRequest("Can't parse entities: unexpected end tag at byte offset 5"),
+            "edited",
+        ]
+        result = await safe_edit_text(message, "<b>oops</i>", parse_mode="HTML")
+
+        assert result == "edited"
+        assert message.edit_text.await_count == 2
+        message.edit_text.assert_any_await("<b>oops</i>", parse_mode="HTML")
+        message.edit_text.assert_any_await("<b>oops</i>")
+
+    @pytest.mark.asyncio
+    async def test_reraises_unrelated_bad_request(self):
+        message = AsyncMock()
+        message.edit_text.side_effect = BadRequest("Message to edit not found")
+
+        with pytest.raises(BadRequest):
+            await safe_edit_text(message, "hi", parse_mode="HTML")
+
+        message.edit_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_passes_through_extra_kwargs_on_fallback(self):
+        message = AsyncMock()
+        keyboard = object()
+        message.edit_text.side_effect = [
+            BadRequest("can't parse entities"),
+            "edited",
+        ]
+        await safe_edit_text(message, "<bad", parse_mode="HTML", reply_markup=keyboard)
+
+        message.edit_text.assert_any_await("<bad", parse_mode="HTML", reply_markup=keyboard)
+        message.edit_text.assert_any_await("<bad", reply_markup=keyboard)

@@ -33,13 +33,14 @@ from ...core import form_state
 from ...core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager, UserSession
-from ...utils.stats_formatter import format_stats_telegram
+from ...providers import PROVIDER_REGISTRY
+from ...utils.stats_formatter import append_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
 from ...utils.task_formatter import recover_task_from_callback
 from ...utils.form_formatter import render_form_display
 from ...tools.stocks import etrade_pin_auth
 from .form_buttons import build_form_keyboard
-from .reply_dispatch import build_reply_keyboard, attach_form_message_id, safe_reply_text
+from .reply_dispatch import build_reply_keyboard, attach_form_message_id, safe_reply_text, safe_edit_text
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +423,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         parts = stripped.split()
         if len(parts) == 2:
             requested = parts[1]
-            if requested in ("gemini", "claude", "agy", "echo"):
+            if requested in PROVIDER_REGISTRY:
                 config.set_ai_provider(requested)
                 await message.reply_text(f"Switched to {requested} provider.")
             else:
@@ -522,8 +523,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         reply_text = "✓"
 
     # Append stats if enabled for this user
-    if session.stats_enabled:
-        reply_text += format_stats_telegram(result.stats)
+    reply_text = append_stats_telegram(reply_text, result.stats, session)
 
     # Relay error/clarification/response to user.
     # Detect an Actionable Form or task checklist and build the matching keyboard
@@ -659,8 +659,7 @@ async def _handle_form_submit(query, context, session_manager: SessionManager) -
         session.save(result.session_id)
 
     reply_text = result.output or "✓"
-    if session.stats_enabled:
-        reply_text += format_stats_telegram(result.stats)
+    reply_text = append_stats_telegram(reply_text, result.stats, session)
     if len(reply_text) > 4096:
         reply_text = reply_text[:4093] + "..."
     reply_text = sanitize_telegram_html(reply_text)
@@ -762,9 +761,8 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         if not reply_text:
             reply_text = "✓"
 
-        if session.stats_enabled:
-            reply_text += format_stats_telegram(result.stats)
-            
+        reply_text = append_stats_telegram(reply_text, result.stats, session)
+
         # Detect an Actionable Form or task checklist and build the matching keyboard
         # (this also truncates reply_text to Telegram's message limit).
         reply_text, keyboard, form_id = build_reply_keyboard(query.message.chat.id, user_key, reply_text)
@@ -773,7 +771,7 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         reply_text = sanitize_telegram_html(reply_text)
 
         try:
-            await query.message.edit_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
+            await safe_edit_text(query.message, reply_text, parse_mode='HTML', reply_markup=keyboard)
         except Exception as e:
             logger.warning("Could not deliver quota-retry response: %s", e)
             if form_id:

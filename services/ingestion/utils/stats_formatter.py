@@ -5,7 +5,10 @@ Provides channel-specific formatters for email (markdown) and Telegram (compact)
 """
 
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..core.session_manager import UserSession
 
 logger = logging.getLogger(__name__)
 
@@ -126,3 +129,27 @@ def format_stats_telegram(stats: Optional[dict]) -> str:
     except Exception as e:
         logger.warning("Failed to format stats for Telegram: %s", e)
         return ""
+
+
+def append_stats_email(text: str, stats: Optional[dict], session: Optional["UserSession"] = None) -> str:
+    """
+    Append the email stats footer to `text`, gated on `session.stats_enabled`
+    if a session is given (omit `session` to always append when `stats` is
+    truthy — matches the old pre-gated-caller behavior).
+
+    This is the one place stats-append happens for email, used both by
+    send_reply() and by any call site (e.g. the scheduler's reminder
+    delivery) that builds its own text before send_reply gets a chance to,
+    such as when the text also feeds Actionable-Form/task-keyboard
+    detection that must run on the final, stats-included text.
+    """
+    if session is not None and not session.stats_enabled:
+        stats = None
+    return text + format_stats_email(stats)
+
+
+def append_stats_telegram(text: str, stats: Optional[dict], session: Optional["UserSession"] = None) -> str:
+    """Telegram counterpart to append_stats_email() — see its docstring."""
+    if session is not None and not session.stats_enabled:
+        stats = None
+    return text + format_stats_telegram(stats)

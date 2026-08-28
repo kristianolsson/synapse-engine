@@ -88,7 +88,7 @@ The service is organized into the following layers under `services/ingestion/`:
 | **Entry Point** | `main.py` | Starts enabled channels + the reminder scheduler in daemon threads, sharing one `RateLimiter` and `SessionManager` across all of them |
 | **Config** | `config.py` | Env-driven configuration, provider selection and fallback rotation |
 | **Channels** | `channels/email/` | IMAP IDLE listener + SMTP reply |
-| | `channels/telegram/` | Long-polling bot: listener, standalone sender, inline task buttons |
+| | `channels/telegram/` | Long-polling bot: listener, standalone sender, shared reply-delivery helpers (HTML-fallback sending, Actionable-Form/task keyboards) |
 | **Core** | `core/pipe.py` | Prompt standardization + Vault git sync + provider dispatch |
 | | `core/scheduler.py` | Reminder scheduler (heapq two-tier queue; recurring + one-shot) |
 | | `core/session_manager.py` | Per-user/provider session state (TTL + midnight reset) |
@@ -106,6 +106,19 @@ The service is organized into the following layers under `services/ingestion/`:
 | | `utils/html_utils.py` | Telegram HTML sanitization |
 
 
+## Telegram Commands
+
+When interacting with the bot via Telegram, the following commands are available:
+
+- `/new` | `/clear` — Clears the current session and starts a fresh context.
+- `/stats on` | `/stats off` — Toggles the display of token usage and request stats after responses.
+- `/update` — Pulls the latest code via git and gracefully restarts the service.
+- `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
+- `/update-claude-auth` — Re-authenticates the Claude CLI: replies with an OAuth URL, then completes login once you reply with the code (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
+- `/provider <claude|agy|gemini>` — Switches the active AI provider (`gemini` deprecated — replaced by agy). Without an argument, shows the current provider.
+- `/amazon heal` — Re-bootstraps the Amazon Fresh CSS selectors from the live pages when the scraper breaks.
+- `/help` — Shows the available Telegram commands.
+
 ## Setup
 
 1.  **Prerequisites:**
@@ -114,29 +127,16 @@ The service is organized into the following layers under `services/ingestion/`:
     -   A dedicated Gmail account for ingestion (with App Password).
     -   (Recommended) A Telegram bot token from [@BotFather](https://t.me/BotFather).
 
-2.  **Install:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
-
-3.  **Configure:**
+2.  **Configure:**
     Copy `.env.example` to `.env` and fill in your credentials:
     ```bash
     cp .env.example .env
     nano .env
     ```
 
-    **Key Configuration** (see `.env.example` for the full list, including model, timeout, retry, and E\*TRADE options):
+    **Key Configuration** (see `.env.example` for the full list, including CLI paths, timeouts, cost budgets, and E\*TRADE options):
     - `ENABLED_CHANNELS`: Comma-separated list of channels to run (`email`, `telegram`, or `email,telegram`).
     - `AI_PROVIDERS`: Ordered, comma-separated provider list — the first is the default, the rest are fallbacks on quota errors (e.g. `claude,agy`). Valid values: `claude`, `agy`, `gemini` (deprecated — replaced by agy), `echo`.
-    - `AI_PROVIDER`: Legacy single-provider variable (still honored if `AI_PROVIDERS` is unset). Defaults to `gemini` (deprecated — set `AI_PROVIDERS` to `claude` or `agy` instead).
-    - `CLAUDE_CMD`: (Optional) Explicit path to `claude` binary. Auto-detected if omitted.
-    - `CLAUDE_TIMEOUT_SECONDS`: Max execution time for Claude CLI (default: `300`).
-    - `CLAUDE_MAX_BUDGET_USD`: (Optional) Per-request cost cap for Claude.
-    - `AGY_CMD`: (Optional) Explicit path to `agy` binary. Auto-detected if omitted.
-    - `AGY_TIMEOUT_SECONDS`: Max execution time for Antigravity CLI (default: `300`).
     - `EMAIL_ADDRESS`: The account to ingest from (and reply from).
     - `ALLOWED_SENDERS`: Whitelist of email addresses authorized to send tasks.
     - `REPLY_TO_ADDRESS`: (Optional) Redirect all system replies to this address.
@@ -172,18 +172,9 @@ The service is organized into the following layers under `services/ingestion/`:
        ```
     8. Both integrations are automatically injected as global `calendar` and `gmail` commands to AI providers — no additional configuration needed.
 
-## Telegram Commands
-
-When interacting with the bot via Telegram, the following commands are available:
-
-- `/new` | `/clear` — Clears the current session and starts a fresh context.
-- `/stats on` | `/stats off` — Toggles the display of token usage and request stats after responses.
-- `/update` — Pulls the latest code via git and gracefully restarts the service.
-- `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
-- `/update-claude-auth` — Re-authenticates the Claude CLI: replies with an OAuth URL, then completes login once you reply with the code (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
-- `/provider <claude|agy|gemini>` — Switches the active AI provider (`gemini` deprecated — replaced by agy). Without an argument, shows the current provider.
-- `/amazon heal` — Re-bootstraps the Amazon Fresh CSS selectors from the live pages when the scraper breaks.
-- `/help` — Shows the available Telegram commands.
+3.  **Install & run:** installation is deployment-specific — jump to [Deployment](#deployment) below and follow whichever fits:
+    - **Option A — macOS (`launchd`)**: runs directly on your Mac in a local Python venv.
+    - **Option B — Docker / QNAP NAS**: runs in a container with everything bundled — no local venv needed.
 
 ## Deployment
 
@@ -193,7 +184,14 @@ There are two supported ways to run Synapse Engine as a long-lived service.
 
 Best for running on a personal Mac. Runs the service in the background via a `launchd` agent.
 
-1.  **Install & Start:**
+1.  **Create a virtualenv and install dependencies** (one-time):
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+2.  **Install & Start:**
     ```bash
     ./install.sh
     ```
@@ -202,7 +200,7 @@ Best for running on a personal Mac. Runs the service in the background via a `la
     Use `./stop.sh` to stop it. To update, `git pull` then re-run
     `./install.sh` (`./update.sh` is Docker/QNAP-only — see Option B).
 
-2.  **Logs:**
+3.  **Logs:**
     ```bash
     tail -f /tmp/synapse-ingestion.out.log
     tail -f /tmp/synapse-ingestion.err.log

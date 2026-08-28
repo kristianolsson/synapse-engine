@@ -46,12 +46,8 @@ async def send_telegram_message_async(
         logger.error("TELEGRAM_BOT_TOKEN not set, cannot send Telegram message")
         return None
 
-    if session is not None and not session.stats_enabled:
-        stats = None
-
-    if stats:
-        from ...utils.stats_formatter import format_stats_telegram
-        text += format_stats_telegram(stats)
+    from ...utils.stats_formatter import append_stats_telegram
+    text = append_stats_telegram(text, stats, session)
 
     try:
         bot = telegram.Bot(token=config.TELEGRAM_BOT_TOKEN)

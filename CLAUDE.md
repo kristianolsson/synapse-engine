@@ -40,22 +40,33 @@ Each of these caused a real bug once. Don't reintroduce them.
   tool can run git against the same vault concurrently; skipping the lock has
   corrupted `FETCH_HEAD` before.
 - **New Telegram-outbound code calls `channels/telegram/reply_dispatch.py`'s
-  `safe_reply_text()`/`build_reply_keyboard()`**, not `message.reply_text()`
-  or `send_telegram_message()` directly. Telegram silently rejects a whole
-  message on malformed HTML/Markdown; `safe_reply_text` is the one place that
-  retries as plain text instead of losing the reply outright.
-- **Pass the raw `stats` dict plus a `session=` handle through, don't
+  `safe_reply_text()`/`safe_edit_text()`/`build_reply_keyboard()`**, not
+  `message.reply_text()`, `query.message.edit_text()`, or
+  `send_telegram_message()` directly. Telegram silently rejects a whole
+  message on malformed HTML/Markdown; `safe_reply_text`/`safe_edit_text` are
+  the two places that retry as plain text instead of losing the reply
+  outright (a send and an edit have different call shapes, hence two
+  functions rather than one).
+- **Pass the raw `stats` dict plus a `session` handle through, don't
   pre-gate or pre-format `stats` yourself.**
   `send_reply(..., stats=None, session=None)` (`channels/email/reply.py`)
   and `send_telegram_message(..., stats=None, session=None)`
   (`channels/telegram/sender.py`) both gate `stats` on `session.stats_enabled`
-  and format the footer internally. Exception: `channels/telegram/listener.py`
-  (3 call sites) and `core/scheduler.py`'s inline-reply path don't call these
-  send functions for their primary replies at all — they build the reply
-  text directly, so they still gate manually via the handle
-  (`if session.stats_enabled: text += format_stats_telegram(stats)`); don't
-  copy that pattern into new code that does go through `send_reply`/
-  `send_telegram_message`.
+  and format the footer internally, via `utils/stats_formatter.py`'s
+  `append_stats_email`/`append_stats_telegram` — the one place this happens
+  for every call site, including `channels/telegram/listener.py`'s 3 sites
+  and `core/scheduler.py`'s inline-reply path, which build their own reply
+  text (so they call `append_stats_telegram`/`append_stats_email` directly
+  instead of going through `send_reply`/`send_telegram_message`, but it's
+  the same underlying function either way — never reimplement the
+  gate-and-format logic itself).
+- **Headless/unattended code must never call `input()`.** If it needs a
+  human to complete something interactively (e.g. an OAuth verification
+  code) and none is present, raise instead of blocking — the caller's
+  except-and-fallback is expected to catch it and route to the PIN-auth
+  Telegram/email flow, the same way `tools/stocks/auth.py`'s `ETradeAuth`
+  does today (it used to block on `input()` under `headless=True`, which
+  would hang an unattended run indefinitely instead of degrading).
 
 ## Conventions
 
@@ -71,6 +82,12 @@ Each of these caused a real bug once. Don't reintroduce them.
 - **Same-package imports** use the minimal relative depth for where a file
   actually lives (a file in `core/` imports siblings as `from .pipe import
   ...`, not `from ..core.pipe import ...`).
+- **Valid provider names** come from `providers/__init__.py`'s
+  `PROVIDER_REGISTRY` dict — `get_provider()` and both channels' `/provider`
+  command handlers all check membership against it. Never hardcode a tuple
+  of provider names at a new call site; import `PROVIDER_REGISTRY` instead
+  (a hardcoded tuple in one listener but not the other is exactly how
+  `/provider agy` broke on email while working on Telegram).
 - Touching E*TRADE auth or the retry-after-auth mechanism? Read
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-etrade-pin-auth-fallback-and-retry-mechanism)
   first — the `SYNAPSE_*` env-var correlation mechanism spans four files and

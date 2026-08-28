@@ -231,6 +231,24 @@ class TestDelivery:
         assert result is None
 
     @patch("services.ingestion.core.scheduler.config")
+    def test_send_telegram_sanitizes_html(self, mock_config, scheduler):
+        # Unlike listener.py, this path used to send raw LLM output with no
+        # sanitization or fallback — an unsupported tag would make Telegram
+        # reject the whole reminder outright.
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.TELEGRAM_BOT_TOKEN = "test-token"
+
+        with patch(
+            "services.ingestion.channels.telegram.sender.send_telegram_message"
+        ) as mock_send:
+            mock_send.return_value = True
+            scheduler._send_telegram("<div>Reminder</div><script>bad()</script>")
+            sent_text = mock_send.call_args.args[1]
+            assert "<div>" not in sent_text
+            assert "<script>" not in sent_text
+            assert "Reminder" in sent_text
+
+    @patch("services.ingestion.core.scheduler.config")
     def test_send_email(self, mock_config, scheduler):
         mock_config.REPLY_TO_ADDRESS = "user@example.com"
         mock_config.ALLOWED_SENDERS = ["user@example.com"]

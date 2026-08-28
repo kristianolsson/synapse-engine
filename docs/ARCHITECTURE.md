@@ -40,6 +40,13 @@ and `EchoProvider` (a no-op stub for tests/dev). `providers/__init__.py`'s
 `get_provider()` is a factory that constructs a fresh provider instance per
 call, reading the active provider name from `config.get_ai_provider()`.
 
+**Rule: valid provider names live in exactly one place —
+`providers/__init__.py`'s `PROVIDER_REGISTRY` dict** (`{name: class}`).
+`get_provider()` and both channels' `/provider` command handlers all check
+membership against it. Never hardcode a tuple/list of provider names at a
+new call site — a hardcoded tuple in one listener but not the other is
+exactly how `/provider agy` worked on Telegram but not email.
+
 Each real provider shells out to its CLI binary as a subprocess, passing the
 prompt on stdin/argv and parsing JSON from stdout. All three currently
 duplicate their own subprocess-env setup, locking, and error handling rather
@@ -139,41 +146,44 @@ Each channel has one function meant to be the single place outbound
 formatting happens:
 
 - **Email** — `channels/email/reply.py`'s `send_reply(..., stats=None,
-  session=None)`. Formats the stats footer (`format_stats_email`), form
-  tables, and task-checkbox `mailto:` links internally.
+  session=None)`. Formats form tables and task-checkbox `mailto:` links
+  internally.
 - **Telegram** — `channels/telegram/reply_dispatch.py`'s `safe_reply_text()`
-  (parse-mode-fallback retry when Telegram rejects malformed HTML/Markdown)
-  and `build_reply_keyboard()` (truncation + Actionable-Form/task-checklist
-  detection + keyboard construction) for inline replies.
+  (parse-mode-fallback retry when Telegram rejects malformed HTML/Markdown),
+  `safe_edit_text()` (the same fallback for callback-query flows that edit
+  an existing message instead of sending a new one, e.g. the quota-retry
+  button), and `build_reply_keyboard()` (truncation + Actionable-Form/
+  task-checklist detection + keyboard construction) for inline replies.
   `channels/telegram/sender.py`'s `send_telegram_message(..., stats=None,
-  session=None)` for standalone sends, formatting via `format_stats_telegram`.
+  session=None)` for standalone sends.
 
 **Rule: pass the raw `stats` dict plus a `session` handle through
 `send_reply()`/`send_telegram_message()` — never pre-gate or pre-format
-`stats` yourself.** Both functions gate internally
-(`if session and not session.stats_enabled: stats = None`) before
-formatting, so the caller doesn't need to know the user's `/stats`
-preference at all — just the raw stats and the identity to check it
-against. `session` is optional and defaults to "use `stats` as given" for
-callers that have no identity in scope.
+`stats` yourself.** Both call `utils/stats_formatter.py`'s
+`append_stats_email`/`append_stats_telegram` internally, which gate on
+`session.stats_enabled` (when a `session` is given — omitted, they use
+`stats` as-is) before formatting and appending. This is the **one**
+formatting+gating implementation for both channels — every call site uses
+it, including the two below that can't call `send_reply`/
+`send_telegram_message` directly:
 
-**Exception:** `channels/telegram/listener.py` (3 call sites) and
-`core/scheduler.py`'s inline-reply path don't call `send_telegram_message`
-for their primary replies at all — they build `reply_text`/`response_text`
-directly (`message.reply_text()`, `query.message.edit_text()`) because that
-text also feeds `build_reply_keyboard()`'s truncation and Actionable-Form
-detection, which has to run after the stats footer is appended. They still
-use the `UserSession` handle for the gating check, just not the `stats=`
-kwarg:
+**`channels/telegram/listener.py`** (3 call sites) and
+**`core/scheduler.py`**'s inline-reply path build `reply_text`/
+`response_text` themselves rather than calling `send_telegram_message` for
+their primary replies, because that text also feeds
+`build_reply_keyboard()`'s truncation and Actionable-Form detection, which
+must run *after* the stats footer is appended (send_telegram_message's own
+truncation runs too late for that ordering). They call
+`append_stats_telegram`/`append_stats_email` directly instead:
 
 ```python
-if session.stats_enabled:
-    text += format_stats_telegram(stats)
+reply_text = append_stats_telegram(reply_text, result.stats, session)
 ```
 
-New code that sends through `send_reply`/`send_telegram_message` should use
-`stats=`/`session=`, not this manual pattern — but expect to see the manual
-form in these two files.
+Same function, called one layer up the stack — not a reimplementation.
+Never reimplement the gate-and-format logic itself at a new call site;
+always go through `append_stats_email`/`append_stats_telegram` (either
+directly, or via `send_reply`/`send_telegram_message`).
 
 ## The E*TRADE PIN-auth fallback and retry mechanism
 

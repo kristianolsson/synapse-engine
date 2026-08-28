@@ -105,15 +105,16 @@ class ETradeAuth:
     
     def authenticate(self, headless: bool = False) -> Tuple[str, str]:
         """Perform OAuth authentication flow.
-        
+
         Args:
-            headless: If True, print URL instead of opening browser
-            
+            headless: If True, raise instead of blocking on input() — see below
+
         Returns:
             Tuple of (access_token, access_token_secret)
-            
+
         Raises:
-            Exception: If authentication fails
+            Exception: If authentication fails, or immediately if headless
+                (see below).
         """
         # Try to load existing tokens first
         if self._load_tokens():
@@ -123,25 +124,33 @@ class ETradeAuth:
                 return self._access_token, self._access_token_secret
             except Exception as e:
                 logger.warning(f"Token renewal failed, performing fresh auth: {e}")
-        
+
         # Perform fresh OAuth flow
         logger.info("Starting OAuth authentication flow...")
-        
+
         # Step 1: Get request token and auth URL
         # Note: pyetrade.ETradeOAuth.get_request_token() returns only the auth URL
         # The oauth object stores the request token internally
         oauth = pyetrade.ETradeOAuth(self.consumer_key, self.consumer_secret)
         auth_url = oauth.get_request_token()
-        
+
         logger.info("Authorization URL generated")
-        
+
         # Step 2: User authorization
         if headless:
-            print(f"\nPlease open this URL in your browser to authorize:\n{auth_url}\n")
-        else:
-            print("\nOpening browser for E*TRADE authorization...")
-            webbrowser.open(auth_url)
-        
+            # No one is present to paste back a verification code — raise
+            # instead of blocking on input() below (which would otherwise
+            # hang an unattended run indefinitely). etrade_cli.py's
+            # _authenticate() catches this and routes to the PIN-auth
+            # Telegram/email fallback, the same way a WetradeAuth failure
+            # already does.
+            raise RuntimeError(
+                "Headless E*TRADE auth requires a human to complete the "
+                "OAuth flow interactively; falling back to PIN-auth."
+            )
+        print("\nOpening browser for E*TRADE authorization...")
+        webbrowser.open(auth_url)
+
         # Get verification code from user
         verifier = input("\nEnter the verification code from E*TRADE: ").strip()
         

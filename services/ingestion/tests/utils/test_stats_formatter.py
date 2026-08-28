@@ -1,6 +1,13 @@
 """Tests for the stats formatting module."""
 
-from services.ingestion.utils.stats_formatter import format_stats_email, format_stats_telegram
+from unittest.mock import MagicMock
+
+from services.ingestion.utils.stats_formatter import (
+    format_stats_email,
+    format_stats_telegram,
+    append_stats_email,
+    append_stats_telegram,
+)
 
 
 class TestFormatStatsEmail:
@@ -129,3 +136,48 @@ class TestFormatStatsTelegram:
         }
         result = format_stats_telegram(stats)
         assert "google_web_search: 2 (1 ok, 1 fail)" in result
+
+
+class TestAppendStatsEmail:
+    """append_stats_email is the single place email stats-append happens —
+    used by send_reply() and by scheduler.py's reminder delivery, which
+    builds its own text before send_reply gets a chance to."""
+
+    def test_no_session_appends_when_stats_truthy(self):
+        stats = {"duration_api_ms": 500}
+        result = append_stats_email("Hello", stats)
+        assert result.startswith("Hello")
+        assert "<b>Stats:</b>" in result
+
+    def test_no_session_no_stats_appends_nothing(self):
+        assert append_stats_email("Hello", None) == "Hello"
+
+    def test_session_disabled_suppresses_stats(self):
+        session = MagicMock(stats_enabled=False)
+        result = append_stats_email("Hello", {"duration_api_ms": 500}, session)
+        assert result == "Hello"
+
+    def test_session_enabled_appends_stats(self):
+        session = MagicMock(stats_enabled=True)
+        result = append_stats_email("Hello", {"duration_api_ms": 500}, session)
+        assert "<b>Stats:</b>" in result
+
+
+class TestAppendStatsTelegram:
+    def test_no_session_appends_when_stats_truthy(self):
+        result = append_stats_telegram("Hello", {"duration_api_ms": 500})
+        assert result.startswith("Hello")
+        assert "[Stats:" in result
+
+    def test_no_session_no_stats_appends_nothing(self):
+        assert append_stats_telegram("Hello", None) == "Hello"
+
+    def test_session_disabled_suppresses_stats(self):
+        session = MagicMock(stats_enabled=False)
+        result = append_stats_telegram("Hello", {"duration_api_ms": 500}, session)
+        assert result == "Hello"
+
+    def test_session_enabled_appends_stats(self):
+        session = MagicMock(stats_enabled=True)
+        result = append_stats_telegram("Hello", {"duration_api_ms": 500}, session)
+        assert "[Stats:" in result

@@ -22,6 +22,7 @@ from ...core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provide
 from ...core.rate_limiter import RateLimiter
 from ...tools.stocks import etrade_pin_auth
 from ...core.session_manager import SessionManager, UserSession
+from ...providers import PROVIDER_REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +288,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         parts = stripped_body.split()
         if len(parts) == 2:
             requested = parts[1]
-            if requested in ("gemini", "claude", "agy", "echo"):
+            if requested in PROVIDER_REGISTRY:
                 config.set_ai_provider(requested)
                 return True, f"Switched to {requested} provider.", None
             else:

@@ -9,6 +9,18 @@ from .agy import AgyProvider
 
 logger = logging.getLogger(__name__)
 
+# Single source of truth for valid provider names. get_provider() and the
+# /provider command handlers (email + Telegram listeners) all key off this
+# instead of independently hardcoded tuples — those already drifted out of
+# sync once (AgyProvider was added to Telegram's tuple but not email's).
+PROVIDER_REGISTRY: dict = {
+    "gemini": GeminiProvider,
+    "claude": ClaudeProvider,
+    "echo": EchoProvider,
+    "agy": AgyProvider,
+}
+
+
 def get_provider(provider_name: Optional[str] = None) -> AIProvider:
     """
     Get an AI provider instance.
@@ -27,13 +39,7 @@ def get_provider(provider_name: Optional[str] = None) -> AIProvider:
         from ..config import get_ai_provider
         provider_name = get_ai_provider()
 
-    if provider_name == "gemini":
-        return GeminiProvider()
-    if provider_name == "claude":
-        return ClaudeProvider()
-    if provider_name == "echo":
-        return EchoProvider()
-    if provider_name == "agy":
-        return AgyProvider()
-    
-    raise ValueError(f"Unknown AI provider: {provider_name}")
+    provider_cls = PROVIDER_REGISTRY.get(provider_name)
+    if provider_cls is None:
+        raise ValueError(f"Unknown AI provider: {provider_name}")
+    return provider_cls()

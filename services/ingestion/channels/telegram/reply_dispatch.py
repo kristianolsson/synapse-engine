@@ -49,6 +49,28 @@ async def safe_reply_text(message, text: str, parse_mode: Optional[str] = None, 
         raise
 
 
+async def safe_edit_text(message, text: str, parse_mode: Optional[str] = None, **kwargs):
+    """
+    Edit a message's text, falling back to plain text if `parse_mode`
+    formatting is malformed — the edit_text counterpart to safe_reply_text,
+    for callback-query flows (e.g. the quota-retry button) that edit an
+    existing message instead of sending a new one.
+    """
+    if parse_mode is None:
+        return await message.edit_text(text, **kwargs)
+
+    try:
+        return await message.edit_text(text, parse_mode=parse_mode, **kwargs)
+    except BadRequest as e:
+        if "parse entities" in str(e).lower() or "unexpected end tag" in str(e).lower():
+            logger.warning(
+                "Failed to edit message with parse_mode=%s due to formatting error, retrying as plain text: %s",
+                parse_mode, e,
+            )
+            return await message.edit_text(text, **kwargs)
+        raise
+
+
 def build_reply_keyboard(chat_id, user_key: str, reply_text: str):
     """
     Truncate to Telegram's message limit, then detect an Actionable Form or
