@@ -58,7 +58,7 @@ flowchart TB
 
     subgraph exec["Agent Execution — serialized by GLOBAL_PROVIDER_LOCK"]
         direction TB
-        VAULT[("Synapse Vault<br/>git-backed notes repo")]
+        VAULT[("Synapse Vault<br/>git-backed vault repo")]
         TOOLS["Injected tool CLIs (bin/)<br/>calendar · gmail · etrade · options-bot · amazon-fresh · reminder"]
         VAULT --> TOOLS
     end
