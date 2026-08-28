@@ -107,3 +107,51 @@ class TestSendTelegramMessage:
 
         result = send_telegram_message(12345, "Hello!")
         assert result is None
+
+    @patch("services.ingestion.channels.telegram.sender.config")
+    @patch("services.ingestion.channels.telegram.sender.telegram")
+    def test_session_disabled_suppresses_stats(self, mock_telegram, mock_config):
+        # Callers may pass a raw stats dict plus a session handle instead of
+        # pre-gating themselves — the send function must do the gating.
+        from services.ingestion.core.session_manager import UserSession
+
+        mock_config.TELEGRAM_BOT_TOKEN = "test-token"
+        mock_message = MagicMock()
+        mock_message.message_id = 104
+        mock_bot = AsyncMock()
+        mock_bot.send_message.return_value = mock_message
+        mock_telegram.Bot.return_value = mock_bot
+
+        from services.ingestion.channels.telegram.sender import send_telegram_message
+
+        mock_sm = MagicMock()
+        mock_sm.get_stats_enabled.return_value = False
+        session = UserSession(mock_sm, "12345")
+
+        send_telegram_message(12345, "Balance: $1,000", stats={"duration_api_ms": 1200}, session=session)
+
+        sent_text = mock_bot.send_message.call_args[1]["text"]
+        assert sent_text == "Balance: $1,000"
+
+    @patch("services.ingestion.channels.telegram.sender.config")
+    @patch("services.ingestion.channels.telegram.sender.telegram")
+    def test_session_enabled_includes_stats(self, mock_telegram, mock_config):
+        from services.ingestion.core.session_manager import UserSession
+
+        mock_config.TELEGRAM_BOT_TOKEN = "test-token"
+        mock_message = MagicMock()
+        mock_message.message_id = 105
+        mock_bot = AsyncMock()
+        mock_bot.send_message.return_value = mock_message
+        mock_telegram.Bot.return_value = mock_bot
+
+        from services.ingestion.channels.telegram.sender import send_telegram_message
+
+        mock_sm = MagicMock()
+        mock_sm.get_stats_enabled.return_value = True
+        session = UserSession(mock_sm, "12345")
+
+        send_telegram_message(12345, "Balance: $1,000", stats={"duration_api_ms": 1200}, session=session)
+
+        sent_text = mock_bot.send_message.call_args[1]["text"]
+        assert "[Stats: 1200ms]" in sent_text

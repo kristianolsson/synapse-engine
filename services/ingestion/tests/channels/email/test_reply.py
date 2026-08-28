@@ -3,6 +3,7 @@
 from unittest.mock import patch, MagicMock
 
 from services.ingestion.channels.email.reply import send_reply
+from services.ingestion.core.session_manager import UserSession
 
 
 class TestSendReply:
@@ -172,3 +173,57 @@ class TestSendReply:
         assert sent_msg.get_content_type() == "text/html"
         body_content = sent_msg.get_payload(decode=True).decode("utf-8")
         assert "Line one<br>Line two<br>Line three" in body_content
+
+
+class TestSendReplySessionGating:
+    """Callers may pass a raw `stats` dict plus a `session` handle instead
+    of pre-gating stats themselves — send_reply must suppress the footer
+    when the session says stats are disabled, and include it when enabled."""
+
+    @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
+    @patch("services.ingestion.channels.email.reply.config")
+    def test_suppresses_stats_when_session_disabled(self, mock_config, mock_smtp_class):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_server = MagicMock()
+        mock_smtp_class.return_value.__enter__ = MagicMock(return_value=mock_server)
+        mock_smtp_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_sm = MagicMock()
+        mock_sm.get_stats_enabled.return_value = False
+        session = UserSession(mock_sm, "user@example.com")
+
+        send_reply(
+            to_addr="user@example.com",
+            subject="Test",
+            body="Done.",
+            stats={"models": {"m": {"api": {"totalLatencyMs": 1, "totalErrors": 0, "totalRequests": 1}}}},
+            session=session,
+        )
+
+        sent_msg = mock_server.send_message.call_args[0][0]
+        body_content = sent_msg.get_payload(decode=True).decode("utf-8")
+        assert "<b>Stats:</b>" not in body_content
+
+    @patch("services.ingestion.channels.email.reply.smtplib.SMTP")
+    @patch("services.ingestion.channels.email.reply.config")
+    def test_includes_stats_when_session_enabled(self, mock_config, mock_smtp_class):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        mock_server = MagicMock()
+        mock_smtp_class.return_value.__enter__ = MagicMock(return_value=mock_server)
+        mock_smtp_class.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_sm = MagicMock()
+        mock_sm.get_stats_enabled.return_value = True
+        session = UserSession(mock_sm, "user@example.com")
+
+        send_reply(
+            to_addr="user@example.com",
+            subject="Test",
+            body="Done.",
+            stats={"models": {"m": {"api": {"totalLatencyMs": 1, "totalErrors": 0, "totalRequests": 1}}}},
+            session=session,
+        )
+
+        sent_msg = mock_server.send_message.call_args[0][0]
+        body_content = sent_msg.get_payload(decode=True).decode("utf-8")
+        assert "<b>Stats:</b>" in body_content

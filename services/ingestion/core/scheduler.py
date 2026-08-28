@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 
 from .. import config
 from ..core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
-from ..core.session_manager import SessionManager
+from ..core.session_manager import SessionManager, UserSession
 from ..providers.base import GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
@@ -460,6 +460,7 @@ class ReminderScheduler:
             sender = config.REPLY_TO_ADDRESS or (
                 config.ALLOWED_SENDERS[0] if config.ALLOWED_SENDERS else "system"
             )
+        session = UserSession(self.session_manager, sender)
         source_type = "scheduled_work"
 
         incoming = IncomingMessage(
@@ -512,7 +513,7 @@ class ReminderScheduler:
         if is_missed:
             response_text = f"⏰ _Missed reminder (firing late):_\n\n{response_text}"
 
-        if self.session_manager.get_stats_enabled(sender):
+        if session.stats_enabled:
             if channel == "telegram":
                 from ..utils.stats_formatter import format_stats_telegram
                 response_text += format_stats_telegram(result.stats)

@@ -21,7 +21,7 @@ from ... import config
 from ...core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
 from ...tools.stocks import etrade_pin_auth
-from ...core.session_manager import SessionManager
+from ...core.session_manager import SessionManager, UserSession
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,11 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     else:
         session_key = message_id
 
+    # Bound to session_key (per-thread) for conversation continuity, but to
+    # sender (per-address) for the /stats preference — one person can have
+    # many threads, and the preference should follow them, not the thread.
+    session = UserSession(session_manager, session_key, stats_key=sender)
+
     logger.info("Processing email from=%s subject=%r", sender, subject)
 
     # Sender whitelist check
@@ -245,13 +250,13 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
             body=prompt,
         )
         full_prompt = sync_and_build_prompt(incoming)
-        session_id = session_manager.get_session(session_key)
+        session_id = session.session_id
         result = pipe_to_provider(full_prompt, session_id=session_id)
-        
+
         if result.session_id:
-            session_manager.save_session(session_key, result.session_id)
-            
-        stats_to_return = result.stats if session_manager.get_stats_enabled(sender) else None
+            session.save(result.session_id)
+
+        stats_to_return = result.stats if session.stats_enabled else None
 
         if result.is_error:
             logger.error("Task completion failed for '%s': %s", task_text, result.output)
@@ -264,7 +269,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         return False, "", stats_to_return
 
     if body.strip() in ("/new", "/clear"):
-        if session_manager.clear_session(session_key):
+        if session.clear():
             return True, "Session cleared. Starting a fresh context.", None
         else:
             return True, "No active session to clear.", None
@@ -273,7 +278,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     stripped_body = body.strip().lower()
     if stripped_body in ("/stats on", "/stats off"):
         enabled = stripped_body == "/stats on"
-        session_manager.set_stats_enabled(sender, enabled)
+        session.set_stats_enabled(enabled)
         label = "on" if enabled else "off"
         return True, f"Stats display turned {label}.", None
 
@@ -302,7 +307,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     )
 
     prompt = sync_and_build_prompt(incoming)
-    session_id = session_manager.get_session(session_key)
+    session_id = session.session_id
     extra_env = {
         "SYNAPSE_SESSION_KEY": session_key,
         "SYNAPSE_SESSION_ID": session_id or "",
@@ -315,10 +320,10 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
     result = pipe_to_provider(prompt, session_id=session_id, extra_env=extra_env)
 
     if result.session_id:
-        session_manager.save_session(session_key, result.session_id)
+        session.save(result.session_id)
         etrade_pin_auth.backfill_session_id(session_key, result.session_id)
 
-    stats_to_return = result.stats if session_manager.get_stats_enabled(sender) else None
+    stats_to_return = result.stats if session.stats_enabled else None
 
     if result.requires_reply:
         return True, result.output, stats_to_return

@@ -7,7 +7,7 @@ import time
 from unittest.mock import patch
 
 
-from services.ingestion.core.session_manager import SessionManager
+from services.ingestion.core.session_manager import SessionManager, UserSession
 
 
 class TestSessionManager:
@@ -93,4 +93,61 @@ class TestStatsPreference:
 
         self.sm.set_stats_enabled("user1", False)
         assert self.sm.get_stats_enabled("user1") is False
+        self.tearDown()
+
+
+class TestUserSession:
+    def setUp(self):
+        self.fd, self.path = tempfile.mkstemp(suffix=".json")
+        os.close(self.fd)
+        self.sm = SessionManager(filepath=self.path, ttl_minutes=60)
+
+    def tearDown(self):
+        if os.path.exists(self.path):
+            os.remove(self.path)
+
+    def test_session_id_and_save_delegate_to_manager_by_key(self):
+        self.setUp()
+        session = UserSession(self.sm, "user1")
+        assert session.session_id is None
+
+        session.save("sess-abc")
+        assert session.session_id == "sess-abc"
+        assert self.sm.get_session("user1") == "sess-abc"
+        self.tearDown()
+
+    def test_clear_delegates_to_manager(self):
+        self.setUp()
+        session = UserSession(self.sm, "user1")
+        session.save("sess-abc")
+
+        assert session.clear() is True
+        assert session.session_id is None
+        self.tearDown()
+
+    @patch("services.ingestion.core.session_manager.config")
+    def test_stats_key_defaults_to_key(self, mock_config):
+        self.setUp()
+        mock_config.STATS_ENABLED = False
+        session = UserSession(self.sm, "user1")
+
+        session.set_stats_enabled(True)
+        assert session.stats_enabled is True
+        assert self.sm.get_stats_enabled("user1") is True
+        self.tearDown()
+
+    @patch("services.ingestion.core.session_manager.config")
+    def test_stats_key_can_differ_from_key(self, mock_config):
+        # Email threads: session continuity is per-thread (`key`), but the
+        # /stats preference is per-sender (`stats_key`) — one person can
+        # have many threads.
+        self.setUp()
+        mock_config.STATS_ENABLED = False
+        session = UserSession(self.sm, "<thread-1@synapse.local>", stats_key="user@example.com")
+
+        session.set_stats_enabled(True)
+        assert session.stats_enabled is True
+        assert self.sm.get_stats_enabled("user@example.com") is True
+        # The session-continuity key is untouched by the stats toggle.
+        assert self.sm.get_stats_enabled("<thread-1@synapse.local>") is False
         self.tearDown()

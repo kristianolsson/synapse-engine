@@ -96,39 +96,84 @@ matters for the analogous reason: its own docstring says it's "shared across
 all ingestion channels," which is only true if one instance is actually
 shared.
 
+### `UserSession`: the per-identity handle
+
+Message-handling code doesn't call `session_manager.get_session(key)` /
+`.save_session(key, id)` / `.get_stats_enabled(key)` directly with a raw key
+string repeated at each call. Instead it constructs one
+`UserSession(session_manager, key, stats_key=None)` (`core/session_manager.py`)
+near the top of the function and passes that single handle around:
+
+```python
+session = UserSession(session_manager, key)   # stats_key defaults to key
+session_id = session.session_id
+session.save(result.session_id)
+if session.stats_enabled:
+    ...
+```
+
+`UserSession` is a thin wrapper — every method just calls the same method on
+the `session_manager` it was given, so it composes with a mocked
+`session_manager` in tests exactly like the manager itself would.
+**Construct it directly (`UserSession(session_manager, key)`), not via a
+factory method on `session_manager`** — a factory method called on a mocked
+`session_manager` would return an unrelated mock, disconnected from
+whatever the test configured.
+
+`stats_key` only needs to be passed when it differs from `key` — the one
+place this happens is the email listener, where session continuity is
+per-thread (`key`) but the `/stats` preference is per-sender (`stats_key`),
+since one person can have many threads. Everywhere else (Telegram, the
+scheduler, the E*TRADE retry path) the two are the same identity, so
+`stats_key` is omitted.
+
+`get_message_session()`/`save_message_session()` (keyed by Telegram message
+ID, a different identity than the user) and one-off writes to a
+locally-constructed key (e.g. the scheduler's synthesized email-thread ID
+for a reminder reply) still go straight through `session_manager` — they
+aren't identities a `UserSession` handle is built for.
+
 ## Delivery: getting a reply back out
 
 Each channel has one function meant to be the single place outbound
 formatting happens:
 
-- **Email** — `channels/email/reply.py`'s `send_reply(..., stats=None)`.
-  Formats the stats footer (`format_stats_email`), form tables, and
-  task-checkbox `mailto:` links internally. Callers pass a raw `stats` dict
-  (or `None`) straight through — they should never pre-format or concatenate
-  it into the body themselves.
+- **Email** — `channels/email/reply.py`'s `send_reply(..., stats=None,
+  session=None)`. Formats the stats footer (`format_stats_email`), form
+  tables, and task-checkbox `mailto:` links internally.
 - **Telegram** — `channels/telegram/reply_dispatch.py`'s `safe_reply_text()`
   (parse-mode-fallback retry when Telegram rejects malformed HTML/Markdown)
   and `build_reply_keyboard()` (truncation + Actionable-Form/task-checklist
   detection + keyboard construction) for inline replies.
-  `channels/telegram/sender.py`'s `send_telegram_message(..., stats=None)`
-  for standalone sends — it takes the same raw-dict `stats` pattern as
-  `send_reply()` and formats it internally via `format_stats_telegram`.
+  `channels/telegram/sender.py`'s `send_telegram_message(..., stats=None,
+  session=None)` for standalone sends, formatting via `format_stats_telegram`.
 
-**Rule: pass `stats=` through `send_reply()`/`send_telegram_message()`,
-never pre-format or gate it yourself.**
+**Rule: pass the raw `stats` dict plus a `session` handle through
+`send_reply()`/`send_telegram_message()` — never pre-gate or pre-format
+`stats` yourself.** Both functions gate internally
+(`if session and not session.stats_enabled: stats = None`) before
+formatting, so the caller doesn't need to know the user's `/stats`
+preference at all — just the raw stats and the identity to check it
+against. `session` is optional and defaults to "use `stats` as given" for
+callers that have no identity in scope.
 
 **Exception:** `channels/telegram/listener.py` (3 call sites) and
-`core/scheduler.py`'s inline-reply path predate `send_telegram_message`'s
-`stats` kwarg and still gate/format it manually:
+`core/scheduler.py`'s inline-reply path don't call `send_telegram_message`
+for their primary replies at all — they build `reply_text`/`response_text`
+directly (`message.reply_text()`, `query.message.edit_text()`) because that
+text also feeds `build_reply_keyboard()`'s truncation and Actionable-Form
+detection, which has to run after the stats footer is appended. They still
+use the `UserSession` handle for the gating check, just not the `stats=`
+kwarg:
 
 ```python
-if session_manager.get_stats_enabled(key):
+if session.stats_enabled:
     text += format_stats_telegram(stats)
 ```
 
-These haven't been migrated to the `stats=` kwarg yet. Don't copy this
-manual pattern into new code — use `stats=` — but expect to see it if you're
-reading these two files.
+New code that sends through `send_reply`/`send_telegram_message` should use
+`stats=`/`session=`, not this manual pattern — but expect to see the manual
+form in these two files.
 
 ## The E*TRADE PIN-auth fallback and retry mechanism
 

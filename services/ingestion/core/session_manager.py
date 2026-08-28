@@ -135,3 +135,42 @@ class SessionManager:
         """Set the per-user stats preference (in-memory only)."""
         self._stats_prefs[user_key] = enabled
         logger.debug("Stats preference for %r set to %s", user_key, enabled)
+
+class UserSession:
+    """A handle bound to one identity, wrapping a SessionManager (or, in
+    tests, anything with its interface — a MagicMock configured with
+    get_session/save_session/get_stats_enabled/etc. behaves identically,
+    since every method here just calls straight through to `manager`).
+
+    Not a substitute for SessionManager — pass it the caller's existing
+    live instance, never a fresh SessionManager(), which would silently
+    lose its in-memory state exactly like constructing SessionManager()
+    directly does.
+
+    `stats_key` only needs to be given when it differs from `key` — e.g.
+    email threads use a per-thread `key` for session continuity but a
+    per-sender `stats_key` for the /stats preference, since one person can
+    have many threads. Defaults to `key` when omitted.
+    """
+
+    def __init__(self, manager: "SessionManager", key: str, stats_key: Optional[str] = None):
+        self._manager = manager
+        self.key = key
+        self.stats_key = stats_key if stats_key is not None else key
+
+    @property
+    def session_id(self) -> Optional[str]:
+        return self._manager.get_session(self.key)
+
+    def save(self, session_id: str) -> None:
+        self._manager.save_session(self.key, session_id)
+
+    def clear(self) -> bool:
+        return self._manager.clear_session(self.key)
+
+    @property
+    def stats_enabled(self) -> bool:
+        return self._manager.get_stats_enabled(self.stats_key)
+
+    def set_stats_enabled(self, enabled: bool) -> None:
+        self._manager.set_stats_enabled(self.stats_key, enabled)
