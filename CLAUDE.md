@@ -1,7 +1,7 @@
 # synapse-engine
 
 Ingestion/dispatch service bridging Email + Telegram with a pluggable AI
-provider (Claude Code CLI / Antigravity CLI / Gemini CLI, deprecated) acting
+provider (Claude Code CLI / Antigravity CLI / Gemini CLI (deprecated)) acting
 on a git-backed vault of notes/protocols. See `README.md` for setup and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the pieces fit
 together — read that before making non-trivial changes here.
