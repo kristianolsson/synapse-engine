@@ -58,7 +58,7 @@ flowchart TB
 
     subgraph exec["Agent Execution — serialized by GLOBAL_PROVIDER_LOCK"]
         direction TB
-        VAULT[("Synapse Vault<br/>git-backed notes repo")]
+        VAULT[("Synapse Vault<br/>git-backed vault repo")]
         TOOLS["Injected tool CLIs (bin/)<br/>calendar · gmail · etrade · options-bot · amazon-fresh · reminder"]
         VAULT --> TOOLS
     end
@@ -220,7 +220,7 @@ docker compose logs -f
 ```
 
 The compose file expects an `.env` and mounted credential directories on the
-host. For a full walkthrough on the QNAP TS-264 (creating the `synapse` user,
+host. For a full walkthrough on a QNAP NAS (creating the `synapse` user,
 folder layout, seeding Claude/Antigravity/Gemini/E\*TRADE/Amazon credentials,
 and the OAuth token), see **[`qnap-setup.md`](qnap-setup.md)**.
 

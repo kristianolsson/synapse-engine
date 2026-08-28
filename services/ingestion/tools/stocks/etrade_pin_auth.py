@@ -132,19 +132,48 @@ def save_access_token(access_token: str, access_token_secret: str, sandbox: bool
     TOKEN_FILE.chmod(0o600)
 
 
-def complete_and_maybe_retry(pending: dict) -> None:
+def _stats_if_enabled(session_manager, stats_key: str, stats) -> Optional[dict]:
+    """Gate `stats` on the user's /stats preference, or None to send
+    nothing. `send_reply()` already centralizes email stats formatting
+    (its `stats` kwarg → format_stats_email), so callers just forward
+    this through rather than formatting here. Telegram's sender has no
+    equivalent — send_telegram_message() takes plain text only — so the
+    telegram branch below still formats and appends manually, matching
+    every other telegram call site (scheduler.py, both listeners)."""
+    if not stats_key or not session_manager.get_stats_enabled(stats_key):
+        return None
+    return stats
+
+
+def _reminder_stats_sender(pending: dict, retry_channel: str) -> str:
+    """Reminders never store a session/user key (see module docstring on
+    complete_and_maybe_retry), so reconstruct the same sender identity
+    scheduler.py's _handle_work_reminder uses to look up stats prefs."""
+    if retry_channel == "email":
+        return pending.get("email_to", "")
+    if retry_channel == "telegram":
+        from ... import config
+        return str(config.TELEGRAM_ALLOWED_USER_IDS[0]) if config.TELEGRAM_ALLOWED_USER_IDS else "system"
+    return "system"
+
+
+def complete_and_maybe_retry(pending: dict, session_manager) -> None:
     """After a successful PIN completion, resume the exact session that
     failed (interactive case) or replay the reminder task fresh
     (scheduled case) — whichever fields `_fallback_to_pin_auth` recorded
     on `pending`. No-op if neither is present (e.g. a manual
-    /update-etrade-auth run has nothing to retry)."""
+    /update-etrade-auth run has nothing to retry).
+
+    `session_manager` must be the caller's live instance (not a fresh
+    SessionManager()) — per-user stats prefs (`set_stats_enabled`) are
+    in-memory only, so a new instance would never see them and stats
+    would silently always fall back to the config default."""
     session_key = pending.get("session_key")
     reminder_task = pending.get("reminder_task")
 
     if session_key:
         logger.info("complete_and_maybe_retry: resuming session %s (session-resume branch)", session_key)
         from ...core.pipe import pipe_to_provider, build_prompt, IncomingMessage
-        from ...core.session_manager import SessionManager
 
         failed_command = pending.get("failed_command", "")
         retry_channel = pending.get("retry_channel", "system")
@@ -161,8 +190,13 @@ def complete_and_maybe_retry(pending: dict) -> None:
         retry_prompt = build_prompt(IncomingMessage(source_type=retry_channel, sender=sender or "system", body=retry_text))
         result = pipe_to_provider(retry_prompt, session_id=pending.get("session_id") or None)
         if result.session_id:
-            SessionManager().save_session(session_key, result.session_id)
-        _deliver_retry_result(pending, result.output or "✓")
+            session_manager.save_session(session_key, result.session_id)
+        stats = _stats_if_enabled(session_manager, sender, result.stats)
+        text = result.output or "✓"
+        if retry_channel == "telegram" and stats:
+            from ...utils.stats_formatter import format_stats_telegram
+            text += format_stats_telegram(stats)
+        _deliver_retry_result(pending, text, stats=stats)
 
     elif reminder_task:
         logger.info("complete_and_maybe_retry: replaying reminder task %r (reminder-replay branch)", reminder_task)
@@ -183,12 +217,21 @@ def complete_and_maybe_retry(pending: dict) -> None:
         prompt = build_prompt(incoming)
         result = pipe_to_provider(prompt, model="work")
         text = result.output or f"✓ Scheduled task completed: {reminder_task}"
-        _deliver_retry_result(pending, text)
+        retry_channel = pending.get("retry_channel", "system")
+        stats_sender = _reminder_stats_sender(pending, retry_channel)
+        stats = _stats_if_enabled(session_manager, stats_sender, result.stats)
+        if retry_channel == "telegram" and stats:
+            from ...utils.stats_formatter import format_stats_telegram
+            text += format_stats_telegram(stats)
+        _deliver_retry_result(pending, text, stats=stats)
 
 
-def _deliver_retry_result(pending: dict, text: str) -> None:
+def _deliver_retry_result(pending: dict, text: str, stats: Optional[dict] = None) -> None:
     """Send the retry/replay result to wherever the original request
-    came from (not necessarily wherever the PIN reply was completed)."""
+    came from (not necessarily wherever the PIN reply was completed).
+    `stats` (already gated on the user's preference) is forwarded to
+    send_reply()'s own `stats` kwarg for email — it formats and appends
+    the footer itself, so it must not already be baked into `text`."""
     retry_channel = pending.get("retry_channel")
     if retry_channel == "telegram":
         from ...channels.telegram.sender import send_telegram_message
@@ -216,6 +259,7 @@ def _deliver_retry_result(pending: dict, text: str) -> None:
                 body=text,
                 original_message_id=pending.get("email_message_id", ""),
                 original_references=pending.get("email_references", ""),
+                stats=stats,
             )
         else:
             logger.warning("Retry delivery skipped: retry_channel=email but no email_to/REPLY_TO_ADDRESS available")

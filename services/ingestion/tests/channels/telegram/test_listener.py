@@ -1007,14 +1007,15 @@ class TestTelegramEtradeAuth:
         context = MagicMock()
         context.background_tasks = set()
 
-        await handle_message(update, context, rl, MagicMock(spec=SessionManager))
+        session_manager = MagicMock(spec=SessionManager)
+        await handle_message(update, context, rl, session_manager)
         if context.background_tasks:
             await asyncio.gather(*context.background_tasks)
 
         mock_etrade.finish_pin_auth.assert_called_once_with(pending, "123456", "key", "secret")
         mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
         mock_etrade.clear_pending.assert_called_once()
-        mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending)
+        mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending, session_manager)
         replies = [c[0][0] for c in update.message.reply_text.call_args_list]
         assert any("successful" in r.lower() for r in replies)
 
@@ -1042,11 +1043,12 @@ class TestTelegramEtradeAuth:
         context = MagicMock()
         context.background_tasks = set()
 
-        await handle_message(update, context, rl, MagicMock(spec=SessionManager))
+        session_manager = MagicMock(spec=SessionManager)
+        await handle_message(update, context, rl, session_manager)
         if context.background_tasks:
             await asyncio.gather(*context.background_tasks)
 
-        mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending)
+        mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending, session_manager)
 
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")

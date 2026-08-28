@@ -5,7 +5,13 @@
 
 set -euo pipefail
 
-SYNAPSE_DIR="/share/CE_CACHEDEV2_DATA/synapse"
+cd "$(dirname "$0")"
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+fi
+SYNAPSE_DIR="${SYNAPSE_HOST_DIR:?Set SYNAPSE_HOST_DIR in synapse-engine/.env — see .env.compose.example}"
 COMPOSE_DIR="$SYNAPSE_DIR/synapse-engine"
 
 echo "Pulling latest code..."

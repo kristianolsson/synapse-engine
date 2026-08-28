@@ -1,20 +1,24 @@
 services:
   synapse:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_USER_NAME: ${GIT_USER_NAME:-Synapse Bot}
+        GIT_USER_EMAIL: ${GIT_USER_EMAIL:-synapse@localhost}
     restart: always
-    env_file: /share/CE_CACHEDEV2_DATA/synapse/.env
+    env_file: ${SYNAPSE_HOST_DIR:?Set SYNAPSE_HOST_DIR in a .env file next to this compose file — see .env.compose.example}/.env
     environment:
       - TZ=America/Los_Angeles
     volumes:
-      - /share/CE_CACHEDEV2_DATA/synapse/notes:/app/notes
-      - /share/CE_CACHEDEV2_DATA/synapse/synapse-engine:/app/synapse-engine
-      - /share/CE_CACHEDEV2_DATA/synapse/credentials/claude:/home/synapse/.claude
-      - /share/CE_CACHEDEV2_DATA/synapse/credentials/gemini:/home/synapse/.gemini
-      - /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519:/home/synapse/.ssh/id_ed25519
-      - /share/CE_CACHEDEV2_DATA/synapse/ssh/id_ed25519.pub:/home/synapse/.ssh/id_ed25519.pub
-      - /share/CE_CACHEDEV2_DATA/synapse/data:/app/data
+      - ${SYNAPSE_HOST_DIR}/vault:/app/vault
+      - ${SYNAPSE_HOST_DIR}/synapse-engine:/app/synapse-engine
+      - ${SYNAPSE_HOST_DIR}/credentials/claude:/home/synapse/.claude
+      - ${SYNAPSE_HOST_DIR}/credentials/gemini:/home/synapse/.gemini
+      - ${SYNAPSE_HOST_DIR}/ssh/id_ed25519:/home/synapse/.ssh/id_ed25519
+      - ${SYNAPSE_HOST_DIR}/ssh/id_ed25519.pub:/home/synapse/.ssh/id_ed25519.pub
+      - ${SYNAPSE_HOST_DIR}/data:/app/data
       # E*TRADE: persistent OAuth tokens and browser session (shared with options-bot credentials)
-      - /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/.etrade_tokens:/home/synapse/.etrade_tokens
-      - /share/CE_CACHEDEV2_DATA/synapse/credentials/etrade/.etrade_browser_profile:/home/synapse/.etrade_browser_profile
+      - ${SYNAPSE_HOST_DIR}/credentials/etrade/.etrade_tokens:/home/synapse/.etrade_tokens
+      - ${SYNAPSE_HOST_DIR}/credentials/etrade/.etrade_browser_profile:/home/synapse/.etrade_browser_profile
       # Amazon Fresh: persistent Firefox browser session
-      - /share/CE_CACHEDEV2_DATA/synapse/credentials/amazon/.amazon-fresh-session:/home/synapse/.amazon-fresh-session
+      - ${SYNAPSE_HOST_DIR}/credentials/amazon/.amazon-fresh-session:/home/synapse/.amazon-fresh-session

@@ -36,7 +36,7 @@ ALLOWED_SENDERS = [
 REPLY_TO_ADDRESS = os.getenv("REPLY_TO_ADDRESS", "").strip().lower()
 
 # --- Vault ---
-VAULT_PATH = os.getenv("VAULT_PATH", str(Path(__file__).resolve().parent.parent.parent / "notes"))
+VAULT_PATH = os.getenv("VAULT_PATH", str(Path(__file__).resolve().parent.parent.parent / "vault"))
 
 # --- Rate Limiting ---
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "10"))

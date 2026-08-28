@@ -112,7 +112,7 @@ def cmd_auth(args) -> None:
             "profile_dir": str(DEFAULT_PROFILE_DIR),
             "next_steps": [
                 "Run 'amazon-fresh heal' to bootstrap selectors from the live pages.",
-                f"Then transfer profile to QNAP: scp -r {DEFAULT_PROFILE_DIR}/ admin@<QNAP_IP>:/share/CE_CACHEDEV2_DATA/synapse/credentials/amazon/",
+                f"Then transfer profile to QNAP: scp -r {DEFAULT_PROFILE_DIR}/ admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/amazon/",
             ],
         })
     finally:
