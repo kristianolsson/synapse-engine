@@ -198,7 +198,8 @@ Best for running on a personal Mac. Runs the service in the background via a `la
     ```
     This auto-detects your paths, generates the plist from
     `com.synapse.ingestion.plist.template`, and installs the service.
-    Use `./stop.sh` to stop it and `./update.sh` to pull + restart.
+    Use `./stop.sh` to stop it. To update, `git pull` then re-run
+    `./install.sh` (`./update.sh` is Docker/QNAP-only — see Option B).
 
 2.  **Logs:**
     ```bash
