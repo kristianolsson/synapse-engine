@@ -341,7 +341,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     )
     parser.add_argument(
         "--config", type=Path, default=None,
-        help="Path to reminders.json (default: auto-resolved from REMINDERS_JSON_PATH env or notes/reminders/reminders.json)",
+        help="Path to reminders.json (default: auto-resolved from REMINDERS_JSON_PATH env or vault/reminders/reminders.json)",
     )
 
     sub = parser.add_subparsers(dest="command", required=True)

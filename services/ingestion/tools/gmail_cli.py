@@ -54,7 +54,7 @@ DEFAULT_CREDENTIALS_PATH = _ROOT / "credentials.json"
 _ALLOW_ARCHIVE = os.getenv("GMAIL_ALLOW_ARCHIVE", "").lower() in ("1", "true", "yes")
 _ALLOW_SEND = os.getenv("GMAIL_ALLOW_SEND", "").lower() in ("1", "true", "yes")
 
-VAULT_PATH = Path(os.getenv("VAULT_PATH", str(_ROOT / "notes")))
+VAULT_PATH = Path(os.getenv("VAULT_PATH", str(_ROOT / "vault")))
 
 
 def get_credentials(token_path: Path, credentials_path: Path) -> Credentials:
