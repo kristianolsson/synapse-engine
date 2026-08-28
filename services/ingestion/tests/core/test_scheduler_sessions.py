@@ -6,11 +6,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from services.ingestion.core.scheduler import ReminderScheduler
+from services.ingestion.core.session_manager import SessionManager
 
 @pytest.fixture
 def scheduler():
-    """Create a scheduler instance with test defaults."""
-    return ReminderScheduler()
+    """Create a scheduler instance with test defaults. Uses a real
+    SessionManager (not a MagicMock) so the class-level
+    SessionManager.save_session patches below actually intercept calls made
+    through scheduler.session_manager."""
+    return ReminderScheduler(session_manager=SessionManager())
 
 class TestSchedulerSessions:
     """Tests for session persistence logic in ReminderScheduler."""

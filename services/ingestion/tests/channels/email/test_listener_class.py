@@ -9,7 +9,10 @@ class TestEmailListenerClass(unittest.TestCase):
     def setUp(self):
         self.mock_rate_limiter = MagicMock()
         self.mock_rate_limiter.allow.return_value = True
-        self.listener = EmailListener(rate_limiter=self.mock_rate_limiter)
+        self.mock_session_manager = MagicMock()
+        self.listener = EmailListener(
+            rate_limiter=self.mock_rate_limiter, session_manager=self.mock_session_manager
+        )
 
         # Mock config values
         config.IMAP_HOST = "imap.example.com"

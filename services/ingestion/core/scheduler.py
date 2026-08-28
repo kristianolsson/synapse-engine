@@ -159,8 +159,12 @@ class ReminderScheduler:
     - Dispatch loop: fires reminders at their exact scheduled time.
     """
 
-    def __init__(self):
-        self.session_manager = SessionManager()
+    def __init__(self, session_manager: SessionManager):
+        # Must be the caller's live instance, not a fresh SessionManager() —
+        # per-user /stats preferences are in-memory only, so a new instance
+        # would never see toggles set via the other channels (see main.py,
+        # which constructs exactly one shared instance for this reason).
+        self.session_manager = session_manager
         self._running = False
         self._stop_event = threading.Event()
 

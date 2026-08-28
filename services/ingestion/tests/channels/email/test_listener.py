@@ -277,6 +277,31 @@ class TestProcessEmail:
         assert text == "Which task did you mean?"
 
 
+class TestProviderCommand:
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_switches_to_agy(self, mock_config):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        raw = _make_simple_email(from_addr="user@example.com", body="/provider agy")
+        sm = MagicMock(spec=SessionManager)
+
+        should_reply, text, stats = process_email(raw, sm)
+
+        mock_config.set_ai_provider.assert_called_once_with("agy")
+        assert should_reply is True
+        assert "agy" in text
+
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_rejects_unknown_provider(self, mock_config):
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        raw = _make_simple_email(from_addr="user@example.com", body="/provider bogus")
+        sm = MagicMock(spec=SessionManager)
+
+        should_reply, text, stats = process_email(raw, sm)
+
+        mock_config.set_ai_provider.assert_not_called()
+        assert "Unknown provider" in text
+
+
 class TestSendReplyWithRetry:
     @patch("services.ingestion.channels.email.reply.send_reply")
     def test_succeeds_on_first_try(self, mock_send_reply):
@@ -319,7 +344,7 @@ class TestEmailReplyLogic:
         mock_config.RATE_LIMIT_MAX = 10
         mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
 
-        listener = EmailListener()
+        listener = EmailListener(rate_limiter=RateLimiter(10, 60), session_manager=MagicMock(spec=SessionManager))
         # Mock dependencies
         listener.client = MagicMock()
         listener.rate_limiter = MagicMock()
@@ -353,7 +378,7 @@ class TestEmailReplyLogic:
         mock_config.RATE_LIMIT_MAX = 10
         mock_config.RATE_LIMIT_WINDOW_SECONDS = 60
 
-        listener = EmailListener()
+        listener = EmailListener(rate_limiter=RateLimiter(10, 60), session_manager=MagicMock(spec=SessionManager))
         listener.client = MagicMock()
         listener.rate_limiter = MagicMock()
         listener.rate_limiter.allow.return_value = True

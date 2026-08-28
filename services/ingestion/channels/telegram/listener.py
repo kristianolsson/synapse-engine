@@ -902,11 +902,14 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
 class TelegramListener:
     """Telegram bot listener using long-polling."""
 
-    def __init__(self, rate_limiter: Optional[RateLimiter] = None):
-        self.rate_limiter = rate_limiter or RateLimiter(
-            config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW_SECONDS
-        )
-        self.session_manager = SessionManager()
+    def __init__(self, rate_limiter: RateLimiter, session_manager: SessionManager):
+        # Both must be the caller's shared, live instances (constructed once
+        # in main.py) — not fresh ones. RateLimiter is documented as shared
+        # across channels; SessionManager's per-user /stats preferences are
+        # in-memory only, so a fresh instance would never see toggles set on
+        # another channel's instance.
+        self.rate_limiter = rate_limiter
+        self.session_manager = session_manager
         self._app: Optional[Application] = None
 
     def run(self) -> None:

@@ -8,7 +8,10 @@ from services.ingestion import config
 class TestTelegramListenerClass(unittest.TestCase):
     def setUp(self):
         self.mock_rate_limiter = MagicMock()
-        self.listener = TelegramListener(rate_limiter=self.mock_rate_limiter)
+        self.mock_session_manager = MagicMock()
+        self.listener = TelegramListener(
+            rate_limiter=self.mock_rate_limiter, session_manager=self.mock_session_manager
+        )
         config.TELEGRAM_BOT_TOKEN = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 
     @patch("services.ingestion.channels.telegram.listener.Application")

@@ -282,14 +282,14 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         parts = stripped_body.split()
         if len(parts) == 2:
             requested = parts[1]
-            if requested in ("gemini", "claude", "echo"):
+            if requested in ("gemini", "claude", "agy", "echo"):
                 config.set_ai_provider(requested)
                 return True, f"Switched to {requested} provider.", None
             else:
-                return True, f"Unknown provider: {requested}. Options: gemini, claude", None
+                return True, f"Unknown provider: {requested}. Options: gemini, claude, agy", None
         else:
             current = config.get_ai_provider()
-            return True, f"Current provider: {current}. Usage: /provider <gemini|claude>", None
+            return True, f"Current provider: {current}. Usage: /provider <gemini|claude|agy>", None
 
     attachments = extract_attachments(msg)
 
@@ -339,12 +339,15 @@ class EmailListener:
     INITIAL_BACKOFF = 5  # seconds
     MAX_BACKOFF = 300  # 5 minutes
 
-    def __init__(self, rate_limiter: Optional[RateLimiter] = None):
+    def __init__(self, rate_limiter: RateLimiter, session_manager: SessionManager):
+        # Both must be the caller's shared, live instances (constructed once
+        # in main.py) — not fresh ones. RateLimiter is documented as shared
+        # across channels; SessionManager's per-user /stats preferences are
+        # in-memory only, so a fresh instance would never see toggles set on
+        # another channel's instance.
         self.client: Optional[IMAPClient] = None
-        self.rate_limiter = rate_limiter or RateLimiter(
-            config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW_SECONDS
-        )
-        self.session_manager = SessionManager()
+        self.rate_limiter = rate_limiter
+        self.session_manager = session_manager
         self._running = True
         self._backoff = self.INITIAL_BACKOFF
 

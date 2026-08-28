@@ -24,7 +24,7 @@ LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 @pytest.fixture
 def scheduler():
     """Create a scheduler instance for testing."""
-    return ReminderScheduler()
+    return ReminderScheduler(session_manager=MagicMock())
 
 
 # ── compute_next_fire ────────────────────────────────────────────────

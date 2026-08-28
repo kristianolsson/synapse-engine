@@ -2,7 +2,8 @@
 Unified entry point for the synapse-engine ingestion service.
 
 Starts enabled channels (email, telegram, or both) in separate threads
-with a shared rate limiter. Configurable via ENABLED_CHANNELS env var.
+with a shared rate limiter and session manager. Configurable via
+ENABLED_CHANNELS env var.
 """
 
 import logging
@@ -12,6 +13,7 @@ import threading
 
 from . import config
 from .core.rate_limiter import RateLimiter
+from .core.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +32,14 @@ def main():
 
     logger.info("Enabled channels: %s", ", ".join(channels))
 
-    # Shared rate limiter across all channels
+    # Shared across all channels — constructed once here and injected into
+    # every listener/scheduler below. A fresh instance built per-component
+    # would silently lose state (RateLimiter's shared window; SessionManager's
+    # in-memory per-user /stats preference).
     rate_limiter = RateLimiter(
         config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW_SECONDS
     )
+    session_manager = SessionManager()
 
     listeners = []
     threads = []
@@ -42,7 +48,7 @@ def main():
     if "email" in channels:
         from .channels.email.listener import EmailListener
 
-        email_listener = EmailListener(rate_limiter=rate_limiter)
+        email_listener = EmailListener(rate_limiter=rate_limiter, session_manager=session_manager)
         listeners.append(email_listener)
 
         t = threading.Thread(
@@ -63,7 +69,7 @@ def main():
 
         from .channels.telegram.listener import TelegramListener
 
-        telegram_listener = TelegramListener(rate_limiter=rate_limiter)
+        telegram_listener = TelegramListener(rate_limiter=rate_limiter, session_manager=session_manager)
         listeners.append(telegram_listener)
 
         t = threading.Thread(
@@ -77,7 +83,7 @@ def main():
     # --- Reminder Scheduler ---
     from .core.scheduler import ReminderScheduler
 
-    scheduler = ReminderScheduler()
+    scheduler = ReminderScheduler(session_manager=session_manager)
     listeners.append(scheduler)
 
     t = threading.Thread(
