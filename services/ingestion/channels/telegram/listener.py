@@ -194,7 +194,9 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             answer = text.strip()
             form_state.apply_answer(form_id, field_key, answer, answer)
             await _refresh_form_message(context.bot, form_id)
-            await message.reply_text(f"Saved: {answer}")
+            # Clear the ForceReply placeholder (e.g. "blood pressure") left over
+            # from this field's prompt — same fix as the submit path below.
+            await message.reply_text(f"Saved: {answer}", reply_markup=ReplyKeyboardRemove())
             return
 
     # Pending Claude re-auth: a plain-text reply while a login is in flight
