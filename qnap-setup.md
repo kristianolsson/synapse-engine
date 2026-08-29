@@ -11,6 +11,11 @@ models. Follow steps in order.
 - A real data volume for persistent storage — this guide uses
   `<YOUR_VOLUME>` as a placeholder; substitute your NAS's actual volume
   name throughout
+- README.md's [Setup](README.md#setup) section completed on a machine with
+  a browser — that's where `.env`, and (if you use Calendar/Gmail)
+  `credentials.json`/`token.json`/`calendars.json`, first get created. This
+  guide picks up from there and copies those files onto QNAP; it doesn't
+  recreate that first-time setup.
 
 ## 0. Choose your host directory and export it
 
@@ -191,6 +196,12 @@ chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon
 same as steps 6 and 7.
 
 ## 9. Set up .env and config files
+
+These three files assume you've already completed README.md's
+[Setup](README.md#setup) section — that's where `.env` gets filled in and,
+if you use Calendar/Gmail, `credentials.json`/`token.json`/`calendars.json`
+first get created. Do that first if you haven't (needs a browser for the
+Google OAuth consent screen).
 
 On the machine where your `synapse-engine` checkout and its `.env` live:
 ```bash
