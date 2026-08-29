@@ -42,14 +42,18 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+from services.ingestion.config import CALENDAR_CREDENTIALS_PATH, CALENDAR_TOKEN_PATH
+
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/gmail.modify",
 ]
 
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
-DEFAULT_TOKEN_PATH = _ROOT / "token.json"
-DEFAULT_CREDENTIALS_PATH = _ROOT / "credentials.json"
+# Overridable via CALENDAR_TOKEN_PATH/CALENDAR_CREDENTIALS_PATH env vars,
+# resolved once in config.py.
+DEFAULT_TOKEN_PATH = Path(CALENDAR_TOKEN_PATH)
+DEFAULT_CREDENTIALS_PATH = Path(CALENDAR_CREDENTIALS_PATH)
 
 _ALLOW_ARCHIVE = os.getenv("GMAIL_ALLOW_ARCHIVE", "").lower() in ("1", "true", "yes")
 _ALLOW_SEND = os.getenv("GMAIL_ALLOW_SEND", "").lower() in ("1", "true", "yes")
@@ -79,7 +83,7 @@ def get_credentials(token_path: Path, credentials_path: Path) -> Credentials:
                         raise FileNotFoundError(
                             f"OAuth credentials not found at {credentials_path}\n"
                             "Download credentials.json from Google Cloud Console,\n"
-                            "then run setup_calendar.py to authenticate."
+                            "then run setup_google.py to authenticate."
                         )
                     flow = InstalledAppFlow.from_client_secrets_file(
                         str(credentials_path), SCOPES

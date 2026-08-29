@@ -9,11 +9,15 @@ to the configured service email for security.
 import logging
 import smtplib
 from email.mime.text import MIMEText
+from typing import Optional, TYPE_CHECKING
 
 from ... import config
-from ...utils.stats_formatter import format_stats_email
+from ...utils.stats_formatter import append_stats_email
 from ...utils.task_formatter import TASK_PATTERN_OPEN, _hash_task
 from ...utils.form_formatter import format_message_with_form, render_form_as_html_table
+
+if TYPE_CHECKING:
+    from ...core.session_manager import UserSession
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,7 @@ def send_reply(
     original_references: str = "",
     message_id: str = "",
     stats: dict = None,
+    session: Optional["UserSession"] = None,
 ) -> bool:
     """
     Send an email reply via SMTP.
@@ -38,6 +43,11 @@ def send_reply(
         original_references: Existing References string from the original email.
         message_id: Explicit Message-ID to set for the outgoing email.
         stats: Optional execution statistics to append to the reply.
+        session: Optional UserSession handle — if given, gates `stats` on
+            its `stats_enabled` (so callers can pass the raw stats dict
+            straight through instead of pre-gating it themselves). If
+            omitted, `stats` is used as-is (backward compatible with
+            callers that already gated it before calling).
 
     Returns:
         True if sent successfully, False otherwise.
@@ -86,7 +96,7 @@ def send_reply(
         if match:
             body = body[match.start():]
             
-        final_body = body + format_stats_email(stats)
+        final_body = append_stats_email(body, stats, session)
     else:
         # Actionable Forms (☐F:...) have no email equivalent of tap-to-answer —
         # render the fields as a plain table for readability; reply in text as usual.
@@ -95,7 +105,7 @@ def send_reply(
         final_body = body_with_links.replace('\n', '<br>')
         if form_fields:
             final_body += "<br><br>" + render_form_as_html_table(form_fields)
-        final_body += format_stats_email(stats)
+        final_body = append_stats_email(final_body, stats, session)
 
     msg = MIMEText(final_body, "html", "utf-8")
     msg["From"] = f"Synapse <{config.EMAIL_ADDRESS}>"

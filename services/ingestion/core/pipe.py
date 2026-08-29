@@ -60,10 +60,12 @@ def _sync_git() -> str:
             return f"Git Context: FAILED - {e}"
 
 
-def build_prompt(msg: IncomingMessage) -> str:
+def sync_and_build_prompt(msg: IncomingMessage) -> str:
     """
-    Wrap a message in the metadata block format expected by the
-    Ingestion Protocols defined in GEMINI.md.
+    Run a pre-flight git pull against the vault, then wrap the message in the
+    metadata block format expected by the Ingestion Protocols defined in
+    GEMINI.md. The git sync result is embedded in that metadata block as
+    "Git Context: OK/FAILED - ..." — this isn't a pure formatting function.
     """
     from datetime import datetime
 

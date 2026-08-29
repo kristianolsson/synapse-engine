@@ -9,7 +9,10 @@ class TestEmailListenerClass(unittest.TestCase):
     def setUp(self):
         self.mock_rate_limiter = MagicMock()
         self.mock_rate_limiter.allow.return_value = True
-        self.listener = EmailListener(rate_limiter=self.mock_rate_limiter)
+        self.mock_session_manager = MagicMock()
+        self.listener = EmailListener(
+            rate_limiter=self.mock_rate_limiter, session_manager=self.mock_session_manager
+        )
 
         # Mock config values
         config.IMAP_HOST = "imap.example.com"
@@ -57,7 +60,7 @@ class TestEmailListenerClass(unittest.TestCase):
         mock_client.fetch.return_value = {uid: {b"RFC822": b"raw_email_bytes"}}
 
         # Mock process_email to return (should_reply=False, ...)
-        mock_process.return_value = (False, "", None)
+        mock_process.return_value = (False, "", None, None)
 
         # Mock search to return empty list (stop loop)
         mock_client.search.return_value = []
@@ -78,7 +81,7 @@ class TestEmailListenerClass(unittest.TestCase):
 
         uid = 123
         mock_client.fetch.return_value = {uid: {b"RFC822": b"raw_email_bytes"}}
-        mock_process.return_value = (True, "Reply text", None)
+        mock_process.return_value = (True, "Reply text", None, None)
         mock_client.search.return_value = []
 
         self.listener._fetch_and_process([uid])

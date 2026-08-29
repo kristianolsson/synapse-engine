@@ -1,5 +1,5 @@
 import pytest
-from services.ingestion.providers import get_provider
+from services.ingestion.providers import get_provider, PROVIDER_REGISTRY
 from services.ingestion.providers.gemini import GeminiProvider
 from services.ingestion.providers.claude import ClaudeProvider
 from services.ingestion.providers.echo import EchoProvider
@@ -29,3 +29,11 @@ def test_get_provider_explicit():
 
     provider = get_provider("agy")
     assert isinstance(provider, AgyProvider)
+
+def test_provider_registry_is_get_providers_single_source_of_truth():
+    # The email/Telegram /provider handlers validate against this same
+    # dict instead of independently hardcoded tuples — those drifted out
+    # of sync once already (agy was added to one and not the other).
+    assert set(PROVIDER_REGISTRY.keys()) == {"gemini", "claude", "echo", "agy"}
+    for name, provider_cls in PROVIDER_REGISTRY.items():
+        assert isinstance(get_provider(name), provider_cls)

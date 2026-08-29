@@ -1,5 +1,5 @@
 
-from services.ingestion.core.pipe import IncomingMessage, build_prompt, pipe_to_provider
+from services.ingestion.core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
 
 def test_echo_integration_pipeline(monkeypatch):
     # Setup
@@ -14,7 +14,7 @@ def test_echo_integration_pipeline(monkeypatch):
     )
     
     # Format
-    prompt = build_prompt(msg)
+    prompt = sync_and_build_prompt(msg)
     
     # Pipe
     result = pipe_to_provider(prompt)

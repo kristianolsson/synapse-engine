@@ -28,6 +28,12 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+from services.ingestion.config import (
+    CALENDAR_CONFIG_PATH,
+    CALENDAR_CREDENTIALS_PATH,
+    CALENDAR_TOKEN_PATH,
+)
+
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/gmail.modify",
@@ -36,11 +42,11 @@ SCOPES = [
 # Local timezone for display — all events are normalized to this
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
-# Default paths (can be overridden via env or args)
-_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-DEFAULT_CONFIG_PATH = _ROOT / "calendars.json"
-DEFAULT_TOKEN_PATH = _ROOT / "token.json"
-DEFAULT_CREDENTIALS_PATH = _ROOT / "credentials.json"
+# Default paths (overridable via CALENDAR_CONFIG_PATH/CALENDAR_TOKEN_PATH/
+# CALENDAR_CREDENTIALS_PATH env vars, resolved once in config.py)
+DEFAULT_CONFIG_PATH = Path(CALENDAR_CONFIG_PATH)
+DEFAULT_TOKEN_PATH = Path(CALENDAR_TOKEN_PATH)
+DEFAULT_CREDENTIALS_PATH = Path(CALENDAR_CREDENTIALS_PATH)
 
 
 def _parse_and_localize(dt_str: str) -> datetime:
@@ -62,7 +68,7 @@ def load_calendars(config_path: Path) -> list[dict]:
     if not config_path.exists():
         raise FileNotFoundError(
             f"Calendar config not found at {config_path}. "
-            "Run setup_calendar.py first, or create calendars.json."
+            "Run setup_google.py first, or create calendars.json."
         )
 
     with open(config_path) as f:
@@ -101,7 +107,7 @@ def get_credentials(token_path: Path, credentials_path: Path) -> Credentials:
                         raise FileNotFoundError(
                             f"OAuth credentials not found at {credentials_path}\n"
                             "Download credentials.json from Google Cloud Console,\n"
-                            "then run setup_calendar.py to authenticate."
+                            "then run setup_google.py to authenticate."
                         )
                     flow = InstalledAppFlow.from_client_secrets_file(
                         str(credentials_path), SCOPES

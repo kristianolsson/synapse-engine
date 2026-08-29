@@ -30,16 +30,17 @@ from telegram.ext import (
 from ... import config
 from ...config import get_next_provider
 from ...core import form_state
-from ...core.pipe import IncomingMessage, build_prompt, pipe_to_provider
+from ...core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
-from ...core.session_manager import SessionManager
-from ...utils.stats_formatter import format_stats_telegram
+from ...core.session_manager import SessionManager, UserSession
+from ...providers import PROVIDER_REGISTRY, user_visible_provider_names
+from ...utils.stats_formatter import append_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
 from ...utils.task_formatter import recover_task_from_callback
 from ...utils.form_formatter import render_form_display
 from ...tools.stocks import etrade_pin_auth
 from .form_buttons import build_form_keyboard
-from .reply_dispatch import build_reply_keyboard, attach_form_message_id, safe_reply_text
+from .reply_dispatch import build_reply_keyboard, attach_form_message_id, safe_reply_text, safe_edit_text
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # Extract content
     text = message.text or message.caption or ""
     user_key = str(user.id)
+    session = UserSession(session_manager, user_key)
 
     # A reply to a form field's ForceReply prompt is a form answer, not a normal prompt
     if message.reply_to_message and text.strip():
@@ -269,7 +271,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             return
 
     if text.strip() in ("/new", "/clear"):
-        if session_manager.clear_session(user_key):
+        if session.clear():
             await message.reply_text("Session cleared. Starting a fresh context.")
         else:
             await message.reply_text("No active session to clear.")
@@ -285,7 +287,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
             "/update-claude-auth — Re-authenticates the Claude CLI (OAuth login).\n"
             "/update-etrade-auth — Re-authenticates ETRADE (manual OAuth PIN).\n"
-            "/provider <gemini|claude|agy> — Switches the active AI provider.\n"
+            f"/provider <{'|'.join(user_visible_provider_names())}> — Switches the active AI provider.\n"
             "/help — Shows this help message."
         )
         await safe_reply_text(message, help_text, parse_mode='Markdown')
@@ -295,7 +297,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     stripped = text.strip().lower()
     if stripped in ("/stats on", "/stats off"):
         enabled = stripped == "/stats on"
-        session_manager.set_stats_enabled(user_key, enabled)
+        session.set_stats_enabled(enabled)
         label = "on" if enabled else "off"
         await message.reply_text(f"Stats display turned {label}.")
         return
@@ -421,14 +423,14 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         parts = stripped.split()
         if len(parts) == 2:
             requested = parts[1]
-            if requested in ("gemini", "claude", "agy", "echo"):
+            if requested in PROVIDER_REGISTRY:
                 config.set_ai_provider(requested)
                 await message.reply_text(f"Switched to {requested} provider.")
             else:
-                await message.reply_text(f"Unknown provider: {requested}. Options: gemini, claude, agy")
+                await message.reply_text(f"Unknown provider: {requested}. Options: {', '.join(user_visible_provider_names())}")
         else:
             current = config.get_ai_provider()
-            await message.reply_text(f"Current provider: {current}. Usage: /provider <gemini|claude|agy>")
+            await message.reply_text(f"Current provider: {current}. Usage: /provider <{'|'.join(user_visible_provider_names())}>")
         return
 
     attachment_paths = await extract_attachments(update)
@@ -472,9 +474,9 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             session_id = None
             logger.info("Starting new session for reply to untracked message_id=%d", reply_to_id)
     else:
-        session_id = session_manager.get_session(user_key)
+        session_id = session.session_id
 
-    prompt = build_prompt(incoming)
+    prompt = sync_and_build_prompt(incoming)
     extra_env = {
         "SYNAPSE_SESSION_KEY": user_key,
         "SYNAPSE_SESSION_ID": session_id or "",
@@ -511,7 +513,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         return
 
     if result.session_id and not reply_to_id:
-        session_manager.save_session(str(user.id), result.session_id)
+        session.save(result.session_id)
 
     if result.session_id:
         etrade_pin_auth.backfill_session_id(user_key, result.session_id)
@@ -521,8 +523,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         reply_text = "✓"
 
     # Append stats if enabled for this user
-    if session_manager.get_stats_enabled(user_key):
-        reply_text += format_stats_telegram(result.stats)
+    reply_text = append_stats_telegram(reply_text, result.stats, session)
 
     # Relay error/clarification/response to user.
     # Detect an Actionable Form or task checklist and build the matching keyboard
@@ -637,6 +638,7 @@ async def _handle_form_submit(query, context, session_manager: SessionManager) -
 
     await query.answer("Submitting...")
     user_key = form["user_key"]
+    session = UserSession(session_manager, user_key)
     answers = form["answers"]
     lines = [f"{key}={value}" for key, value in answers.items()]
     prompt_text = "Form submitted:\n" + ("\n".join(lines) if lines else "(no fields answered)")
@@ -647,18 +649,17 @@ async def _handle_form_submit(query, context, session_manager: SessionManager) -
         subject="",
         body=prompt_text,
     )
-    full_prompt = build_prompt(incoming)
-    session_id = form.get("session_id") or session_manager.get_session(user_key)
+    full_prompt = sync_and_build_prompt(incoming)
+    session_id = form.get("session_id") or session.session_id
 
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, pipe_to_provider, full_prompt, session_id)
 
     if result.session_id:
-        session_manager.save_session(user_key, result.session_id)
+        session.save(result.session_id)
 
     reply_text = result.output or "✓"
-    if session_manager.get_stats_enabled(user_key):
-        reply_text += format_stats_telegram(result.stats)
+    reply_text = append_stats_telegram(reply_text, result.stats, session)
     if len(reply_text) > 4096:
         reply_text = reply_text[:4093] + "..."
     reply_text = sanitize_telegram_html(reply_text)
@@ -736,6 +737,7 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         prompt = ctx["prompt"]
         session_id = ctx["session_id"]
         user_key = ctx["user_key"]
+        session = UserSession(session_manager, user_key)
 
         # Determine provider and session handling for the retry
         retry_provider = None
@@ -753,15 +755,14 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         )
         
         if result.session_id:
-            session_manager.save_session(user_key, result.session_id)
-            
+            session.save(result.session_id)
+
         reply_text = result.output
         if not reply_text:
             reply_text = "✓"
-            
-        if session_manager.get_stats_enabled(user_key):
-            reply_text += format_stats_telegram(result.stats)
-            
+
+        reply_text = append_stats_telegram(reply_text, result.stats, session)
+
         # Detect an Actionable Form or task checklist and build the matching keyboard
         # (this also truncates reply_text to Telegram's message limit).
         reply_text, keyboard, form_id = build_reply_keyboard(query.message.chat.id, user_key, reply_text)
@@ -770,7 +771,7 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         reply_text = sanitize_telegram_html(reply_text)
 
         try:
-            await query.message.edit_text(reply_text, parse_mode='HTML', reply_markup=keyboard)
+            await safe_edit_text(query.message, reply_text, parse_mode='HTML', reply_markup=keyboard)
         except Exception as e:
             logger.warning("Could not deliver quota-retry response: %s", e)
             if form_id:
@@ -794,14 +795,15 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
 
     # Pipe completion request using original message's session if available
     user_key = str(user.id)
+    session = UserSession(session_manager, user_key)
     message_id = query.message.message_id if query.message else None
     session_id = None
-    
+
     if message_id:
         session_id = session_manager.get_message_session(message_id)
-        
+
     if not session_id:
-        session_id = session_manager.get_session(user_key)
+        session_id = session.session_id
 
     if is_done:
         prompt = f"Mark the following task as completed: {task_text}"
@@ -862,13 +864,13 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
                 subject="",
                 body=prompt,
             )
-            full_prompt = build_prompt(incoming)
+            full_prompt = sync_and_build_prompt(incoming)
 
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, pipe_to_provider, full_prompt, session_id)
 
             if result.session_id:
-                session_manager.save_session(user_key, result.session_id)
+                session.save(result.session_id)
 
             if result.is_error:
                 logger.error("Task completion request failed for '%s': %s", task_text, result.output)
@@ -902,11 +904,14 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
 class TelegramListener:
     """Telegram bot listener using long-polling."""
 
-    def __init__(self, rate_limiter: Optional[RateLimiter] = None):
-        self.rate_limiter = rate_limiter or RateLimiter(
-            config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW_SECONDS
-        )
-        self.session_manager = SessionManager()
+    def __init__(self, rate_limiter: RateLimiter, session_manager: SessionManager):
+        # Both must be the caller's shared, live instances (constructed once
+        # in main.py) — not fresh ones. RateLimiter is documented as shared
+        # across channels; SessionManager's per-user /stats preferences are
+        # in-memory only, so a fresh instance would never see toggles set on
+        # another channel's instance.
+        self.rate_limiter = rate_limiter
+        self.session_manager = session_manager
         self._app: Optional[Application] = None
 
     def run(self) -> None:

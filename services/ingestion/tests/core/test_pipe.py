@@ -5,12 +5,12 @@ from unittest.mock import patch, MagicMock
 from services.ingestion.core.pipe import (
     IncomingMessage,
     PipeResult,
-    build_prompt,
+    sync_and_build_prompt,
     pipe_to_provider,
 )
 from services.ingestion.providers.base import ProviderResult
 
-# ── build_prompt tests ──────────────────────────────────────────────
+# ── sync_and_build_prompt tests ──────────────────────────────────────────────
 
 
 class TestBuildPrompt:
@@ -21,7 +21,7 @@ class TestBuildPrompt:
             subject="Buy groceries",
             body="Milk, eggs, bread",
         )
-        prompt = build_prompt(msg)
+        prompt = sync_and_build_prompt(msg)
         assert "Type: email" in prompt
         assert "Sender: user@example.com" in prompt
         assert "Subject: Buy groceries" in prompt
@@ -37,7 +37,7 @@ class TestBuildPrompt:
             body="Check this out",
             attachment_paths=["/tmp/img1.jpg", "/tmp/img2.png"],
         )
-        prompt = build_prompt(msg)
+        prompt = sync_and_build_prompt(msg)
         assert "Attachments: 2 attached" in prompt
         assert "/tmp/img1.jpg" in prompt
         assert "/tmp/img2.png" in prompt
@@ -49,7 +49,7 @@ class TestBuildPrompt:
             sender="user@example.com",
             subject="Empty",
         )
-        prompt = build_prompt(msg)
+        prompt = sync_and_build_prompt(msg)
         assert "---" in prompt
         assert "Subject: Empty" in prompt
 
@@ -59,7 +59,7 @@ class TestBuildPrompt:
             sender="12345",
             body="Hello from watch",
         )
-        prompt = build_prompt(msg)
+        prompt = sync_and_build_prompt(msg)
         assert "Type: telegram" in prompt
         assert "Context: Ingested via TELEGRAM" in prompt
 

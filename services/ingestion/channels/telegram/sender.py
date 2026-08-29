@@ -12,12 +12,18 @@ import telegram
 
 from ... import config
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ...core.session_manager import UserSession
 
 logger = logging.getLogger(__name__)
 
 
-async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None) -> Optional[int]:
+async def send_telegram_message_async(
+    chat_id: int, text: str, reply_markup=None, stats: Optional[dict] = None,
+    session: Optional["UserSession"] = None,
+) -> Optional[int]:
     """
     Send a message to a Telegram chat using the bot API.
 
@@ -25,6 +31,13 @@ async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None
         chat_id: Telegram chat/user ID to send the message to.
         text: Message text to send.
         reply_markup: Optional InlineKeyboardMarkup for interactive buttons.
+        stats: Optional execution statistics to format and append, mirroring
+            channels/email/reply.py's send_reply(stats=...).
+        session: Optional UserSession handle — if given, gates `stats` on
+            its `stats_enabled` (callers can then pass the raw stats dict
+            straight through instead of pre-gating it themselves). If
+            omitted, `stats` is used as-is (backward compatible with
+            callers that already gated it before calling).
 
     Returns:
         The message_id if sent successfully, None otherwise.
@@ -32,6 +45,9 @@ async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None
     if not config.TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN not set, cannot send Telegram message")
         return None
+
+    from ...utils.stats_formatter import append_stats_telegram
+    text = append_stats_telegram(text, stats, session)
 
     try:
         bot = telegram.Bot(token=config.TELEGRAM_BOT_TOKEN)
@@ -46,7 +62,10 @@ async def send_telegram_message_async(chat_id: int, text: str, reply_markup=None
         return None
 
 
-def send_telegram_message(chat_id: int, text: str, reply_markup=None) -> Optional[int]:
+def send_telegram_message(
+    chat_id: int, text: str, reply_markup=None, stats: Optional[dict] = None,
+    session: Optional["UserSession"] = None,
+) -> Optional[int]:
     """
     Synchronous wrapper for send_telegram_message_async.
 
@@ -64,7 +83,9 @@ def send_telegram_message(chat_id: int, text: str, reply_markup=None) -> Optiona
         # We're inside an existing event loop — use a new thread
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, send_telegram_message_async(chat_id, text, reply_markup))
+            future = pool.submit(
+                asyncio.run, send_telegram_message_async(chat_id, text, reply_markup, stats, session)
+            )
             return future.result()
     else:
-        return asyncio.run(send_telegram_message_async(chat_id, text, reply_markup))
+        return asyncio.run(send_telegram_message_async(chat_id, text, reply_markup, stats, session))

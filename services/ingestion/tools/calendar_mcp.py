@@ -20,9 +20,16 @@ Registering with Gemini CLI (project-level .gemini/settings.json):
     }
 """
 
+import sys
+from pathlib import Path
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
+
+# Allows `python calendar_mcp.py` to resolve the `services.*` package when run
+# standalone, matching every other tool CLI's bootstrap (etrade_cli.py,
+# options_bot_cli.py, amazon_fresh_cli.py, reminder_cli.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from services.ingestion.tools.calendar_cli import (
     DEFAULT_CONFIG_PATH,

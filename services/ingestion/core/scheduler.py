@@ -28,8 +28,8 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from .. import config
-from ..core.pipe import IncomingMessage, build_prompt, pipe_to_provider
-from ..core.session_manager import SessionManager
+from ..core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
+from ..core.session_manager import SessionManager, UserSession
 from ..providers.base import GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
@@ -159,8 +159,12 @@ class ReminderScheduler:
     - Dispatch loop: fires reminders at their exact scheduled time.
     """
 
-    def __init__(self):
-        self.session_manager = SessionManager()
+    def __init__(self, session_manager: SessionManager):
+        # Must be the caller's live instance, not a fresh SessionManager() —
+        # per-user /stats preferences are in-memory only, so a new instance
+        # would never see toggles set via the other channels (see main.py,
+        # which constructs exactly one shared instance for this reason).
+        self.session_manager = session_manager
         self._running = False
         self._stop_event = threading.Event()
 
@@ -351,13 +355,14 @@ class ReminderScheduler:
     def _send_telegram(self, text: str, reply_markup=None) -> Optional[int]:
         """Send a message via Telegram. Returns the message_id on success."""
         from ..channels.telegram.sender import send_telegram_message
+        from ..utils.html_utils import sanitize_telegram_html
 
         if not config.TELEGRAM_ALLOWED_USER_IDS:
             logger.error("No TELEGRAM_ALLOWED_USER_IDS configured, cannot send reminder")
             return None
 
         chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
-        return send_telegram_message(chat_id, text, reply_markup=reply_markup)
+        return send_telegram_message(chat_id, sanitize_telegram_html(text), reply_markup=reply_markup)
 
     def _send_email(self, text: str, subject: str, session_id: str = None) -> bool:
         """Send a message via Email. Never raises — callers (e.g. delivery-
@@ -456,6 +461,7 @@ class ReminderScheduler:
             sender = config.REPLY_TO_ADDRESS or (
                 config.ALLOWED_SENDERS[0] if config.ALLOWED_SENDERS else "system"
             )
+        session = UserSession(self.session_manager, sender)
         source_type = "scheduled_work"
 
         incoming = IncomingMessage(
@@ -465,7 +471,7 @@ class ReminderScheduler:
             body=actual_task,
         )
 
-        prompt = build_prompt(incoming)
+        prompt = sync_and_build_prompt(incoming)
 
         # Precompute the email subject up front (not just at delivery time)
         # so it can ride along in extra_env: if this task hits an E*TRADE
@@ -508,13 +514,12 @@ class ReminderScheduler:
         if is_missed:
             response_text = f"⏰ _Missed reminder (firing late):_\n\n{response_text}"
 
-        if self.session_manager.get_stats_enabled(sender):
-            if channel == "telegram":
-                from ..utils.stats_formatter import format_stats_telegram
-                response_text += format_stats_telegram(result.stats)
-            elif channel == "email":
-                from ..utils.stats_formatter import format_stats_email
-                response_text += format_stats_email(result.stats)
+        if channel == "telegram":
+            from ..utils.stats_formatter import append_stats_telegram
+            response_text = append_stats_telegram(response_text, result.stats, session)
+        elif channel == "email":
+            from ..utils.stats_formatter import append_stats_email
+            response_text = append_stats_email(response_text, result.stats, session)
 
         # Save the session context for future replies if this is an email thread.
         # This allows the user to reply to the summary and continue the conversation.
