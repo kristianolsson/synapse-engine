@@ -120,11 +120,6 @@ sed -i "s|SYNAPSE_HOST_DIR=.*|SYNAPSE_HOST_DIR=$SYNAPSE_HOST_DIR|" "$SYNAPSE_HOS
 # want commits to your vault authored as you instead of the default bot identity.
 ```
 
-You can set `TZ` here too (e.g. `TZ=America/Los_Angeles` — affects log
-timestamps and reminder scheduling, defaults to UTC), but you don't have
-to: `./synapse.sh setup` in step 10 prompts for it if it's still unset when
-you get there.
-
 ## 5. Set up Claude credentials
 
 ```bash
