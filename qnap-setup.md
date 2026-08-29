@@ -248,7 +248,8 @@ cd "$SYNAPSE_HOST_DIR"/synapse-engine
 ./synapse update
 ```
 This pulls the latest code, rebuilds the image only if `Dockerfile` or
-`requirements.txt` changed, and restarts.
+`requirements.txt` changed, and restarts (if the pull found nothing new, it
+prints "Already up to date" and leaves the service running as-is).
 
 ## Logs
 

@@ -230,17 +230,18 @@ Vault, CLI credentials, and SSH key from persistent storage.
 ```bash
 ./synapse setup
 ```
-This builds the image and starts the containers via `docker compose`. If no
-vault exists yet at the host's expected vault path, it also offers to clone
-the public [synapse-vault](https://github.com/kristianolsson/synapse-vault)
-template there and detach it into an independent local git repo — see
-[Vault setup](#vault-setup) below.
+If no vault exists yet at the host's expected vault path, this first offers
+to clone the public
+[synapse-vault](https://github.com/kristianolsson/synapse-vault) template
+there and detach it into an independent local git repo — see
+[Vault setup](#vault-setup) below — then it builds the image and starts the
+containers via `docker compose`.
 
 ```bash
 ./synapse start     # start (equivalent to docker compose up -d)
 ./synapse stop      # stop (docker compose down)
 ./synapse restart   # docker compose restart
-./synapse update    # git pull, rebuild only if Dockerfile/requirements.txt changed, then restart
+./synapse update    # git pull; rebuild + restart only if anything changed (rebuild only if Dockerfile/requirements.txt did)
 ./synapse logs      # docker compose logs -f
 ```
 
@@ -253,7 +254,7 @@ and the OAuth token), see **[`qnap-setup.md`](qnap-setup.md)**.
 graceful restart — the container's `restart: always` brings it back). For
 `Dockerfile`/`requirements.txt` changes, SSH in and run `./synapse update`
 instead — it pulls, rebuilds automatically only when those files changed,
-and restarts.
+and restarts (a no-op pull leaves the service running as-is).
 
 ## Vault setup
 
@@ -263,8 +264,11 @@ found, offer to clone the public
 [synapse-vault](https://github.com/kristianolsson/synapse-vault) template —
 a generic, personal-data-free starter vault — and detach it into your own
 independent local git repo (its own git history, no ties back to the
-template) before continuing setup. You can decline and point `VAULT_PATH` at
-an existing vault instead.
+template) before continuing setup. You can decline: on Mac, point `VAULT_PATH`
+at an existing vault instead; on QNAP, `VAULT_PATH` is fixed by
+`docker-compose.yml`'s bind mount, so place an existing vault repo at
+`$SYNAPSE_HOST_DIR/vault` before running `./synapse setup` and it'll be
+detected and the clone offer skipped.
 
 ## Development
 
