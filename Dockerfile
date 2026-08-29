@@ -48,9 +48,10 @@ USER synapse
 # Install Antigravity CLI (agy)
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
 
-# Configure git signing, identity, and safe directories
-ARG GIT_USER_NAME="Synapse Bot"
-ARG GIT_USER_EMAIL="synapse@localhost"
+# Configure git signing, identity, and safe directories. No default here —
+# docker-compose.yml requires GIT_USER_NAME/GIT_USER_EMAIL to be set.
+ARG GIT_USER_NAME
+ARG GIT_USER_EMAIL
 RUN git config --global gpg.format ssh && \
     git config --global user.signingkey /home/synapse/.ssh/id_ed25519.pub && \
     git config --global commit.gpgsign true && \

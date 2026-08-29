@@ -59,6 +59,15 @@ _ensure_qnap_host_dirs() {
         "$SYNAPSE_HOST_DIR"/data
     chown -R synapse "$SYNAPSE_HOST_DIR"/credentials "$SYNAPSE_HOST_DIR"/data \
         || echo "⚠️  Could not chown credentials/data dirs to synapse."
+    # credentials/claude's permissions after the step 5 docker-cp bootstrap:
+    # the dir readable/traversable, and .credentials.json world-readable
+    # (docker cp preserves the source container's tighter mode bits
+    # otherwise). Guarded — the file won't exist yet if auth is deferred to
+    # /update-claude-auth instead of step 5's manual bootstrap.
+    chmod 755 "$SYNAPSE_HOST_DIR"/credentials/claude
+    if [ -f "$SYNAPSE_HOST_DIR"/credentials/claude/.credentials.json ]; then
+        chmod 644 "$SYNAPSE_HOST_DIR"/credentials/claude/.credentials.json
+    fi
 }
 
 # These five keys are fixed container-internal paths (docker-compose.yml's
@@ -94,6 +103,36 @@ _ensure_qnap_timezone() {
     fi
 }
 
+# GIT_USER_NAME/GIT_USER_EMAIL are required — docker-compose.yml's build
+# args have no fallback (a bot identity silently signing commits to
+# someone's vault was worse than asking once), and _qnap_vault_git no
+# longer falls back either. Prompts for whichever is still missing; a
+# blank answer leaves it unset, so `docker compose build` later fails with
+# compose's own clear ${VAR:?message} error instead of silently using a
+# fake identity.
+_ensure_qnap_git_identity() {
+    local existing_name existing_email
+    existing_name="$(_env_var "$COMPOSE_ENV_FILE" GIT_USER_NAME)"
+    existing_email="$(_env_var "$COMPOSE_ENV_FILE" GIT_USER_EMAIL)"
+    if [ -n "$existing_name" ] && [ -n "$existing_email" ]; then
+        return
+    fi
+    echo ""
+    echo "The container needs a git identity for commits it makes to your vault."
+    if [ -z "$existing_name" ]; then
+        read -rp "Git user name (e.g. Your Name): " name_answer || true
+        if [ -n "$name_answer" ]; then
+            _set_env_var "$COMPOSE_ENV_FILE" GIT_USER_NAME "$name_answer"
+        fi
+    fi
+    if [ -z "$existing_email" ]; then
+        read -rp "Git user email (e.g. you@example.com): " email_answer || true
+        if [ -n "$email_answer" ]; then
+            _set_env_var "$COMPOSE_ENV_FILE" GIT_USER_EMAIL "$email_answer"
+        fi
+    fi
+}
+
 cmd_setup_qnap() {
     if [ -z "$SYNAPSE_HOST_DIR" ]; then
         echo "❌ SYNAPSE_HOST_DIR not set. Run: cp .env.compose.example .env, then edit it."
@@ -108,6 +147,7 @@ cmd_setup_qnap() {
     _ensure_qnap_host_dirs
     _ensure_qnap_runtime_env_defaults "$APP_ENV_FILE"
     _ensure_qnap_timezone
+    _ensure_qnap_git_identity
 
     if [ ! -d "$SYNAPSE_HOST_DIR/vault" ]; then
         echo ""
@@ -291,12 +331,12 @@ _qnap_vault_git() {
     # The throwaway container has no ~/.gitconfig, so `git commit` would
     # otherwise fail with "please tell me who you are" — inject an identity
     # on every invocation via -c (harmless for non-commit subcommands too).
-    # Same default fallback docker-compose.yml itself uses for the build args.
+    # No fallback here — GIT_USER_NAME/GIT_USER_EMAIL are required (same as
+    # docker-compose.yml's build args), and cmd_setup_qnap prompts for
+    # them before this ever runs if they're missing.
     local git_name git_email
     git_name="$(_env_var "$COMPOSE_ENV_FILE" GIT_USER_NAME)"
-    git_name="${git_name:-Synapse Bot}"
     git_email="$(_env_var "$COMPOSE_ENV_FILE" GIT_USER_EMAIL)"
-    git_email="${git_email:-synapse@localhost}"
     # Build the container's command string with each arg individually
     # single-quoted (POSIX-safe, since the container's shell may not be
     # bash) — "$*" would flatten multi-word args like a commit message

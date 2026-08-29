@@ -116,8 +116,6 @@ substitution — separate from the runtime `.env` in step 9):
 ```bash
 cp "$SYNAPSE_HOST_DIR"/synapse-engine/.env.compose.example "$SYNAPSE_HOST_DIR"/synapse-engine/.env
 sed -i "s|SYNAPSE_HOST_DIR=.*|SYNAPSE_HOST_DIR=$SYNAPSE_HOST_DIR|" "$SYNAPSE_HOST_DIR"/synapse-engine/.env
-# Optionally set GIT_USER_NAME / GIT_USER_EMAIL in that same file if you
-# want commits to your vault authored as you instead of the default bot identity.
 ```
 
 ## 5. Set up Claude credentials
@@ -134,9 +132,6 @@ Inside the container: run `claude`, then `/login`. Complete OAuth in a browser o
 docker cp claude-login-temp:/home/synapse/.claude/. \
   "$SYNAPSE_HOST_DIR"/credentials/claude/
 docker rm claude-login-temp && docker rmi claude-auth-temp
-chown -R synapse "$SYNAPSE_HOST_DIR"/credentials/claude
-chmod 755 "$SYNAPSE_HOST_DIR"/credentials/claude
-chmod 644 "$SYNAPSE_HOST_DIR"/credentials/claude/.credentials.json
 ```
 
 This one-off bootstrap is only needed before the main `synapse` container exists. Once it's running, use `/update-claude-auth` in Telegram to re-auth (see [Token refresh](#token-refresh)) — no SSH or temp container required, since the running container already bind-mounts `~/.claude` to this same credentials directory.
@@ -239,10 +234,11 @@ cd "$SYNAPSE_HOST_DIR"/synapse-engine
 
 This also creates `credentials/`/`data/` and sets the runtime `.env`
 defaults described in steps 6-9. If `$SYNAPSE_HOST_DIR/vault` doesn't exist
-yet, it prompts for one (see step 4); if `TZ` isn't set in the compose-local
-`.env` yet, it prompts for that too (see step 4). Either way, it then
-builds the image and starts the containers (`docker compose build &&
-docker compose up -d`).
+yet, it prompts for one (see step 4); if `TZ` or `GIT_USER_NAME`/
+`GIT_USER_EMAIL` aren't set in the compose-local `.env` yet, it prompts for
+those too (the latter is required — `docker compose build` fails without
+it). Either way, it then builds the image and starts the containers
+(`docker compose build && docker compose up -d`).
 
 (Needs the runtime `.env` from step 9 to already exist at
 `$SYNAPSE_HOST_DIR/.env` — it exits with an error telling you so if it's

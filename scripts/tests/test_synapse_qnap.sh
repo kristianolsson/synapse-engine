@@ -245,5 +245,59 @@ BLANK_RESULT="$(
 assert_eq "blank/EOF answer completes without error" "COMPLETED" "$BLANK_RESULT"
 assert_eq "blank/EOF answer leaves TZ unset" "" "$(_env_var "$TZ_ENV_BLANK" TZ)"
 
+# --- _ensure_qnap_git_identity ---
+
+# Both already set: prompt is skipped entirely, no stdin read at all —
+# feeding answers here would fail the test if they got written anyway.
+GIT_ENV_BOTH_SET="$TMP/git_compose_both_set.env"
+cat > "$GIT_ENV_BOTH_SET" <<'EOF'
+GIT_USER_NAME=Existing Name
+GIT_USER_EMAIL=existing@example.com
+EOF
+(
+    COMPOSE_ENV_FILE="$GIT_ENV_BOTH_SET"
+    _ensure_qnap_git_identity <<< "Someone Else
+someone@else.com"
+)
+assert_eq "existing GIT_USER_NAME is left alone" "Existing Name" "$(_env_var "$GIT_ENV_BOTH_SET" GIT_USER_NAME)"
+assert_eq "existing GIT_USER_EMAIL is left alone" "existing@example.com" "$(_env_var "$GIT_ENV_BOTH_SET" GIT_USER_EMAIL)"
+
+# Neither set: prompts for both, in order, and writes both answers.
+GIT_ENV_UNSET="$TMP/git_compose_unset.env"
+touch "$GIT_ENV_UNSET"
+(
+    COMPOSE_ENV_FILE="$GIT_ENV_UNSET"
+    _ensure_qnap_git_identity <<< "Jane Doe
+jane@example.com"
+)
+assert_eq "GIT_USER_NAME set from first prompt answer" "Jane Doe" "$(_env_var "$GIT_ENV_UNSET" GIT_USER_NAME)"
+assert_eq "GIT_USER_EMAIL set from second prompt answer" "jane@example.com" "$(_env_var "$GIT_ENV_UNSET" GIT_USER_EMAIL)"
+
+# Only one missing: prompts for just that one, existing value untouched.
+GIT_ENV_EMAIL_ONLY="$TMP/git_compose_email_only.env"
+echo "GIT_USER_NAME=Already Set" > "$GIT_ENV_EMAIL_ONLY"
+(
+    COMPOSE_ENV_FILE="$GIT_ENV_EMAIL_ONLY"
+    _ensure_qnap_git_identity <<< "new@example.com"
+)
+assert_eq "existing GIT_USER_NAME untouched when only email is missing" "Already Set" "$(_env_var "$GIT_ENV_EMAIL_ONLY" GIT_USER_NAME)"
+assert_eq "GIT_USER_EMAIL set from the one prompt asked" "new@example.com" "$(_env_var "$GIT_ENV_EMAIL_ONLY" GIT_USER_EMAIL)"
+
+# Blank/EOF answers: stays unset, no error — docker-compose.yml's
+# ${VAR:?...} catches it later at build time; setup itself must not abort.
+GIT_ENV_BLANK="$TMP/git_compose_blank.env"
+touch "$GIT_ENV_BLANK"
+GIT_BLANK_RESULT="$(
+    set -e
+    (
+        COMPOSE_ENV_FILE="$GIT_ENV_BLANK"
+        _ensure_qnap_git_identity < /dev/null > /dev/null
+    )
+    echo "COMPLETED"
+)"
+assert_eq "blank/EOF answers complete without error" "COMPLETED" "$GIT_BLANK_RESULT"
+assert_eq "blank/EOF answers leave GIT_USER_NAME unset" "" "$(_env_var "$GIT_ENV_BLANK" GIT_USER_NAME)"
+assert_eq "blank/EOF answers leave GIT_USER_EMAIL unset" "" "$(_env_var "$GIT_ENV_BLANK" GIT_USER_EMAIL)"
+
 test_summary
 exit $?
