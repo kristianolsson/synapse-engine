@@ -1,6 +1,9 @@
 FROM node:20-slim
 
 # System deps
+# tzdata: guarantees the IANA zone database is present so TZ=<IANA name>
+# (docker-compose.yml's TZ=${TZ:-UTC}) resolves correctly — config.py's
+# LOCAL_TZ depends on it via tzlocal/zoneinfo.
 RUN apt-get update && apt-get install -y \
     tini \
     git \
@@ -10,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     curl \
     ca-certificates \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code and Gemini CLIs globally

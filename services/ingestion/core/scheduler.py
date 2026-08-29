@@ -25,7 +25,6 @@ import time
 import subprocess
 from datetime import datetime, timedelta
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 from .. import config
 from ..core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
@@ -34,7 +33,7 @@ from ..providers.base import GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
 
-LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+LOCAL_TZ = config.LOCAL_TZ
 
 # Threshold in seconds: if a reminder is less than this late, don't prefix with "missed"
 MISSED_THRESHOLD_SECONDS = 300  # 5 minutes
