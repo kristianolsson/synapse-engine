@@ -67,13 +67,16 @@ chown synapse "$SYNAPSE_HOST_DIR"/ssh/id_ed25519 \
 chmod 600 "$SYNAPSE_HOST_DIR"/ssh/id_ed25519
 ```
 
-## 4. Clone repos
+## 4. Clone synapse-engine
 
-Replace `YOUR_GITHUB_USERNAME` below with the account that owns your vault
-repo (see [synapse-vault](https://github.com/kristianolsson/synapse-vault)
-for a starting template) and `synapse-engine`. The vault repo can be named
-anything on GitHub — it's cloned into a local folder named `vault` here
-because that's the folder name `docker-compose.yml`'s mount expects.
+Replace `YOUR_GITHUB_USERNAME` below with the account that owns
+`synapse-engine`. (The vault isn't cloned here — `./synapse setup` in step
+10 below offers to clone the public
+[synapse-vault](https://github.com/kristianolsson/synapse-vault) template
+into `$SYNAPSE_HOST_DIR/vault` and detach it into your own independent local
+repo. If you'd rather use your own existing vault repo, clone it into
+`$SYNAPSE_HOST_DIR/vault` manually before running `./synapse setup` and it
+will skip the offer.)
 
 ```bash
 docker run --rm --entrypoint sh \
@@ -82,14 +85,11 @@ docker run --rm --entrypoint sh \
   alpine/git \
   -c "chmod 600 /root/.ssh/id_ed25519 && \
       GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
-      git clone git@github.com:YOUR_GITHUB_USERNAME/vault.git $SYNAPSE_HOST_DIR/vault && \
-      GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
       git clone git@github.com:YOUR_GITHUB_USERNAME/synapse-engine.git $SYNAPSE_HOST_DIR/synapse-engine"
 ```
 
 Set ownership:
 ```bash
-chown -R synapse "$SYNAPSE_HOST_DIR"/vault
 chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
 
@@ -222,13 +222,20 @@ echo "REMINDERS_JSON_PATH=/app/vault/reminders/reminders.json" >> "$SYNAPSE_HOST
 chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
 
-## 10. Build and start
+## 10. Set up the vault and start
 
 ```bash
 cd "$SYNAPSE_HOST_DIR"/synapse-engine
-docker compose build
-docker compose up -d
-docker compose logs -f
+./synapse setup
+```
+
+If `$SYNAPSE_HOST_DIR/vault` doesn't exist yet, this offers to clone the
+synapse-vault template there (see step 4). Either way, it then builds the
+image and starts the containers
+(`docker compose build && docker compose up -d`).
+
+```bash
+./synapse logs
 ```
 
 ## Update workflow
@@ -237,8 +244,11 @@ docker compose logs -f
 
 **Dockerfile or requirements.txt changes** — SSH into QNAP and run:
 ```bash
-bash "$SYNAPSE_HOST_DIR"/synapse-engine/update.sh
+cd "$SYNAPSE_HOST_DIR"/synapse-engine
+./synapse update
 ```
+This pulls the latest code, rebuilds the image only if `Dockerfile` or
+`requirements.txt` changed, and restarts.
 
 ## Logs
 
@@ -250,6 +260,7 @@ docker compose logs -f
 # Last 100 lines without following
 docker compose logs --tail=100
 ```
+(`./synapse logs` is equivalent to the follow command above.)
 
 ## Token refresh
 

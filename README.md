@@ -191,20 +191,34 @@ Best for running on a personal Mac. Runs the service in the background via a `la
     pip install -r requirements.txt
     ```
 
-2.  **Install & Start:**
+2.  **Set up and start:**
     ```bash
-    ./install.sh
+    ./synapse setup
     ```
     This auto-detects your paths, generates the plist from
-    `com.synapse.ingestion.plist.template`, and installs the service.
-    Use `./stop.sh` to stop it. To update, `git pull` then re-run
-    `./install.sh` (`./update.sh` is Docker/QNAP-only — see Option B).
+    `com.synapse.ingestion.plist.template`, installs it as a `launchd`
+    agent, and starts the service. If `VAULT_PATH` isn't set in `.env` yet,
+    it also offers to clone the public
+    [synapse-vault](https://github.com/kristianolsson/synapse-vault)
+    template and detach it into your own independent local git repo before
+    continuing — see [Vault setup](#vault-setup) below.
 
-3.  **Logs:**
+3.  **Day-to-day commands:**
+    ```bash
+    ./synapse start            # start the service
+    ./synapse stop             # stop it (until next login/reboot)
+    ./synapse stop --persist   # stop it and disable auto-start
+    ./synapse restart          # restart
+    ./synapse update           # git pull, then restart
+    ./synapse logs             # tail the log files
+    ```
+
+4.  **Logs:**
     ```bash
     tail -f /tmp/synapse-ingestion.out.log
     tail -f /tmp/synapse-ingestion.err.log
     ```
+    (equivalent to `./synapse logs`)
 
 ### Option B — Docker / QNAP NAS
 
@@ -214,9 +228,20 @@ E\*TRADE and Amazon Fresh browser auth), and `docker-compose.yml` mounts the
 Vault, CLI credentials, and SSH key from persistent storage.
 
 ```bash
-docker compose build
-docker compose up -d
-docker compose logs -f
+./synapse setup
+```
+This builds the image and starts the containers via `docker compose`. If no
+vault exists yet at the host's expected vault path, it also offers to clone
+the public [synapse-vault](https://github.com/kristianolsson/synapse-vault)
+template there and detach it into an independent local git repo — see
+[Vault setup](#vault-setup) below.
+
+```bash
+./synapse start     # start (equivalent to docker compose up -d)
+./synapse stop      # stop (docker compose down)
+./synapse restart   # docker compose restart
+./synapse update    # git pull, rebuild only if Dockerfile/requirements.txt changed, then restart
+./synapse logs      # docker compose logs -f
 ```
 
 The compose file expects an `.env` and mounted credential directories on the
@@ -224,9 +249,22 @@ host. For a full walkthrough on a QNAP NAS (creating the `synapse` user,
 folder layout, seeding Claude/Antigravity/Gemini/E\*TRADE/Amazon credentials,
 and the OAuth token), see **[`qnap-setup.md`](qnap-setup.md)**.
 
-**Updating:** send `/update` via Telegram (git pull + graceful restart — the
-container's `restart: always` brings it back). For `Dockerfile`/`requirements.txt`
-changes, rebuild with `docker compose build && docker compose up -d`.
+**Updating:** for code-only changes, send `/update` via Telegram (git pull +
+graceful restart — the container's `restart: always` brings it back). For
+`Dockerfile`/`requirements.txt` changes, SSH in and run `./synapse update`
+instead — it pulls, rebuilds automatically only when those files changed,
+and restarts.
+
+## Vault setup
+
+Both `./synapse setup` paths above check for a configured vault (`VAULT_PATH`
+on Mac, a `vault/` directory under the host dir on QNAP) and, if none is
+found, offer to clone the public
+[synapse-vault](https://github.com/kristianolsson/synapse-vault) template —
+a generic, personal-data-free starter vault — and detach it into your own
+independent local git repo (its own git history, no ties back to the
+template) before continuing setup. You can decline and point `VAULT_PATH` at
+an existing vault instead.
 
 ## Development
 
