@@ -11,11 +11,17 @@ models. Follow steps in order.
 - A real data volume for persistent storage — this guide uses
   `<YOUR_VOLUME>` as a placeholder; substitute your NAS's actual volume
   name throughout
-- README.md's [Setup](README.md#setup) section completed on a machine with
-  a browser — that's where `.env`, and (if you use Calendar/Gmail)
-  `credentials.json`/`token.json`/`calendars.json`, first get created. This
-  guide picks up from there and copies those files onto QNAP; it doesn't
-  recreate that first-time setup.
+- A machine with a browser to run the auth steps below (6-9) on — QNAP
+  itself is headless and can't do any of them. It needs its own clone of
+  `synapse-engine` with a Python venv (`python3 -m venv venv && source
+  venv/bin/activate && pip install -r requirements.txt`, same as README's
+  Option A macOS install) and README.md's [Setup](README.md#setup) section's
+  `.env` filled in — this guide doesn't recreate any of that, it assumes
+  it's already done and just copies the results (`.env`, and if you use
+  Calendar/Gmail, `credentials.json`/`token.json`/`calendars.json`) onto
+  QNAP. If you'll also use E\*TRADE or Amazon Fresh (steps 7-8), that
+  machine additionally needs Playwright's Firefox:
+  `playwright install --with-deps firefox`.
 
 ## 0. Choose your host directory and export it
 
@@ -151,7 +157,8 @@ for you.
 
 If you use the `etrade` or `options-bot` CLI tools, you must authenticate first on a machine where you can complete SMS 2FA in a real browser. E*TRADE recognizes the saved Playwright profile as a "trusted device" and will not prompt the headless Docker container for SMS codes.
 
-On that machine:
+On that machine (needs the `synapse-engine` checkout + venv + Playwright's
+Firefox from [Prerequisites](#prerequisites)):
 ```bash
 # 1. Run etrade auth locally to generate tokens and trust the browser profile
 cd ~/Documents/code/synapse-engine
@@ -168,7 +175,7 @@ Same as step 6 — `./synapse.sh setup` handles ownership.
 
 If you use the `amazon-fresh` CLI tool, authenticate first on a machine with a headed browser — Amazon's 2FA and device-trust checks require one. The saved Firefox profile is then recognized as a "trusted device" in the headless Docker container.
 
-On that machine:
+On that machine (same [Prerequisites](#prerequisites) as step 7):
 ```bash
 # 1. Log into Amazon Fresh headed (browser opens automatically)
 cd ~/Documents/code/synapse-engine
@@ -197,13 +204,8 @@ same as steps 6 and 7.
 
 ## 9. Set up .env and config files
 
-These three files assume you've already completed README.md's
-[Setup](README.md#setup) section — that's where `.env` gets filled in and,
-if you use Calendar/Gmail, `credentials.json`/`token.json`/`calendars.json`
-first get created. Do that first if you haven't (needs a browser for the
-Google OAuth consent screen).
-
-On the machine where your `synapse-engine` checkout and its `.env` live:
+On the machine where your `synapse-engine` checkout and its `.env` live
+(see [Prerequisites](#prerequisites)):
 ```bash
 scp ~/Documents/code/synapse-engine/.env admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/.env
 scp ~/Documents/code/synapse-engine/calendars.json \
