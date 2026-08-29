@@ -174,7 +174,7 @@ When interacting with the bot via Telegram, the following commands are available
 
 3.  **Install & run:** installation is deployment-specific — jump to [Deployment](#deployment) below and follow whichever fits:
     - **Option A — macOS (`launchd`)**: runs directly on your Mac in a local Python venv.
-    - **Option B — Docker / QNAP NAS**: runs in a container with everything bundled — no local venv needed.
+    - **Option B — Docker / QNAP NAS**: runs in a container with everything bundled — no local venv needed to run the service itself. If you use Calendar/Gmail, E\*TRADE, or Amazon Fresh, though, you'll still need a local checkout + venv somewhere to bootstrap those credentials once — see [`qnap-setup.md`](qnap-setup.md)'s Prerequisites.
 
 ## Deployment
 

@@ -11,17 +11,23 @@ models. Follow steps in order.
 - A real data volume for persistent storage — this guide uses
   `<YOUR_VOLUME>` as a placeholder; substitute your NAS's actual volume
   name throughout
-- A machine with a browser to run the auth steps below (6-9) on — QNAP
-  itself is headless and can't do any of them. It needs its own clone of
-  `synapse-engine` with a Python venv (`python3 -m venv venv && source
-  venv/bin/activate && pip install -r requirements.txt`, same as README's
-  Option A macOS install) and README.md's [Setup](README.md#setup) section's
-  `.env` filled in — this guide doesn't recreate any of that, it assumes
-  it's already done and just copies the results (`.env`, and if you use
-  Calendar/Gmail, `credentials.json`/`token.json`/`calendars.json`) onto
-  QNAP. If you'll also use E\*TRADE or Amazon Fresh (steps 7-8), that
-  machine additionally needs Playwright's Firefox:
-  `playwright install --with-deps firefox`.
+- Steps 5-9 below authenticate things QNAP itself can't (it's headless).
+  What each needs varies:
+  - **Step 5** (Claude): just a browser somewhere to open an OAuth URL —
+    runs on QNAP itself over SSH, no separate machine needed.
+  - **Step 6** (Gemini/Antigravity): a machine where those CLIs are already
+    installed and authenticated (`~/.gemini` populated) — no
+    `synapse-engine` checkout needed.
+  - **Steps 7-9** (E\*TRADE, Amazon Fresh, Google Calendar/Gmail): a
+    machine with its own clone of `synapse-engine`, a Python venv
+    (`python3 -m venv venv && source venv/bin/activate && pip install -r
+    requirements.txt`, same as README's Option A macOS install), and
+    README.md's [Setup](README.md#setup) section's `.env` filled in — this
+    guide doesn't recreate that first-time setup, it assumes it's already
+    done and just copies the results (`.env`, and if you use Calendar/Gmail,
+    `credentials.json`/`token.json`/`calendars.json`) onto QNAP. Steps 7-8
+    additionally need Playwright's Firefox there:
+    `playwright install --with-deps firefox`.
 
 ## 0. Choose your host directory and export it
 
@@ -55,9 +61,16 @@ If uid differs from 1002, update `Dockerfile`: `RUN useradd -m -u 1002 synapse`
 mkdir -p "$SYNAPSE_HOST_DIR"/credentials/claude \
   "$SYNAPSE_HOST_DIR"/credentials/gemini \
   "$SYNAPSE_HOST_DIR"/credentials/etrade \
+  "$SYNAPSE_HOST_DIR"/credentials/amazon \
   "$SYNAPSE_HOST_DIR"/ssh \
   "$SYNAPSE_HOST_DIR"/data
 ```
+
+`credentials/amazon` has to exist *before* step 8's `scp -r` runs — `scp`
+nests a copied directory inside an existing destination but flattens it
+into a newly-created one, and `docker-compose.yml` expects the nested form
+(`credentials/amazon/.amazon-fresh-session/`). Creating it here, not in
+step 8, keeps that ordering trap out of the step that actually needs it.
 
 ## 3. Generate SSH key for GitHub
 
@@ -199,8 +212,9 @@ On QNAP:
 # credentials/ — ./synapse.sh setup doesn't touch it)
 chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json
 ```
-`./synapse.sh setup` creates `credentials/amazon/` and sets its ownership,
-same as steps 6 and 7.
+`credentials/amazon/` itself was already created back in step 2 (needed
+before the `scp -r` above); `./synapse.sh setup` just re-chowns it, same as
+steps 6 and 7.
 
 ## 9. Set up .env and config files
 
