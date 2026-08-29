@@ -1,8 +1,7 @@
 #!/bin/bash
 # synapse-mac.sh — Mac/launchd subcommands for the ./synapse dispatcher.
-# Ported from the old install.sh/stop.sh. Vault clone+detach setup lives in
-# _setup_vault (scripts/synapse-common.sh) and is wired into cmd_setup_mac
-# below via the _mac_vault_* callbacks.
+# Vault clone+detach setup lives in _setup_vault (scripts/synapse-common.sh)
+# and is wired into cmd_setup_mac below via the _mac_vault_* callbacks.
 
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 PLIST_NAME="com.synapse.ingestion.plist"

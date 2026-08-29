@@ -1,8 +1,7 @@
 #!/bin/bash
 # synapse — unified setup/deploy dispatcher for synapse-engine.
-# Replaces install.sh, stop.sh, update.sh, and the manual QNAP docker
-# commands from qnap-setup.md. Detects Mac vs QNAP and delegates every
-# subcommand to scripts/synapse-mac.sh or scripts/synapse-qnap.sh.
+# Detects Mac vs QNAP and delegates every subcommand to
+# scripts/synapse-mac.sh or scripts/synapse-qnap.sh.
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
