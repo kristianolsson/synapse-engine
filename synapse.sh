@@ -1,0 +1,39 @@
+#!/bin/bash
+# synapse.sh — unified setup/deploy dispatcher for synapse-engine.
+# Detects Mac vs QNAP and delegates every subcommand to
+# scripts/synapse-mac.sh or scripts/synapse-qnap.sh.
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_DIR"
+
+source "$PROJECT_DIR/scripts/synapse-common.sh"
+source "$PROJECT_DIR/scripts/synapse-mac.sh"
+source "$PROJECT_DIR/scripts/synapse-qnap.sh"
+
+detect_target
+
+case "${1:-}" in
+    setup)
+        if [[ "$TARGET" == "mac" ]]; then cmd_setup_mac; else cmd_setup_qnap; fi
+        ;;
+    start)
+        if [[ "$TARGET" == "mac" ]]; then cmd_start_mac; else cmd_start_qnap; fi
+        ;;
+    stop)
+        if [[ "$TARGET" == "mac" ]]; then cmd_stop_mac "$@"; else cmd_stop_qnap; fi
+        ;;
+    restart)
+        if [[ "$TARGET" == "mac" ]]; then cmd_restart_mac; else cmd_restart_qnap; fi
+        ;;
+    update)
+        if [[ "$TARGET" == "mac" ]]; then cmd_update_mac; else cmd_update_qnap; fi
+        ;;
+    logs)
+        if [[ "$TARGET" == "mac" ]]; then cmd_logs_mac; else cmd_logs_qnap; fi
+        ;;
+    *)
+        echo "Usage: ./synapse.sh {setup|start|stop|restart|update|logs}"
+        exit 1
+        ;;
+esac

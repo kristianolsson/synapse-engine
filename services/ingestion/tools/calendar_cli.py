@@ -21,7 +21,6 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -32,15 +31,13 @@ from services.ingestion.config import (
     CALENDAR_CONFIG_PATH,
     CALENDAR_CREDENTIALS_PATH,
     CALENDAR_TOKEN_PATH,
+    LOCAL_TZ,
 )
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/gmail.modify",
 ]
-
-# Local timezone for display — all events are normalized to this
-LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
 # Default paths (overridable via CALENDAR_CONFIG_PATH/CALENDAR_TOKEN_PATH/
 # CALENDAR_CREDENTIALS_PATH env vars, resolved once in config.py)

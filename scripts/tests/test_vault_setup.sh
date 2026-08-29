@@ -1,0 +1,163 @@
+#!/bin/bash
+set -uo pipefail
+
+_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_TEST_DIR/test_helpers.sh"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# Point PROJECT_DIR somewhere harmless before sourcing (synapse-qnap.sh
+# reads PROJECT_DIR/.env at source time; we're only testing the Mac path
+# here, which doesn't need it, but the file must still exist to source
+# cleanly).
+PROJECT_DIR="$TMP/unused_project"
+mkdir -p "$PROJECT_DIR"
+touch "$PROJECT_DIR/.env"
+
+source "$_TEST_DIR/../synapse-common.sh"
+source "$_TEST_DIR/../synapse-mac.sh"
+
+# --- Build a fake "synapse-vault" template repo, standing in for the real
+# public one so this test needs no network access. Its setup.sh is a
+# non-interactive stand-in for the real (interactive) one. ---
+FAKE_TEMPLATE="$TMP/fake-synapse-vault"
+mkdir -p "$FAKE_TEMPLATE"
+(
+    cd "$FAKE_TEMPLATE"
+    git init -q
+    git config user.email test@example.com
+    git config user.name Test
+    echo "# fake template" > README.md
+    cat > setup.sh <<'EOF'
+#!/bin/bash
+echo "personalized" > PERSONAL.md
+EOF
+    chmod +x setup.sh
+    git add -A
+    git commit -q -m "template initial commit"
+)
+
+# Give the clone target its own git identity too (Mac's _mac_vault_git just
+# runs plain `git`, which needs user.name/user.email configured — set it
+# globally for this test process only).
+export HOME="$TMP/fake_home"
+mkdir -p "$HOME"
+git config --global user.email "vault-owner@example.com"
+git config --global user.name "Vault Owner"
+
+SYNAPSE_VAULT_TEMPLATE_URL="$FAKE_TEMPLATE"
+
+VAULT_DIR="$TMP/vault"
+_setup_vault "$VAULT_DIR" _mac_vault_clone _mac_vault_git _mac_vault_push <<< ""  # blank stdin: skip the optional remote prompt
+
+assert_eq "vault dir was created" "true" "$([ -d "$VAULT_DIR" ] && echo true || echo false)"
+assert_eq "vault dir is its own git repo (not the template's)" "true" "$([ -d "$VAULT_DIR/.git" ] && echo true || echo false)"
+assert_eq "template's setup.sh ran (PERSONAL.md written)" "personalized" "$(cat "$VAULT_DIR/PERSONAL.md" 2>/dev/null)"
+
+TEMPLATE_FIRST_COMMIT="$(git -C "$FAKE_TEMPLATE" rev-list --max-parents=0 HEAD)"
+VAULT_FIRST_COMMIT="$(git -C "$VAULT_DIR" rev-list --max-parents=0 HEAD)"
+assert_eq "vault's first commit differs from the template's (independent history)" "true" "$([ "$TEMPLATE_FIRST_COMMIT" != "$VAULT_FIRST_COMMIT" ] && echo true || echo false)"
+
+VAULT_LOG_COUNT="$(git -C "$VAULT_DIR" log --oneline | wc -l | tr -d ' ')"
+assert_eq "vault has exactly one commit (template history detached)" "1" "$VAULT_LOG_COUNT"
+
+DIRTY="$(git -C "$VAULT_DIR" status --porcelain)"
+assert_eq "vault has no uncommitted changes after setup" "" "$DIRTY"
+
+# --- Refuses to overwrite an existing directory ---
+mkdir -p "$TMP/already-exists"
+if _setup_vault "$TMP/already-exists" _mac_vault_clone _mac_vault_git _mac_vault_push <<< "" 2>/dev/null; then
+    assert_eq "_setup_vault refuses an existing directory" "refused" "did not refuse"
+else
+    assert_eq "_setup_vault refuses an existing directory" "refused" "refused"
+fi
+
+# --- Regression: setup must survive non-TTY stdin. `read` returns non-zero
+# at EOF (a piped invocation, or `ssh host './synapse.sh setup'` without -t),
+# which under the entrypoint's `set -e` aborted _setup_vault part-way —
+# after the vault had already been cloned and committed, but before the
+# caller could record VAULT_PATH. Each prompt has a usable default, so EOF
+# must simply take it. The subshell reproduces the entrypoint's `set -e`;
+# the trailing echo only runs if the function returned normally. ---
+NONINTERACTIVE_RESULT="$(
+    set -e
+    _setup_vault "$TMP/vault_noninteractive" _mac_vault_clone _mac_vault_git _mac_vault_push \
+        < /dev/null > /dev/null 2>&1
+    echo "COMPLETED"
+)"
+assert_eq "_setup_vault completes under set -e with non-TTY stdin" "COMPLETED" "$NONINTERACTIVE_RESULT"
+assert_eq "non-interactive run still produced a committed vault" "1" \
+    "$(git -C "$TMP/vault_noninteractive" log --oneline 2>/dev/null | wc -l | tr -d ' ')"
+
+# --- Regression: a failing template setup.sh must warn, not abort. An
+# un-personalized but committed vault beats a half-set-up one, and the
+# unchecked `(cd ... && ./setup.sh)` used to kill the whole run under
+# `set -e` before the vault was ever committed. ---
+FAKE_TEMPLATE_BAD="$TMP/fake-synapse-vault-badsetup"
+mkdir -p "$FAKE_TEMPLATE_BAD"
+(
+    cd "$FAKE_TEMPLATE_BAD"
+    git init -q
+    git config user.email test@example.com
+    git config user.name Test
+    echo "# fake template" > README.md
+    cat > setup.sh <<'EOF'
+#!/bin/bash
+echo "boom" >&2
+exit 1
+EOF
+    chmod +x setup.sh
+    git add -A
+    git commit -q -m "template initial commit"
+)
+
+BAD_VAULT="$TMP/vault_badsetup"
+SYNAPSE_VAULT_TEMPLATE_URL="$FAKE_TEMPLATE_BAD"
+BAD_OUTPUT="$(
+    set -e
+    _setup_vault "$BAD_VAULT" _mac_vault_clone _mac_vault_git _mac_vault_push < /dev/null 2>&1
+    echo "COMPLETED"
+)"
+SYNAPSE_VAULT_TEMPLATE_URL="$FAKE_TEMPLATE"
+
+assert_contains "a failing setup.sh produces a clear warning" "$BAD_OUTPUT" "setup.sh failed"
+assert_contains "a failing setup.sh does not abort _setup_vault" "$BAD_OUTPUT" "COMPLETED"
+assert_eq "vault is still committed after a failed setup.sh" "1" \
+    "$(git -C "$BAD_VAULT" log --oneline 2>/dev/null | wc -l | tr -d ' ')"
+
+# --- Regression: _qnap_vault_git must preserve argument boundaries.
+# The original code built the container's command string with `"$*"`,
+# which flattens all positional args into one space-joined string —
+# a multi-word arg like a commit message then gets word-split again when
+# the container's shell re-parses it, silently corrupting `git commit -q
+# -m "some message"` into a -m of just the first word plus bogus pathspec
+# args. _shell_quote + per-arg quoting (added in the fix) must round-trip
+# a multi-word argument as a single token. This is placed last because it
+# shadows `git` with a stub — everything above this point needs the real
+# git binary. ---
+source "$_TEST_DIR/../synapse-qnap.sh"
+
+_TEST_GIT_ARGV=()
+git() {
+    _TEST_GIT_ARGV=("$@")
+}
+
+QNAP_CAPTURED_SCRIPT=""
+_qnap_git_in_container() {
+    local dir="$1" script="$2"
+    QNAP_CAPTURED_SCRIPT="$script"
+}
+
+_qnap_vault_git "/fake/dir" commit -q -m "hello world"
+eval "$QNAP_CAPTURED_SCRIPT"
+
+assert_eq "argv count preserved (8, not 9 — commit message stayed one token)" "8" "${#_TEST_GIT_ARGV[@]}"
+assert_eq "multi-word commit message survives as a single argument" "hello world" "${_TEST_GIT_ARGV[7]}"
+
+QUOTED="$(_shell_quote "it's a test")"
+eval "ARR=($QUOTED)"
+assert_eq "_shell_quote round-trips an embedded single quote" "it's a test" "${ARR[0]}"
+
+test_summary
+exit $?

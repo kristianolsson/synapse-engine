@@ -23,13 +23,12 @@ from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 # Resolve package path so `services.ingestion` is importable when run standalone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from services.ingestion import config as syn_config
 
-LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+LOCAL_TZ = syn_config.LOCAL_TZ
 
 # Default path — overridden by REMINDERS_JSON_PATH env var or --config flag.
 # Falls back to syn_config.REMINDERS_JSON_PATH (VAULT_PATH-relative, .env-aware)

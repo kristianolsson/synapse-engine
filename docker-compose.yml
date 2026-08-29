@@ -3,12 +3,12 @@ services:
     build:
       context: .
       args:
-        GIT_USER_NAME: ${GIT_USER_NAME:-Synapse Bot}
-        GIT_USER_EMAIL: ${GIT_USER_EMAIL:-synapse@localhost}
+        GIT_USER_NAME: ${GIT_USER_NAME:?Set GIT_USER_NAME in a .env file next to this compose file — see .env.compose.example}
+        GIT_USER_EMAIL: ${GIT_USER_EMAIL:?Set GIT_USER_EMAIL in a .env file next to this compose file — see .env.compose.example}
     restart: always
     env_file: ${SYNAPSE_HOST_DIR:?Set SYNAPSE_HOST_DIR in a .env file next to this compose file — see .env.compose.example}/.env
     environment:
-      - TZ=America/Los_Angeles
+      - TZ=${TZ:-UTC}
     volumes:
       - ${SYNAPSE_HOST_DIR}/vault:/app/vault
       - ${SYNAPSE_HOST_DIR}/synapse-engine:/app/synapse-engine

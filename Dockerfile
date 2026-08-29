@@ -1,6 +1,9 @@
 FROM node:20-slim
 
 # System deps
+# tzdata: guarantees the IANA zone database is present so TZ=<IANA name>
+# (docker-compose.yml's TZ=${TZ:-UTC}) resolves correctly — config.py's
+# LOCAL_TZ depends on it via tzlocal/zoneinfo.
 RUN apt-get update && apt-get install -y \
     tini \
     git \
@@ -10,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     curl \
     ca-certificates \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code and Gemini CLIs globally
@@ -44,9 +48,10 @@ USER synapse
 # Install Antigravity CLI (agy)
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
 
-# Configure git signing, identity, and safe directories
-ARG GIT_USER_NAME="Synapse Bot"
-ARG GIT_USER_EMAIL="synapse@localhost"
+# Configure git signing, identity, and safe directories. No default here —
+# docker-compose.yml requires GIT_USER_NAME/GIT_USER_EMAIL to be set.
+ARG GIT_USER_NAME
+ARG GIT_USER_EMAIL
 RUN git config --global gpg.format ssh && \
     git config --global user.signingkey /home/synapse/.ssh/id_ed25519.pub && \
     git config --global commit.gpgsign true && \

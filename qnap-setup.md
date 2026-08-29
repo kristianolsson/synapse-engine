@@ -9,8 +9,24 @@ models. Follow steps in order.
 - Container Station installed (provides Docker)
 - SSH enabled: QTS → Control Panel → Telnet/SSH → port 22
 - A real data volume for persistent storage — this guide uses
-  `<YOUR_VOLUME>` (e.g. `CE_CACHEDEV2_DATA`) as a placeholder; substitute
-  your NAS's actual volume name throughout
+  `<YOUR_VOLUME>` as a placeholder; substitute your NAS's actual volume
+  name throughout
+- Steps 5-9 below authenticate things QNAP itself can't (it's headless).
+  What each needs varies:
+  - **Step 5** (Claude): just a browser somewhere to open an OAuth URL —
+    runs on QNAP itself over SSH, no separate machine needed.
+  - **Step 6** (Gemini/Antigravity): a machine where those CLIs are already
+    installed and authenticated (`~/.gemini` populated) — no
+    `synapse-engine` checkout needed.
+  - **Steps 7-9** (E\*TRADE, Amazon Fresh, Google Calendar/Gmail): a
+    machine that's completed README.md's [Setup](README.md#setup) section —
+    dependencies installed (`python3 -m venv venv && source
+    venv/bin/activate && pip install -r requirements.txt`) and `.env`
+    filled in — this guide doesn't recreate that first-time setup, it
+    assumes it's already done and just copies the results (`.env`, and if
+    you use Calendar/Gmail, `credentials.json`/`token.json`/
+    `calendars.json`) onto QNAP. Steps 7-8 additionally need Playwright's
+    Firefox there: `playwright install --with-deps firefox`.
 
 ## 0. Choose your host directory and export it
 
@@ -44,6 +60,7 @@ If uid differs from 1002, update `Dockerfile`: `RUN useradd -m -u 1002 synapse`
 mkdir -p "$SYNAPSE_HOST_DIR"/credentials/claude \
   "$SYNAPSE_HOST_DIR"/credentials/gemini \
   "$SYNAPSE_HOST_DIR"/credentials/etrade \
+  "$SYNAPSE_HOST_DIR"/credentials/amazon \
   "$SYNAPSE_HOST_DIR"/ssh \
   "$SYNAPSE_HOST_DIR"/data
 ```
@@ -67,13 +84,17 @@ chown synapse "$SYNAPSE_HOST_DIR"/ssh/id_ed25519 \
 chmod 600 "$SYNAPSE_HOST_DIR"/ssh/id_ed25519
 ```
 
-## 4. Clone repos
+## 4. Clone synapse-engine
 
-Replace `YOUR_GITHUB_USERNAME` below with the account that owns your vault
-repo (see [synapse-vault](https://github.com/kristianolsson/synapse-vault)
-for a starting template) and `synapse-engine`. The vault repo can be named
-anything on GitHub — it's cloned into a local folder named `vault` here
-because that's the folder name `docker-compose.yml`'s mount expects.
+Replace `YOUR_GITHUB_USERNAME` below with the account that owns
+`synapse-engine`. (The vault isn't cloned here — `./synapse.sh setup` in step
+10 below prompts for it instead: clone the public
+[synapse-vault](https://github.com/kristianolsson/synapse-vault) template
+and detach it into your own independent local repo, or give it the git URL
+of your own existing vault repo and it clones that instead, as-is. Unlike
+`synapse-engine` here, which needs the manual `docker run` below since the
+script doesn't exist on disk yet, the vault clone runs through `./synapse.sh`
+itself once it does.)
 
 ```bash
 docker run --rm --entrypoint sh \
@@ -82,14 +103,11 @@ docker run --rm --entrypoint sh \
   alpine/git \
   -c "chmod 600 /root/.ssh/id_ed25519 && \
       GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
-      git clone git@github.com:YOUR_GITHUB_USERNAME/vault.git $SYNAPSE_HOST_DIR/vault && \
-      GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
       git clone git@github.com:YOUR_GITHUB_USERNAME/synapse-engine.git $SYNAPSE_HOST_DIR/synapse-engine"
 ```
 
 Set ownership:
 ```bash
-chown -R synapse "$SYNAPSE_HOST_DIR"/vault
 chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
 
@@ -98,8 +116,6 @@ substitution — separate from the runtime `.env` in step 9):
 ```bash
 cp "$SYNAPSE_HOST_DIR"/synapse-engine/.env.compose.example "$SYNAPSE_HOST_DIR"/synapse-engine/.env
 sed -i "s|SYNAPSE_HOST_DIR=.*|SYNAPSE_HOST_DIR=$SYNAPSE_HOST_DIR|" "$SYNAPSE_HOST_DIR"/synapse-engine/.env
-# Optionally set GIT_USER_NAME / GIT_USER_EMAIL in that same file if you
-# want commits to your vault authored as you instead of the default bot identity.
 ```
 
 ## 5. Set up Claude credentials
@@ -110,15 +126,12 @@ docker build -f "$SYNAPSE_HOST_DIR"/synapse-engine/Dockerfile \
 docker run -it --name claude-login-temp --entrypoint bash claude-auth-temp
 ```
 
-Inside the container: run `claude`, then `/login`. Complete OAuth on your Mac. Exit, then:
+Inside the container: run `claude`, then `/login`. Complete OAuth in a browser on any device. Exit, then:
 
 ```bash
 docker cp claude-login-temp:/home/synapse/.claude/. \
   "$SYNAPSE_HOST_DIR"/credentials/claude/
 docker rm claude-login-temp && docker rmi claude-auth-temp
-chown -R synapse "$SYNAPSE_HOST_DIR"/credentials/claude
-chmod 755 "$SYNAPSE_HOST_DIR"/credentials/claude
-chmod 644 "$SYNAPSE_HOST_DIR"/credentials/claude/.credentials.json
 ```
 
 This one-off bootstrap is only needed before the main `synapse` container exists. Once it's running, use `/update-claude-auth` in Telegram to re-auth (see [Token refresh](#token-refresh)) — no SSH or temp container required, since the running container already bind-mounts `~/.claude` to this same credentials directory.
@@ -127,7 +140,7 @@ This one-off bootstrap is only needed before the main `synapse` container exists
 
 Gemini CLI and Antigravity CLI (agy) both store configuration and authentication data under `~/.gemini`.
 
-On Mac:
+On a machine where you already use these CLIs and can authenticate (e.g. a browser to complete OAuth):
 ```bash
 # Transfer Gemini OAuth credentials
 scp ~/.gemini/oauth_creds.json ~/.gemini/google_accounts.json ~/.gemini/settings.json \
@@ -138,16 +151,12 @@ scp -r ~/.gemini/antigravity-cli \
   admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/gemini/
 ```
 
-On QNAP:
-```bash
-chown -R synapse "$SYNAPSE_HOST_DIR"/credentials/gemini
-```
-
 ## 7. Set up E*TRADE credentials (Optional)
 
-If you use the `etrade` or `options-bot` CLI tools, you must authenticate on your Mac first to bypass E*TRADE's SMS 2FA. E*TRADE recognizes the saved Playwright profile as a "trusted device" and will not prompt the headless Docker container for SMS codes.
+If you use the `etrade` or `options-bot` CLI tools, you must authenticate first on a machine where you can complete SMS 2FA in a real browser. E*TRADE recognizes the saved Playwright profile as a "trusted device" and will not prompt the headless Docker container for SMS codes.
 
-On Mac:
+On that machine (needs the `synapse-engine` checkout + venv + Playwright's
+Firefox from [Prerequisites](#prerequisites)):
 ```bash
 # 1. Run etrade auth locally to generate tokens and trust the browser profile
 cd ~/Documents/code/synapse-engine
@@ -158,16 +167,11 @@ scp ~/.etrade_tokens admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/etrade/.etrad
 scp -r ~/.etrade_browser_profile admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/etrade/
 ```
 
-On QNAP:
-```bash
-chown -R synapse "$SYNAPSE_HOST_DIR"/credentials/etrade
-```
-
 ## 8. Set up Amazon Fresh credentials (Optional)
 
-If you use the `amazon-fresh` CLI tool, authenticate on your Mac first — Amazon's 2FA and device-trust checks require a headed browser. The saved Firefox profile is then recognized as a "trusted device" in the headless Docker container.
+If you use the `amazon-fresh` CLI tool, authenticate first on a machine with a headed browser — Amazon's 2FA and device-trust checks require one. The saved Firefox profile is then recognized as a "trusted device" in the headless Docker container.
 
-On Mac:
+On that machine (same [Prerequisites](#prerequisites) as step 7):
 ```bash
 # 1. Log into Amazon Fresh headed (browser opens automatically)
 cd ~/Documents/code/synapse-engine
@@ -186,16 +190,16 @@ scp ~/Documents/code/synapse-engine/services/ingestion/tools/amazon_fresh/select
 
 On QNAP:
 ```bash
-mkdir -p "$SYNAPSE_HOST_DIR"/credentials/amazon
-chown -R synapse "$SYNAPSE_HOST_DIR"/credentials/amazon
-
-# Note: scp runs as admin, so we must re-chown selectors.json so the container can update it
+# scp runs as admin, so we must re-chown selectors.json so the container can
+# update it (this one's inside the synapse-engine checkout, not
+# credentials/ — ./synapse.sh setup doesn't touch it)
 chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json
 ```
 
 ## 9. Set up .env and config files
 
-On Mac:
+On the machine where your `synapse-engine` checkout and its `.env` live
+(see [Prerequisites](#prerequisites)):
 ```bash
 scp ~/Documents/code/synapse-engine/.env admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/.env
 scp ~/Documents/code/synapse-engine/calendars.json \
@@ -206,7 +210,7 @@ scp ~/Documents/code/synapse-engine/calendars.json \
 
 > **Note:** `token.json` covers both Google Calendar and Gmail (single shared OAuth token).
 > If you have just added Gmail to an existing setup, delete the old `token.json` first and
-> re-run `python -m services.ingestion.tools.setup_google` on your Mac to get a token with
+> re-run `python -m services.ingestion.tools.setup_google` locally to get a token with
 > both scopes before copying it to QNAP.
 
 > **Note:** this is the *runtime* `.env` (mounted into the container at
@@ -214,21 +218,34 @@ scp ~/Documents/code/synapse-engine/calendars.json \
 
 On QNAP:
 ```bash
-sed -i 's|VAULT_PATH=.*|VAULT_PATH=/app/vault|' "$SYNAPSE_HOST_DIR"/.env
-sed -i 's|CLAUDE_CMD=.*|CLAUDE_CMD=/usr/local/bin/claude|' "$SYNAPSE_HOST_DIR"/.env
-echo "AGY_CMD=/home/synapse/.local/bin/agy" >> "$SYNAPSE_HOST_DIR"/.env
-echo "SESSION_STORAGE_PATH=/app/data/sessions.json" >> "$SYNAPSE_HOST_DIR"/.env
-echo "REMINDERS_JSON_PATH=/app/vault/reminders/reminders.json" >> "$SYNAPSE_HOST_DIR"/.env
 chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
+`./synapse.sh setup` in step 10 sets `VAULT_PATH`, `CLAUDE_CMD`, `AGY_CMD`,
+`SESSION_STORAGE_PATH`, and `REMINDERS_JSON_PATH` on
+`$SYNAPSE_HOST_DIR/.env` to their fixed container-internal values,
+overwriting whatever the copied `.env` had for them.
 
-## 10. Build and start
+## 10. Set up the vault and start
 
 ```bash
 cd "$SYNAPSE_HOST_DIR"/synapse-engine
-docker compose build
-docker compose up -d
-docker compose logs -f
+./synapse.sh setup
+```
+
+This also creates `credentials/`/`data/` and sets the runtime `.env`
+defaults described in steps 6-9. If `$SYNAPSE_HOST_DIR/vault` doesn't exist
+yet, it prompts for one (see step 4); if `TZ` or `GIT_USER_NAME`/
+`GIT_USER_EMAIL` aren't set in the compose-local `.env` yet, it prompts for
+those too (the latter is required — `docker compose build` fails without
+it). Either way, it then builds the image and starts the containers
+(`docker compose build && docker compose up -d`).
+
+(Needs the runtime `.env` from step 9 to already exist at
+`$SYNAPSE_HOST_DIR/.env` — it exits with an error telling you so if it's
+missing.)
+
+```bash
+./synapse.sh logs
 ```
 
 ## Update workflow
@@ -237,8 +254,12 @@ docker compose logs -f
 
 **Dockerfile or requirements.txt changes** — SSH into QNAP and run:
 ```bash
-bash "$SYNAPSE_HOST_DIR"/synapse-engine/update.sh
+cd "$SYNAPSE_HOST_DIR"/synapse-engine
+./synapse.sh update
 ```
+This pulls the latest code, rebuilds the image only if `Dockerfile` or
+`requirements.txt` changed, and restarts (if the pull found nothing new, it
+prints "Already up to date" and leaves the service running as-is).
 
 ## Logs
 
@@ -250,23 +271,27 @@ docker compose logs -f
 # Last 100 lines without following
 docker compose logs --tail=100
 ```
+(`./synapse.sh logs` is equivalent to the follow command above.)
 
 ## Token refresh
 
 **Claude:** Send `/update-claude-auth` to the bot in Telegram. It replies with an OAuth URL; open it, sign in, and reply with the code it gives you — the bot finishes the login and writes credentials straight to `$SYNAPSE_HOST_DIR/credentials/claude/` (no SSH needed). Falls back to re-running step 5 manually if the bot itself is down or unreachable.
 
-**Gemini:** Re-auth on Mac, re-run scp from step 6, then `docker compose restart`.
+**Gemini:** Re-auth locally, re-run scp from step 6, then send `/update` via
+Telegram — it restarts the bot even when there's no new code to pull, so it
+works here too and needs no SSH. (`./synapse.sh restart` over SSH does the
+same thing if the bot itself is unreachable.)
 
-**Google (Calendar + Gmail):** Re-auth on Mac, then copy the fresh token to QNAP and restart:
+**Google (Calendar + Gmail):** Re-auth locally, then copy the fresh token to
+QNAP and send `/update` via Telegram to restart:
 ```bash
-# On Mac — delete old token to force re-auth
+# Locally — delete old token to force re-auth
 rm ~/Documents/code/synapse-engine/token.json
 python -m services.ingestion.tools.setup_google
 
 # Copy fresh token to QNAP
 scp ~/Documents/code/synapse-engine/token.json \
     admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/synapse-engine/
-
-# On QNAP
-docker compose restart
 ```
+Then send `/update` via Telegram (or SSH in and run `./synapse.sh restart`
+if the bot itself is unreachable).

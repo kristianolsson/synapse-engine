@@ -6,6 +6,7 @@ Reads credentials and settings from environment variables / .env file.
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from tzlocal import get_localzone
 
 # Load .env from the repo root (two levels up from this file)
 _ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -37,6 +38,16 @@ REPLY_TO_ADDRESS = os.getenv("REPLY_TO_ADDRESS", "").strip().lower()
 
 # --- Vault ---
 VAULT_PATH = os.getenv("VAULT_PATH", str(Path(__file__).resolve().parent.parent.parent / "vault"))
+
+# --- Timezone ---
+# Follows the process's actual local timezone: the TZ env var if set (see
+# docker-compose.yml's TZ=${TZ:-UTC}), else the system's configured
+# timezone (e.g. /etc/localtime on Mac). Single source of truth for
+# core/scheduler.py, tools/calendar_cli.py, and tools/reminder_cli.py,
+# which used to each hardcode their own separate
+# ZoneInfo("America/Los_Angeles") — reminder scheduling didn't actually
+# follow the container's TZ setting at all until this was centralized.
+LOCAL_TZ = get_localzone()
 
 # --- Rate Limiting ---
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "10"))

@@ -8,7 +8,6 @@ failure handling for the refactored two-tier scheduler.
 import json
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch, mock_open
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -16,9 +15,15 @@ from services.ingestion.core.scheduler import (
     ReminderScheduler,
     compute_next_fire,
     MISSED_THRESHOLD_SECONDS,
+    LOCAL_TZ,
 )
 
-LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+# LOCAL_TZ now follows the test machine's actual system timezone (see
+# config.py) rather than a hardcoded Los Angeles — imported from scheduler,
+# not redefined, so test fixtures and the code under test always agree
+# regardless of what timezone the test happens to run in. These tests
+# exercise wall-clock/day-of-week arithmetic, which is correct for any
+# zone as long as fixtures and assertions use the same one.
 
 
 @pytest.fixture
