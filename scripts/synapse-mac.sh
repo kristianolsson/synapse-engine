@@ -40,6 +40,27 @@ cmd_setup_mac() {
         exit 1
     fi
 
+    # Runs after the .env/venv guards above so a genuinely fresh clone hits
+    # those errors first — writing VAULT_PATH into a not-yet-copied .env
+    # would leave setup in a confusing half-configured state.
+    if [ -z "$(_env_var "$PROJECT_DIR/.env" VAULT_PATH)" ]; then
+        local default_vault_dir
+        default_vault_dir="$(cd "$PROJECT_DIR/.." && pwd)/vault"
+        echo ""
+        echo "No VAULT_PATH configured."
+        read -rp "Clone the synapse-vault template to set one up now? [Y/n]: " scaffold_answer
+        if [[ ! "$scaffold_answer" =~ ^[Nn] ]]; then
+            read -rp "Vault path [$default_vault_dir]: " vault_dir
+            vault_dir="${vault_dir:-$default_vault_dir}"
+            if _setup_vault "$vault_dir" _mac_vault_clone _mac_vault_git _mac_vault_push; then
+                _set_env_var "$PROJECT_DIR/.env" VAULT_PATH "$vault_dir"
+                echo "✅ $PROJECT_DIR/.env updated with VAULT_PATH=$vault_dir"
+            fi
+        else
+            echo "Skipping — services will have nowhere to write until VAULT_PATH is set."
+        fi
+    fi
+
     _generate_mac_plist "$PROJECT_DIR/$PLIST_NAME"
     echo "✅ Generated $PLIST_NAME"
 
@@ -94,4 +115,18 @@ cmd_update_mac() {
 
 cmd_logs_mac() {
     tail -f /tmp/synapse-ingestion.out.log /tmp/synapse-ingestion.err.log
+}
+
+_mac_vault_clone() {
+    git clone "$SYNAPSE_VAULT_TEMPLATE_URL" "$1"
+}
+
+_mac_vault_git() {
+    local dir="$1"
+    shift
+    git -C "$dir" "$@"
+}
+
+_mac_vault_push() {
+    git -C "$1" push -u origin HEAD
 }

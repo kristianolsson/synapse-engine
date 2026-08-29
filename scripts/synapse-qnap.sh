@@ -46,6 +46,18 @@ cmd_setup_qnap() {
         echo "❌ SYNAPSE_HOST_DIR not set. Run: cp .env.compose.example .env, then edit it."
         exit 1
     fi
+
+    if [ ! -d "$SYNAPSE_HOST_DIR/vault" ]; then
+        echo ""
+        echo "No vault found at $SYNAPSE_HOST_DIR/vault."
+        read -rp "Clone the synapse-vault template there now? [Y/n]: " scaffold_answer
+        if [[ ! "$scaffold_answer" =~ ^[Nn] ]]; then
+            _setup_vault "$SYNAPSE_HOST_DIR/vault" _qnap_vault_clone _qnap_vault_git _qnap_vault_push
+        else
+            echo "Skipping — services will have nowhere to write until a vault exists there."
+        fi
+    fi
+
     echo "Building and starting containers..."
     (cd "$PROJECT_DIR" && docker compose build && docker compose up -d)
     echo "✅ Started. Logs: ./synapse logs"
@@ -130,6 +142,42 @@ _qnap_git_pull() {
     QNAP_PULL_BEFORE_SHA="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_BEFORE_SHA=//p')"
     QNAP_PULL_AFTER_SHA="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_AFTER_SHA=//p')"
     QNAP_REBUILD_NEEDED="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_REBUILD_NEEDED=//p')"
+}
+
+# Clone target doesn't exist yet, so it can't be bind-mounted directly —
+# mount its parent instead and clone into a subdirectory by name.
+_qnap_vault_clone() {
+    local dest_dir="$1"
+    local parent_dir name rc=0
+    parent_dir="$(dirname "$dest_dir")"
+    name="$(basename "$dest_dir")"
+    docker run --rm --entrypoint sh \
+        -v "$parent_dir:$parent_dir" \
+        alpine/git \
+        -c "cd '$parent_dir' && git clone '$SYNAPSE_VAULT_TEMPLATE_URL' '$name'" || rc=$?
+    chown -R synapse "$dest_dir" 2>/dev/null || true
+    return $rc
+}
+
+_qnap_vault_git() {
+    local dir="$1"
+    shift
+    # The throwaway container has no ~/.gitconfig, so `git commit` would
+    # otherwise fail with "please tell me who you are" — inject an identity
+    # on every invocation via -c (harmless for non-commit subcommands too).
+    # Same default fallback docker-compose.yml itself uses for the build args.
+    local git_name git_email
+    git_name="$(_env_var "$COMPOSE_ENV_FILE" GIT_USER_NAME)"
+    git_name="${git_name:-Synapse Bot}"
+    git_email="$(_env_var "$COMPOSE_ENV_FILE" GIT_USER_EMAIL)"
+    git_email="${git_email:-synapse@localhost}"
+    _qnap_git_in_container "$dir" "git -c user.name='$git_name' -c user.email='$git_email' $*"
+}
+
+_qnap_vault_push() {
+    local dir="$1"
+    _qnap_git_in_container_with_ssh "$dir" \
+        "GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git push -u origin HEAD"
 }
 
 cmd_update_qnap() {
