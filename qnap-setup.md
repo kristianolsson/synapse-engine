@@ -65,12 +65,6 @@ mkdir -p "$SYNAPSE_HOST_DIR"/credentials/claude \
   "$SYNAPSE_HOST_DIR"/data
 ```
 
-`credentials/amazon` has to exist *before* step 8's `scp -r` runs — `scp`
-nests a copied directory inside an existing destination but flattens it
-into a newly-created one, and `docker-compose.yml` expects the nested form
-(`credentials/amazon/.amazon-fresh-session/`). Creating it here, not in
-step 8, keeps that ordering trap out of the step that actually needs it.
-
 ## 3. Generate SSH key for GitHub
 
 ```bash
@@ -216,9 +210,7 @@ On QNAP:
 # credentials/ — ./synapse.sh setup doesn't touch it)
 chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json
 ```
-`credentials/amazon/` itself was already created back in step 2 (needed
-before the `scp -r` above); `./synapse.sh setup` just re-chowns it, same as
-steps 6 and 7.
+Same as steps 6 and 7 — `./synapse.sh setup` handles ownership.
 
 ## 9. Set up .env and config files
 
