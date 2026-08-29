@@ -144,6 +144,13 @@ _qnap_git_pull() {
     QNAP_REBUILD_NEEDED="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_REBUILD_NEEDED=//p')"
 }
 
+# POSIX-safe single-quoting for building a command string that a shell
+# (possibly not bash — the alpine/git container's /bin/sh) will re-parse.
+# Wraps in '...', escaping any embedded single quote as '\''.
+_shell_quote() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
 # Clone target doesn't exist yet, so it can't be bind-mounted directly —
 # mount its parent instead and clone into a subdirectory by name.
 _qnap_vault_clone() {
@@ -155,7 +162,7 @@ _qnap_vault_clone() {
         -v "$parent_dir:$parent_dir" \
         alpine/git \
         -c "cd '$parent_dir' && git clone '$SYNAPSE_VAULT_TEMPLATE_URL' '$name'" || rc=$?
-    chown -R synapse "$dest_dir" 2>/dev/null || true
+    chown -R synapse "$dest_dir" || echo "⚠️  Could not restore ownership of $dest_dir to synapse."
     return $rc
 }
 
@@ -171,7 +178,16 @@ _qnap_vault_git() {
     git_name="${git_name:-Synapse Bot}"
     git_email="$(_env_var "$COMPOSE_ENV_FILE" GIT_USER_EMAIL)"
     git_email="${git_email:-synapse@localhost}"
-    _qnap_git_in_container "$dir" "git -c user.name='$git_name' -c user.email='$git_email' $*"
+    # Build the container's command string with each arg individually
+    # single-quoted (POSIX-safe, since the container's shell may not be
+    # bash) — "$*" would flatten multi-word args like a commit message
+    # into bare words, silently turning "-m Initial commit from..." into
+    # a -m message of just "Initial" plus four bogus pathspec arguments.
+    local quoted_args="" arg
+    for arg in "$@"; do
+        quoted_args="$quoted_args $(_shell_quote "$arg")"
+    done
+    _qnap_git_in_container "$dir" "git -c user.name=$(_shell_quote "$git_name") -c user.email=$(_shell_quote "$git_email")$quoted_args"
 }
 
 _qnap_vault_push() {

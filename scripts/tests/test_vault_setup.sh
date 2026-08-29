@@ -73,5 +73,38 @@ else
     assert_eq "_setup_vault refuses an existing directory" "refused" "refused"
 fi
 
+# --- Regression: _qnap_vault_git must preserve argument boundaries.
+# The original code built the container's command string with `"$*"`,
+# which flattens all positional args into one space-joined string —
+# a multi-word arg like a commit message then gets word-split again when
+# the container's shell re-parses it, silently corrupting `git commit -q
+# -m "some message"` into a -m of just the first word plus bogus pathspec
+# args. _shell_quote + per-arg quoting (added in the fix) must round-trip
+# a multi-word argument as a single token. This is placed last because it
+# shadows `git` with a stub — everything above this point needs the real
+# git binary. ---
+source "$_TEST_DIR/../synapse-qnap.sh"
+
+_TEST_GIT_ARGV=()
+git() {
+    _TEST_GIT_ARGV=("$@")
+}
+
+QNAP_CAPTURED_SCRIPT=""
+_qnap_git_in_container() {
+    local dir="$1" script="$2"
+    QNAP_CAPTURED_SCRIPT="$script"
+}
+
+_qnap_vault_git "/fake/dir" commit -q -m "hello world"
+eval "$QNAP_CAPTURED_SCRIPT"
+
+assert_eq "argv count preserved (8, not 9 — commit message stayed one token)" "8" "${#_TEST_GIT_ARGV[@]}"
+assert_eq "multi-word commit message survives as a single argument" "hello world" "${_TEST_GIT_ARGV[7]}"
+
+QUOTED="$(_shell_quote "it's a test")"
+eval "ARR=($QUOTED)"
+assert_eq "_shell_quote round-trips an embedded single quote" "it's a test" "${ARR[0]}"
+
 test_summary
 exit $?
