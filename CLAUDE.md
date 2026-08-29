@@ -76,9 +76,16 @@ Each of these caused a real bug once. Don't reintroduce them.
   constants — never recompute `VAULT_PATH`/`CALENDAR_*_PATH` locally. Follow
   `etrade_cli.py`/`reminder_cli.py`/`options_bot_cli.py`/`amazon_fresh_cli.py`'s
   shape, not `gmail_cli.py`/`calendar_cli.py`'s older plain-text convention.
-- **Tests** live under `services/ingestion/tests/<module>/`, mirroring the
-  source tree (`tests/channels/`, `tests/core/`, `tests/tools/`,
-  `tests/utils/`). Don't add a new top-level test location.
+- **Tests** for the Python service live under `services/ingestion/tests/<module>/`,
+  mirroring the source tree (`tests/channels/`, `tests/core/`, `tests/tools/`,
+  `tests/utils/`). Don't add a new top-level test location for Python code.
+  The one deliberate exception: `scripts/tests/*.sh` holds bash tests for
+  the `./synapse.sh` deployment dispatcher (`scripts/synapse-*.sh`) — plain
+  assertions via a shared `test_helpers.sh`, no framework, run directly with
+  `bash scripts/tests/test_*.sh`. It's a separate convention because it's
+  testing shell logic, not Python; don't move it into
+  `services/ingestion/tests/` and don't use it as precedent for a new
+  top-level Python test location.
 - **Same-package imports** use the minimal relative depth for where a file
   actually lives (a file in `core/` imports siblings as `from .pipe import
   ...`, not `from ..core.pipe import ...`).
@@ -98,6 +105,8 @@ Each of these caused a real bug once. Don't reintroduce them.
 ```bash
 python -m pytest services/ -v         # full test suite — no CI runs this for you
 python -m services.ingestion.main     # run the service directly (needs .env)
+bash scripts/tests/test_*.sh          # deployment-dispatcher tests (one file per script)
+./synapse.sh {setup|start|stop|restart|update|logs}  # deploy/manage — Mac (launchd) or QNAP (Docker), autodetected
 ```
 
 ## Where things live
@@ -111,3 +120,4 @@ python -m services.ingestion.main     # run the service directly (needs .env)
 | Email behavior | `channels/email/listener.py` + `reply.py` |
 | E*TRADE / options-bot | `tools/etrade_cli.py`, `tools/stocks/`, `tools/options_bot_cli.py` |
 | Gmail / Calendar | `tools/gmail_cli.py`, `tools/calendar_cli.py` — share OAuth conceptually (`get_credentials()`) though it's duplicated rather than actually shared today. `tools/calendar_mcp.py` (an MCP-protocol exposure of the same calendar functions, originally for Gemini CLI) is unused legacy — every calendar operation goes through the CLI, not MCP. Don't treat it as a live integration point. |
+| Deploying/updating the service (Mac `launchd` or QNAP/Docker) | `synapse.sh` (entrypoint) + `scripts/synapse-mac.sh`/`scripts/synapse-qnap.sh`/`scripts/synapse-common.sh` (shared helpers, vault clone/detach). See `README.md`'s Deployment section and `qnap-setup.md` for the user-facing walkthroughs these scripts implement. |
