@@ -18,20 +18,45 @@ detect_target() {
 # string if the file or key is missing. Always takes an explicit file path —
 # QNAP has two separate env files (the compose .env and the app-runtime
 # .env), so there is no single "the" env file to default to.
+# Uses awk to safely handle keys/values with regex metacharacters.
 _env_var() {
     local file="$1" key="$2"
-    grep "^$key=" "$file" 2>/dev/null | head -1 | cut -d= -f2- || true
+    awk -v k="$key" 'BEGIN{FS="="} $1 == k {print substr($0, length($1) + 2); exit}' "$file" 2>/dev/null || true
 }
 
 # Updates KEY=value in-place if present, else appends it.
+# Uses awk to safely handle keys/values with regex/sed metacharacters.
 _set_env_var() {
     local file="$1" key="$2" value="$3"
-    if grep -q "^$key=" "$file" 2>/dev/null; then
-        sed -i.bak "s|^$key=.*|$key=$value|" "$file"
-        rm -f "$file.bak"
-    else
-        echo "$key=$value" >> "$file"
+
+    if [ ! -f "$file" ]; then
+        echo "$key=$value" > "$file"
+        return
     fi
+
+    # Use awk to update in place or append
+    local temp_file=$(mktemp)
+    awk -v k="$key" -v v="$value" '
+    BEGIN {
+        FS = "="
+        OFS = "="
+        found = 0
+    }
+    $1 == k {
+        $2 = v
+        found = 1
+    }
+    {
+        print
+    }
+    END {
+        if (!found) {
+            print k "=" v
+        }
+    }
+    ' "$file" > "$temp_file"
+
+    mv "$temp_file" "$file"
 }
 
 # Prefers .venv, falls back to venv, empty string if neither has a python.
