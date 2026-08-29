@@ -124,9 +124,12 @@ cp "$SYNAPSE_HOST_DIR"/synapse-engine/.env.compose.example "$SYNAPSE_HOST_DIR"/s
 sed -i "s|SYNAPSE_HOST_DIR=.*|SYNAPSE_HOST_DIR=$SYNAPSE_HOST_DIR|" "$SYNAPSE_HOST_DIR"/synapse-engine/.env
 # Optionally set GIT_USER_NAME / GIT_USER_EMAIL in that same file if you
 # want commits to your vault authored as you instead of the default bot identity.
-# Optionally set TZ too (e.g. TZ=America/Los_Angeles) — defaults to UTC,
-# which affects log timestamps and reminder scheduling.
 ```
+
+You can set `TZ` here too (e.g. `TZ=America/Los_Angeles` — affects log
+timestamps and reminder scheduling, defaults to UTC), but you don't have
+to: `./synapse.sh setup` in step 10 prompts for it if it's still unset when
+you get there.
 
 ## 5. Set up Claude credentials
 
@@ -255,8 +258,10 @@ cd "$SYNAPSE_HOST_DIR"/synapse-engine
 
 This also creates `credentials/`/`data/` and sets the runtime `.env`
 defaults described in steps 6-9. If `$SYNAPSE_HOST_DIR/vault` doesn't exist
-yet, it prompts for one (see step 4). Either way, it then builds the image
-and starts the containers (`docker compose build && docker compose up -d`).
+yet, it prompts for one (see step 4); if `TZ` isn't set in the compose-local
+`.env` yet, it prompts for that too (see step 4). Either way, it then
+builds the image and starts the containers (`docker compose build &&
+docker compose up -d`).
 
 (Needs the runtime `.env` from step 9 to already exist at
 `$SYNAPSE_HOST_DIR/.env` — it exits with an error telling you so if it's

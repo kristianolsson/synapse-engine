@@ -239,7 +239,9 @@ If no vault exists yet at the host's expected vault path, this first offers
 to clone the public
 [synapse-vault](https://github.com/kristianolsson/synapse-vault) template
 there and detach it into an independent local git repo — see
-[Vault setup](#vault-setup) below — then it builds the image and starts the
+[Vault setup](#vault-setup) below. It also prompts for a container timezone
+if `TZ` isn't already set in the compose-local `.env` (defaults to UTC if
+you skip it). Either way, it then builds the image and starts the
 containers via `docker compose`.
 
 ```bash

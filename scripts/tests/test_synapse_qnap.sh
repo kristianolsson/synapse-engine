@@ -208,5 +208,42 @@ assert_contains "clones the given URL, not the template's" "$CAPTURED_OWN" "git 
 assert_contains "mounts the SSH deploy key" "$(cat "$TMP/captured_own_clone_mounts")" "$SYNAPSE_HOST_DIR/ssh/id_ed25519:/root/.ssh/id_ed25519"
 unset -f docker chown
 
+# --- _ensure_qnap_timezone ---
+
+# Already set: prompt is skipped, existing value untouched. Feeding a
+# non-empty stdin value here would fail the test if the function read it
+# anyway, since _set_env_var isn't idempotent-checked separately.
+TZ_ENV="$TMP/tz_compose.env"
+echo "TZ=America/New_York" > "$TZ_ENV"
+(
+    COMPOSE_ENV_FILE="$TZ_ENV"
+    _ensure_qnap_timezone <<< "Europe/London"
+)
+assert_eq "existing TZ is left alone, prompt skipped" "America/New_York" "$(_env_var "$TZ_ENV" TZ)"
+
+# Not set, user provides a value: gets written.
+TZ_ENV_UNSET="$TMP/tz_compose_unset.env"
+touch "$TZ_ENV_UNSET"
+(
+    COMPOSE_ENV_FILE="$TZ_ENV_UNSET"
+    _ensure_qnap_timezone <<< "America/Los_Angeles"
+)
+assert_eq "TZ set from prompt answer" "America/Los_Angeles" "$(_env_var "$TZ_ENV_UNSET" TZ)"
+
+# Not set, blank answer (or non-TTY EOF): stays unset, no error — UTC
+# fallback in docker-compose.yml handles it, and setup must not abort.
+TZ_ENV_BLANK="$TMP/tz_compose_blank.env"
+touch "$TZ_ENV_BLANK"
+BLANK_RESULT="$(
+    set -e
+    (
+        COMPOSE_ENV_FILE="$TZ_ENV_BLANK"
+        _ensure_qnap_timezone < /dev/null
+    )
+    echo "COMPLETED"
+)"
+assert_eq "blank/EOF answer completes without error" "COMPLETED" "$BLANK_RESULT"
+assert_eq "blank/EOF answer leaves TZ unset" "" "$(_env_var "$TZ_ENV_BLANK" TZ)"
+
 test_summary
 exit $?

@@ -76,6 +76,24 @@ _ensure_qnap_runtime_env_defaults() {
     _set_env_var "$env_file" REMINDERS_JSON_PATH "/app/vault/reminders/reminders.json"
 }
 
+# TZ is optional in the compose-local .env — docker-compose.yml's
+# `TZ=${TZ:-UTC}` falls back to UTC on its own. Prompted here (once — skips
+# if already set) so a fresh setup doesn't silently leave logs/reminder
+# scheduling on UTC without ever asking, the same way the vault-clone
+# prompt above asks rather than silently skipping.
+_ensure_qnap_timezone() {
+    if [ -n "$(_env_var "$COMPOSE_ENV_FILE" TZ)" ]; then
+        return
+    fi
+    # `|| true`: read returns non-zero at EOF (non-TTY stdin), same reason
+    # as the vault-clone prompts below — must not abort setup under `set -e`.
+    read -rp "Container timezone (IANA name, e.g. America/Los_Angeles; blank for UTC): " tz_answer || true
+    if [ -n "$tz_answer" ]; then
+        _set_env_var "$COMPOSE_ENV_FILE" TZ "$tz_answer"
+        echo "✅ TZ=$tz_answer set in $COMPOSE_ENV_FILE"
+    fi
+}
+
 cmd_setup_qnap() {
     if [ -z "$SYNAPSE_HOST_DIR" ]; then
         echo "❌ SYNAPSE_HOST_DIR not set. Run: cp .env.compose.example .env, then edit it."
@@ -89,6 +107,7 @@ cmd_setup_qnap() {
 
     _ensure_qnap_host_dirs
     _ensure_qnap_runtime_env_defaults "$APP_ENV_FILE"
+    _ensure_qnap_timezone
 
     if [ ! -d "$SYNAPSE_HOST_DIR/vault" ]; then
         echo ""
