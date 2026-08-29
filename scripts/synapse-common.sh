@@ -1,5 +1,5 @@
 #!/bin/bash
-# synapse-common.sh — shared helpers for the ./synapse dispatcher.
+# synapse-common.sh — shared helpers for the ./synapse.sh dispatcher.
 # Sourced by scripts/synapse-mac.sh, scripts/synapse-qnap.sh, and the tests
 # under scripts/tests/.
 
@@ -136,7 +136,7 @@ _setup_vault() {
     echo "✅ Vault ready at $vault_dir (independent git repo)."
 
     # `|| true`: read returns non-zero at EOF (non-TTY stdin — a piped or
-    # `ssh host './synapse setup'` invocation), which under the entrypoint's
+    # `ssh host './synapse.sh setup'` invocation), which under the entrypoint's
     # `set -e` would abort setup mid-way after the vault was already
     # cloned and committed. Empty answer is a valid "skip" here.
     read -rp "Git remote URL for this vault (blank to skip): " vault_remote || true

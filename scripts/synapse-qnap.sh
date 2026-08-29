@@ -1,5 +1,5 @@
 #!/bin/bash
-# synapse-qnap.sh — QNAP/docker subcommands for the ./synapse dispatcher.
+# synapse-qnap.sh — QNAP/docker subcommands for the ./synapse.sh dispatcher.
 #
 # QNAP has no usable host git, so every git operation against the repo or
 # the vault runs inside a throwaway `alpine/git` container. Two separate
@@ -94,7 +94,7 @@ cmd_setup_qnap() {
         echo ""
         echo "No vault found at $SYNAPSE_HOST_DIR/vault."
         # `|| true`: read returns non-zero at EOF (non-TTY stdin — the usual
-        # `ssh qnap 'cd ... && ./synapse setup'` case), which under the
+        # `ssh qnap 'cd ... && ./synapse.sh setup'` case), which under the
         # entrypoint's `set -e` would abort setup instead of taking the
         # prompt's default.
         read -rp "Clone the synapse-vault template there now? [Y/n]: " scaffold_answer || true
@@ -120,7 +120,7 @@ cmd_setup_qnap() {
 
     echo "Building and starting containers..."
     (cd "$PROJECT_DIR" && docker compose build && docker compose up -d)
-    echo "✅ Started. Logs: ./synapse logs"
+    echo "✅ Started. Logs: ./synapse.sh logs"
 }
 
 # Runs a script inside a throwaway alpine/git container against dir, mirrors

@@ -193,7 +193,7 @@ Best for running on a personal Mac. Runs the service in the background via a `la
 
 2.  **Set up and start:**
     ```bash
-    ./synapse setup
+    ./synapse.sh setup
     ```
     This auto-detects your paths, generates the plist from
     `com.synapse.ingestion.plist.template`, installs it as a `launchd`
@@ -205,12 +205,12 @@ Best for running on a personal Mac. Runs the service in the background via a `la
 
 3.  **Day-to-day commands:**
     ```bash
-    ./synapse start            # start the service
-    ./synapse stop             # stop it (until next login/reboot)
-    ./synapse stop --persist   # stop it and disable auto-start
-    ./synapse restart          # restart
-    ./synapse update           # git pull, then restart
-    ./synapse logs             # tail the log files
+    ./synapse.sh start            # start the service
+    ./synapse.sh stop             # stop it (until next login/reboot)
+    ./synapse.sh stop --persist   # stop it and disable auto-start
+    ./synapse.sh restart          # restart
+    ./synapse.sh update           # git pull, then restart
+    ./synapse.sh logs             # tail the log files
     ```
 
 4.  **Logs:**
@@ -218,7 +218,7 @@ Best for running on a personal Mac. Runs the service in the background via a `la
     tail -f /tmp/synapse-ingestion.out.log
     tail -f /tmp/synapse-ingestion.err.log
     ```
-    (equivalent to `./synapse logs`)
+    (equivalent to `./synapse.sh logs`)
 
 ### Option B — Docker / QNAP NAS
 
@@ -228,7 +228,7 @@ E\*TRADE and Amazon Fresh browser auth), and `docker-compose.yml` mounts the
 Vault, CLI credentials, and SSH key from persistent storage.
 
 ```bash
-./synapse setup
+./synapse.sh setup
 ```
 If no vault exists yet at the host's expected vault path, this first offers
 to clone the public
@@ -238,11 +238,11 @@ there and detach it into an independent local git repo — see
 containers via `docker compose`.
 
 ```bash
-./synapse start     # start (equivalent to docker compose up -d)
-./synapse stop      # stop (docker compose down)
-./synapse restart   # docker compose restart
-./synapse update    # git pull; rebuild + restart only if anything changed (rebuild only if Dockerfile/requirements.txt did)
-./synapse logs      # docker compose logs -f
+./synapse.sh start     # start (equivalent to docker compose up -d)
+./synapse.sh stop      # stop (docker compose down)
+./synapse.sh restart   # docker compose restart
+./synapse.sh update    # git pull; rebuild + restart only if anything changed (rebuild only if Dockerfile/requirements.txt did)
+./synapse.sh logs      # docker compose logs -f
 ```
 
 The compose file expects an `.env` and mounted credential directories on the
@@ -252,13 +252,13 @@ and the OAuth token), see **[`qnap-setup.md`](qnap-setup.md)**.
 
 **Updating:** for code-only changes, send `/update` via Telegram (git pull +
 graceful restart — the container's `restart: always` brings it back). For
-`Dockerfile`/`requirements.txt` changes, SSH in and run `./synapse update`
+`Dockerfile`/`requirements.txt` changes, SSH in and run `./synapse.sh update`
 instead — it pulls, rebuilds automatically only when those files changed,
 and restarts (a no-op pull leaves the service running as-is).
 
 ## Vault setup
 
-Both `./synapse setup` paths above check for a configured vault (`VAULT_PATH`
+Both `./synapse.sh setup` paths above check for a configured vault (`VAULT_PATH`
 on Mac, a `vault/` directory under the host dir on QNAP) and, if none is
 found, offer to clone the public
 [synapse-vault](https://github.com/kristianolsson/synapse-vault) template —
@@ -268,9 +268,9 @@ template) before continuing setup. You can decline and use an existing vault
 instead: on Mac, just point `VAULT_PATH` at it directly (Mac has git, so
 there's nothing to script). On QNAP, `VAULT_PATH` is fixed by
 `docker-compose.yml`'s bind mount, so either place an existing vault repo at
-`$SYNAPSE_HOST_DIR/vault` yourself before running `./synapse setup` (it'll
+`$SYNAPSE_HOST_DIR/vault` yourself before running `./synapse.sh setup` (it'll
 be detected and the offer skipped), or decline the template prompt and give
-`./synapse setup` your vault's git URL instead — QNAP has no host git, so it
+`./synapse.sh setup` your vault's git URL instead — QNAP has no host git, so it
 clones it for you inside the same throwaway container it uses for the
 template, as-is (history and remote intact, no detach).
 
@@ -281,7 +281,7 @@ template, as-is (history and remote intact, no detach).
 python -m pytest services/ -v
 ```
 
-The `./synapse` dispatcher and its shared helpers have their own bash test
+The `./synapse.sh` dispatcher and its shared helpers have their own bash test
 suites under `scripts/tests/` (plain bash assertions, no framework). Each is
 runnable directly:
 ```bash

@@ -1,5 +1,5 @@
 #!/bin/bash
-# synapse-mac.sh — Mac/launchd subcommands for the ./synapse dispatcher.
+# synapse-mac.sh — Mac/launchd subcommands for the ./synapse.sh dispatcher.
 # Vault clone+detach setup lives in _setup_vault (scripts/synapse-common.sh)
 # and is wired into cmd_setup_mac below via the _mac_vault_* callbacks.
 
@@ -49,7 +49,7 @@ cmd_setup_mac() {
         echo ""
         echo "No VAULT_PATH configured."
         # `|| true`: read returns non-zero at EOF (non-TTY stdin — piped, or
-        # `ssh host './synapse setup'` without -t), which under the
+        # `ssh host './synapse.sh setup'` without -t), which under the
         # entrypoint's `set -e` would abort setup rather than fall through
         # to each prompt's default.
         read -rp "Clone the synapse-vault template to set one up now? [Y/n]: " scaffold_answer || true
@@ -74,13 +74,13 @@ cmd_setup_mac() {
 
     mkdir -p "$LAUNCH_AGENTS"
     cp "$PROJECT_DIR/$PLIST_NAME" "$LAUNCH_AGENTS/$PLIST_NAME"
-    # A prior `./synapse stop --persist` marks the job disabled in launchd's
+    # A prior `./synapse.sh stop --persist` marks the job disabled in launchd's
     # per-user override db, independent of the plist file. Plain `load`
     # fails silently against a disabled job, so clear that first.
     launchctl enable "gui/$(id -u)/$LABEL" 2>/dev/null || true
     launchctl load -w "$LAUNCH_AGENTS/$PLIST_NAME"
 
-    echo "✅ Service installed and started. Logs: ./synapse logs"
+    echo "✅ Service installed and started. Logs: ./synapse.sh logs"
 }
 
 cmd_start_mac() {
@@ -94,14 +94,14 @@ cmd_stop_mac() {
         # load -w first to guarantee it's registered before disabling it.
         launchctl load -w "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null || true
         launchctl unload -w "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null || true
-        echo "Service stopped and disabled — won't restart on login/reboot. Re-enable with: ./synapse setup"
+        echo "Service stopped and disabled — won't restart on login/reboot. Re-enable with: ./synapse.sh setup"
     else
         if launchctl unload "$LAUNCH_AGENTS/$PLIST_NAME" 2>/dev/null; then
             echo "Service stopped."
         else
             echo "Service was not running."
         fi
-        echo "FYI: won't survive reboot/login (RunAtLoad restarts it). Use './synapse stop --persist' to disable permanently."
+        echo "FYI: won't survive reboot/login (RunAtLoad restarts it). Use './synapse.sh stop --persist' to disable permanently."
     fi
 }
 

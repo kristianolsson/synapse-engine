@@ -74,7 +74,7 @@ else
 fi
 
 # --- Regression: setup must survive non-TTY stdin. `read` returns non-zero
-# at EOF (a piped invocation, or `ssh host './synapse setup'` without -t),
+# at EOF (a piped invocation, or `ssh host './synapse.sh setup'` without -t),
 # which under the entrypoint's `set -e` aborted _setup_vault part-way —
 # after the vault had already been cloned and committed, but before the
 # caller could record VAULT_PATH. Each prompt has a usable default, so EOF
