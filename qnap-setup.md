@@ -19,15 +19,14 @@ models. Follow steps in order.
     installed and authenticated (`~/.gemini` populated) — no
     `synapse-engine` checkout needed.
   - **Steps 7-9** (E\*TRADE, Amazon Fresh, Google Calendar/Gmail): a
-    machine with its own clone of `synapse-engine`, a Python venv
-    (`python3 -m venv venv && source venv/bin/activate && pip install -r
-    requirements.txt`, same as README's Option A macOS install), and
-    README.md's [Setup](README.md#setup) section's `.env` filled in — this
-    guide doesn't recreate that first-time setup, it assumes it's already
-    done and just copies the results (`.env`, and if you use Calendar/Gmail,
-    `credentials.json`/`token.json`/`calendars.json`) onto QNAP. Steps 7-8
-    additionally need Playwright's Firefox there:
-    `playwright install --with-deps firefox`.
+    machine that's completed README.md's [Setup](README.md#setup) section —
+    dependencies installed (`python3 -m venv venv && source
+    venv/bin/activate && pip install -r requirements.txt`) and `.env`
+    filled in — this guide doesn't recreate that first-time setup, it
+    assumes it's already done and just copies the results (`.env`, and if
+    you use Calendar/Gmail, `credentials.json`/`token.json`/
+    `calendars.json`) onto QNAP. Steps 7-8 additionally need Playwright's
+    Firefox there: `playwright install --with-deps firefox`.
 
 ## 0. Choose your host directory and export it
 

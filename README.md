@@ -127,6 +127,14 @@ When interacting with the bot via Telegram, the following commands are available
     -   A dedicated Gmail account for ingestion (with App Password).
     -   (Recommended) A Telegram bot token from [@BotFather](https://t.me/BotFather).
 
+    **Install dependencies** (needed for the Google API Setup commands
+    below, and for E\*TRADE/Amazon Fresh if you use those):
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
 2.  **Configure:**
     Copy `.env.example` to `.env` and fill in your credentials:
     ```bash
@@ -184,12 +192,9 @@ There are two supported ways to run Synapse Engine as a long-lived service.
 
 Best for running on a personal Mac. Runs the service in the background via a `launchd` agent.
 
-1.  **Create a virtualenv and install dependencies** (one-time):
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
+1.  **Dependencies already installed?** If you haven't done the "Install
+    dependencies" step under [Setup](#setup) yet, do that first — same
+    `venv`/`pip install -r requirements.txt` commands either way.
 
 2.  **Set up and start:**
     ```bash
