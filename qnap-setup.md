@@ -267,9 +267,13 @@ docker compose logs --tail=100
 
 **Claude:** Send `/update-claude-auth` to the bot in Telegram. It replies with an OAuth URL; open it, sign in, and reply with the code it gives you — the bot finishes the login and writes credentials straight to `$SYNAPSE_HOST_DIR/credentials/claude/` (no SSH needed). Falls back to re-running step 5 manually if the bot itself is down or unreachable.
 
-**Gemini:** Re-auth locally, re-run scp from step 6, then `./synapse.sh restart`.
+**Gemini:** Re-auth locally, re-run scp from step 6, then send `/update` via
+Telegram — it restarts the bot even when there's no new code to pull, so it
+works here too and needs no SSH. (`./synapse.sh restart` over SSH does the
+same thing if the bot itself is unreachable.)
 
-**Google (Calendar + Gmail):** Re-auth locally, then copy the fresh token to QNAP and restart:
+**Google (Calendar + Gmail):** Re-auth locally, then copy the fresh token to
+QNAP and send `/update` via Telegram to restart:
 ```bash
 # Locally — delete old token to force re-auth
 rm ~/Documents/code/synapse-engine/token.json
@@ -278,7 +282,6 @@ python -m services.ingestion.tools.setup_google
 # Copy fresh token to QNAP
 scp ~/Documents/code/synapse-engine/token.json \
     admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/synapse-engine/
-
-# On QNAP
-./synapse.sh restart
 ```
+Then send `/update` via Telegram (or SSH in and run `./synapse.sh restart`
+if the bot itself is unreachable).
