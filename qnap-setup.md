@@ -124,6 +124,8 @@ cp "$SYNAPSE_HOST_DIR"/synapse-engine/.env.compose.example "$SYNAPSE_HOST_DIR"/s
 sed -i "s|SYNAPSE_HOST_DIR=.*|SYNAPSE_HOST_DIR=$SYNAPSE_HOST_DIR|" "$SYNAPSE_HOST_DIR"/synapse-engine/.env
 # Optionally set GIT_USER_NAME / GIT_USER_EMAIL in that same file if you
 # want commits to your vault authored as you instead of the default bot identity.
+# Optionally set TZ too (e.g. TZ=America/Los_Angeles) — defaults to UTC,
+# which affects log timestamps and reminder scheduling.
 ```
 
 ## 5. Set up Claude credentials

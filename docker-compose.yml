@@ -8,7 +8,7 @@ services:
     restart: always
     env_file: ${SYNAPSE_HOST_DIR:?Set SYNAPSE_HOST_DIR in a .env file next to this compose file — see .env.compose.example}/.env
     environment:
-      - TZ=America/Los_Angeles
+      - TZ=${TZ:-UTC}
     volumes:
       - ${SYNAPSE_HOST_DIR}/vault:/app/vault
       - ${SYNAPSE_HOST_DIR}/synapse-engine:/app/synapse-engine
