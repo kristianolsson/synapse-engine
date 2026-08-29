@@ -257,9 +257,14 @@ missing.)
 cd "$SYNAPSE_HOST_DIR"/synapse-engine
 ./synapse.sh update
 ```
-This pulls the latest code, rebuilds the image only if `Dockerfile` or
-`requirements.txt` changed, and restarts (if the pull found nothing new, it
-prints "Already up to date" and leaves the service running as-is).
+This pulls the latest code and rebuilds only if `Dockerfile`/
+`requirements.txt` changed *since the last build* — not just since this
+particular pull. That distinction matters because `/update` via Telegram
+runs its own independent pull against the same checkout and can advance it
+before this ever runs; comparing only against this pull's own before-sha
+used to let a needed rebuild get silently skipped in that case. If nothing
+has changed since the last build at all, it prints "Already up to date and
+already built" and leaves the service running as-is.
 
 ## Logs
 

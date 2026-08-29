@@ -179,6 +179,14 @@ cmd_setup_qnap() {
 
     echo "Building and starting containers..."
     (cd "$PROJECT_DIR" && docker compose build && docker compose up -d)
+    # Record what got built so a later `./synapse.sh update` has a correct
+    # baseline instead of defaulting to "no record, rebuild to be safe" on
+    # its very next run.
+    local current_sha
+    current_sha="$(_qnap_current_sha 2>/dev/null)"
+    if [ -n "$current_sha" ]; then
+        printf '%s' "$current_sha" > "$(_qnap_last_built_sha_file)"
+    fi
     echo "✅ Started. Logs: ./synapse.sh logs"
 }
 
@@ -355,6 +363,43 @@ _qnap_vault_push() {
         "GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git push -u origin HEAD"
 }
 
+
+# Host-side marker recording the git sha that was last actually built into
+# the image. Deliberately NOT compared against QNAP_PULL_BEFORE_SHA — that
+# reflects only what THIS pull moved, and Telegram's /update runs its own
+# independent `git pull` + restart (no rebuild) against the same
+# bind-mounted checkout, which can advance the repo before this ever runs.
+# Comparing to the last *built* sha instead of the last *pulled-here* sha
+# is what makes the rebuild check correct regardless of which mechanism
+# pulled the code — a plain "did this pull find anything new" check used
+# to silently skip a needed rebuild if /update had already pulled past it.
+_qnap_last_built_sha_file() {
+    printf '%s' "$SYNAPSE_HOST_DIR/.last_built_sha"
+}
+
+# Reads PROJECT_DIR's current HEAD sha via a throwaway container (host has
+# no git) — used both to check and to record the last-built marker.
+_qnap_current_sha() {
+    local output rc=0
+    output="$(docker run --rm --entrypoint sh \
+        -v "$PROJECT_DIR:$PROJECT_DIR" \
+        alpine/git \
+        -c "git config --global --add safe.directory '$PROJECT_DIR' && cd '$PROJECT_DIR' && echo \"SYNAPSE_SHA=\$(git rev-parse HEAD)\"")" || rc=$?
+    chown -R synapse "$PROJECT_DIR" 2>/dev/null
+    [ "$rc" -eq 0 ] || return "$rc"
+    printf '%s\n' "$output" | sed -n 's/^SYNAPSE_SHA=//p'
+}
+
+# Whether Dockerfile/requirements.txt changed between two commits of
+# PROJECT_DIR's own history, via a throwaway container (host has no git).
+_qnap_needs_rebuild_since() {
+    local since_sha="$1" until_sha="$2"
+    docker run --rm --entrypoint sh \
+        -v "$PROJECT_DIR:$PROJECT_DIR" \
+        alpine/git \
+        -c "git config --global --add safe.directory '$PROJECT_DIR' && cd '$PROJECT_DIR' && git diff --name-only '$since_sha' '$until_sha' | grep -qE $(_shell_quote "$_REBUILD_TRIGGER_REGEX")"
+}
+
 cmd_update_qnap() {
     echo "Pulling latest code..."
     if ! _qnap_git_pull; then
@@ -362,17 +407,35 @@ cmd_update_qnap() {
         return 1
     fi
 
-    if [[ "$QNAP_PULL_BEFORE_SHA" == "$QNAP_PULL_AFTER_SHA" ]]; then
-        echo "Already up to date."
+    local last_built_sha_file last_built_sha=""
+    last_built_sha_file="$(_qnap_last_built_sha_file)"
+    [ -f "$last_built_sha_file" ] && last_built_sha="$(cat "$last_built_sha_file")"
+
+    if [[ -n "$last_built_sha" && "$last_built_sha" == "$QNAP_PULL_AFTER_SHA" ]]; then
+        echo "Already up to date and already built (possibly by an earlier /update via Telegram)."
         return
     fi
 
-    if [[ "$QNAP_REBUILD_NEEDED" == "1" ]]; then
-        echo "Dockerfile or requirements.txt changed — rebuilding image..."
-        (cd "$PROJECT_DIR" && docker compose build)
-    else
-        echo "Code-only change — no rebuild needed."
+    local needs_rebuild=0
+    if [ -z "$last_built_sha" ]; then
+        # No record of a prior build (fresh marker, or first run after this
+        # feature shipped) — rebuild once to establish a correct baseline.
+        needs_rebuild=1
+    elif _qnap_needs_rebuild_since "$last_built_sha" "$QNAP_PULL_AFTER_SHA"; then
+        needs_rebuild=1
     fi
+
+    if [ "$needs_rebuild" = "1" ]; then
+        echo "Dockerfile or requirements.txt changed since the last build — rebuilding image..."
+        if ! (cd "$PROJECT_DIR" && docker compose build); then
+            echo "❌ Build failed." >&2
+            return 1
+        fi
+    else
+        echo "Code-only change since the last build — no rebuild needed."
+    fi
+
+    printf '%s' "$QNAP_PULL_AFTER_SHA" > "$last_built_sha_file"
 
     echo "Restarting..."
     (cd "$PROJECT_DIR" && docker compose down && docker compose up -d && docker compose logs --tail=20)

@@ -299,5 +299,107 @@ assert_eq "blank/EOF answers complete without error" "COMPLETED" "$GIT_BLANK_RES
 assert_eq "blank/EOF answers leave GIT_USER_NAME unset" "" "$(_env_var "$GIT_ENV_BLANK" GIT_USER_NAME)"
 assert_eq "blank/EOF answers leave GIT_USER_EMAIL unset" "" "$(_env_var "$GIT_ENV_BLANK" GIT_USER_EMAIL)"
 
+# --- _qnap_last_built_sha_file ---
+assert_eq "_qnap_last_built_sha_file lives under SYNAPSE_HOST_DIR" \
+    "$SYNAPSE_HOST_DIR/.last_built_sha" "$(_qnap_last_built_sha_file)"
+
+# --- _qnap_current_sha ---
+# Parses the labeled SYNAPSE_SHA= line out of the container's output,
+# same robust pattern _qnap_git_pull uses (not raw stdout — chown could
+# print a stray warning line into it otherwise).
+docker() {
+    echo "SYNAPSE_SHA=deadbeef1234"
+    return 0
+}
+chown() { return 0; }
+assert_eq "_qnap_current_sha parses the labeled sha line" "deadbeef1234" "$(_qnap_current_sha)"
+unset -f docker chown
+
+# --- _qnap_needs_rebuild_since ---
+# Return status passes straight through from the container's grep -qE —
+# verify both directions and that since/until shas land in the script.
+CAPTURE_REBUILD_CHECK="$TMP/captured_rebuild_check"
+docker() {
+    local prev="" a
+    for a in "$@"; do
+        [ "$prev" = "-c" ] && printf '%s' "$a" > "$CAPTURE_REBUILD_CHECK"
+        prev="$a"
+    done
+    return 1  # simulate: rebuild-trigger files did NOT change
+}
+if _qnap_needs_rebuild_since "sha1" "sha2"; then
+    assert_eq "_qnap_needs_rebuild_since reflects grep miss as false" "false" "true"
+else
+    assert_eq "_qnap_needs_rebuild_since reflects grep miss as false" "false" "false"
+fi
+assert_contains "container script diffs the given since/until shas" \
+    "$(cat "$CAPTURE_REBUILD_CHECK")" "git diff --name-only 'sha1' 'sha2'"
+assert_contains "container script greps with the shared rebuild-trigger regex" \
+    "$(cat "$CAPTURE_REBUILD_CHECK")" "grep -qE '^(Dockerfile|requirements\.txt)\$'"
+
+docker() { return 0; }  # simulate: rebuild-trigger files DID change
+if _qnap_needs_rebuild_since "sha1" "sha2"; then
+    assert_eq "_qnap_needs_rebuild_since reflects grep hit as true" "true" "true"
+else
+    assert_eq "_qnap_needs_rebuild_since reflects grep hit as true" "true" "false"
+fi
+unset -f docker
+
+# --- cmd_update_qnap: marker-based rebuild detection ---
+# The actual bug this fixes: comparing against the last *built* sha,
+# not this pull's before-sha, so a prior /update-via-Telegram pull
+# (independent of this invocation) can't cause a needed rebuild to be
+# silently skipped.
+UPDATE_HOST_DIR="$TMP/update_host_dir"
+UPDATE_PROJECT_DIR="$TMP/update_project_dir"
+mkdir -p "$UPDATE_HOST_DIR" "$UPDATE_PROJECT_DIR"
+
+_run_update_scenario() {
+    local after_sha="$1" marker_content="$2" needs_rebuild_rc="$3" docker_log="$4"
+    rm -f "$UPDATE_HOST_DIR/.last_built_sha"
+    [ -n "$marker_content" ] && printf '%s' "$marker_content" > "$UPDATE_HOST_DIR/.last_built_sha"
+    : > "$docker_log"
+    (
+        SYNAPSE_HOST_DIR="$UPDATE_HOST_DIR"
+        PROJECT_DIR="$UPDATE_PROJECT_DIR"
+        _qnap_git_pull() { QNAP_PULL_BEFORE_SHA="irrelevant"; QNAP_PULL_AFTER_SHA="$after_sha"; return 0; }
+        _qnap_needs_rebuild_since() { return "$needs_rebuild_rc"; }
+        docker() { echo "$*" >> "$docker_log"; return 0; }
+        cmd_update_qnap > /dev/null 2>&1
+    )
+}
+
+# Marker already matches the pulled sha (this is the exact scenario from
+# the bug report: /update via Telegram already pulled+built nothing new
+# from here, this call has nothing to do) — no build, no restart.
+LOG1="$TMP/docker_log_1"
+_run_update_scenario "sha_after" "sha_after" 1 "$LOG1"
+assert_eq "marker matches pulled sha: no docker compose calls at all" "true" \
+    "$([ ! -s "$LOG1" ] && echo true || echo false)"
+
+# Marker missing entirely: rebuilds unconditionally and records the marker.
+LOG2="$TMP/docker_log_2"
+_run_update_scenario "sha_after" "" 1 "$LOG2"
+assert_contains "missing marker: rebuild runs" "$(cat "$LOG2")" "compose build"
+assert_contains "missing marker: restart runs" "$(cat "$LOG2")" "compose down"
+assert_eq "missing marker: sha recorded after" "sha_after" "$(cat "$UPDATE_HOST_DIR/.last_built_sha")"
+
+# Marker present and differs, but Dockerfile/requirements.txt didn't
+# change since it (needs_rebuild_rc=1, i.e. grep found nothing): restarts
+# without rebuilding, still records the new marker.
+LOG3="$TMP/docker_log_3"
+_run_update_scenario "sha_after" "sha_before" 1 "$LOG3"
+assert_eq "code-only change: no rebuild" "true" "$(grep -q "compose build" "$LOG3" && echo false || echo true)"
+assert_contains "code-only change: restart still runs" "$(cat "$LOG3")" "compose down"
+assert_eq "code-only change: sha recorded after" "sha_after" "$(cat "$UPDATE_HOST_DIR/.last_built_sha")"
+
+# Marker present and differs, and Dockerfile/requirements.txt DID change
+# since it (needs_rebuild_rc=0, i.e. grep found a match): rebuilds.
+LOG4="$TMP/docker_log_4"
+_run_update_scenario "sha_after" "sha_before" 0 "$LOG4"
+assert_contains "Dockerfile/requirements.txt changed since last build: rebuild runs" "$(cat "$LOG4")" "compose build"
+assert_contains "Dockerfile/requirements.txt changed since last build: restart runs" "$(cat "$LOG4")" "compose down"
+assert_eq "rebuild case: sha recorded after" "sha_after" "$(cat "$UPDATE_HOST_DIR/.last_built_sha")"
+
 test_summary
 exit $?
