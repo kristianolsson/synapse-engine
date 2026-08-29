@@ -20,6 +20,15 @@ PROVIDER_REGISTRY: dict = {
     "agy": AgyProvider,
 }
 
+# 'echo' is a test stub, intentionally left out of user-facing provider lists.
+_HIDDEN_PROVIDERS = {"echo"}
+
+
+def user_visible_provider_names() -> list[str]:
+    """Provider names to show in /provider help and error text, derived from
+    PROVIDER_REGISTRY so they can't drift from the actual valid set."""
+    return sorted(name for name in PROVIDER_REGISTRY if name not in _HIDDEN_PROVIDERS)
+
 
 def get_provider(provider_name: Optional[str] = None) -> AIProvider:
     """

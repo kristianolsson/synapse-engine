@@ -144,7 +144,7 @@ class TestProcessEmail:
         mock_config.ALLOWED_SENDERS = ["allowed@example.com"]
         raw = _make_simple_email(from_addr="hacker@evil.com")
         sm = MagicMock(spec=SessionManager)
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
         assert should_reply is False
         assert stats is None
         mock_pipe.assert_not_called()
@@ -156,7 +156,7 @@ class TestProcessEmail:
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=False, output="", session_id="", stats=None)
         raw = _make_simple_email(from_addr="user@example.com", body="Buy milk")
         sm = MagicMock(spec=SessionManager)
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
         assert should_reply is False
         assert text == ""
         assert stats is None
@@ -190,7 +190,7 @@ class TestProcessEmail:
         mock_pipe.return_value = MagicMock(is_error=False, requires_reply=True, output="Repo is locked", session_id="", stats={"models": {}})
         raw = _make_simple_email(from_addr="user@example.com", body="Add todo")
         sm = MagicMock(spec=SessionManager)
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
         assert should_reply is True
         assert "Repo is locked" in text
         assert stats is not None
@@ -205,7 +205,7 @@ class TestProcessEmail:
         raw = _make_simple_email(from_addr="user@example.com", subject="DONE:abc12345", body="Buy groceries")
         sm = MagicMock(spec=SessionManager)
         
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
         
         assert should_reply is False
         assert mock_pipe.call_count == 1
@@ -226,7 +226,7 @@ class TestProcessEmail:
         raw = _make_simple_email(from_addr="user@example.com", subject=f"UNDO:{task_hash}", body=body_with_history)
         sm = MagicMock(spec=SessionManager)
         
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
         
         assert should_reply is False
         assert mock_pipe.call_count == 1
@@ -251,7 +251,7 @@ class TestProcessEmail:
         raw = _make_simple_email(from_addr="user@example.com", subject="DONE:deadbeef", body=body)
         sm = MagicMock(spec=SessionManager)
 
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
 
         assert should_reply is False
         args = mock_pipe.call_args[0]
@@ -271,7 +271,7 @@ class TestProcessEmail:
         raw = _make_simple_email(from_addr="user@example.com", subject="DONE:deadbeef", body="Buy milk")
         sm = MagicMock(spec=SessionManager)
 
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
 
         assert should_reply is True
         assert text == "Which task did you mean?"
@@ -284,7 +284,7 @@ class TestProviderCommand:
         raw = _make_simple_email(from_addr="user@example.com", body="/provider agy")
         sm = MagicMock(spec=SessionManager)
 
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
 
         mock_config.set_ai_provider.assert_called_once_with("agy")
         assert should_reply is True
@@ -296,7 +296,7 @@ class TestProviderCommand:
         raw = _make_simple_email(from_addr="user@example.com", body="/provider bogus")
         sm = MagicMock(spec=SessionManager)
 
-        should_reply, text, stats = process_email(raw, sm)
+        should_reply, text, stats, _session = process_email(raw, sm)
 
         mock_config.set_ai_provider.assert_not_called()
         assert "Unknown provider" in text
@@ -357,7 +357,7 @@ class TestEmailReplyLogic:
         listener.client.search.return_value = []  # No more UNSEEN after processing
 
         # Mock process result (needs reply)
-        mock_process.return_value = (True, "Error details", None)
+        mock_process.return_value = (True, "Error details", None, None)
 
         # Run
         listener._fetch_and_process([123])
@@ -388,7 +388,7 @@ class TestEmailReplyLogic:
         listener.client.fetch.return_value = {123: {b"RFC822": raw_bytes}}
         listener.client.search.return_value = []  # No more UNSEEN after processing
 
-        mock_process.return_value = (True, "Details", None)
+        mock_process.return_value = (True, "Details", None, None)
 
         listener._fetch_and_process([123])
 
@@ -421,7 +421,7 @@ class TestProcessEmailEtradeAuth:
 
         raw = _make_reply_email("<abc123@synapse>", "654321")
         session_manager = MagicMock(spec=SessionManager)
-        should_reply, text, stats = process_email(raw, session_manager)
+        should_reply, text, stats, _session = process_email(raw, session_manager)
 
         mock_etrade.finish_pin_auth.assert_called_once_with(pending, "654321", "key", "secret")
         mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
@@ -441,7 +441,7 @@ class TestProcessEmailEtradeAuth:
         mock_etrade.finish_pin_auth.side_effect = RuntimeError("invalid verifier")
 
         raw = _make_reply_email("<abc123@synapse>", "wrong-code")
-        should_reply, text, stats = process_email(raw, MagicMock(spec=SessionManager))
+        should_reply, text, stats, _session = process_email(raw, MagicMock(spec=SessionManager))
 
         mock_etrade.clear_pending.assert_called_once()
         assert should_reply is True

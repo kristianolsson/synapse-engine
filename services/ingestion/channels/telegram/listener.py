@@ -33,7 +33,7 @@ from ...core import form_state
 from ...core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
 from ...core.rate_limiter import RateLimiter
 from ...core.session_manager import SessionManager, UserSession
-from ...providers import PROVIDER_REGISTRY
+from ...providers import PROVIDER_REGISTRY, user_visible_provider_names
 from ...utils.stats_formatter import append_stats_telegram
 from ...utils.html_utils import sanitize_telegram_html
 from ...utils.task_formatter import recover_task_from_callback
@@ -287,7 +287,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
             "/update-claude-auth — Re-authenticates the Claude CLI (OAuth login).\n"
             "/update-etrade-auth — Re-authenticates ETRADE (manual OAuth PIN).\n"
-            "/provider <gemini|claude|agy> — Switches the active AI provider.\n"
+            f"/provider <{'|'.join(user_visible_provider_names())}> — Switches the active AI provider.\n"
             "/help — Shows this help message."
         )
         await safe_reply_text(message, help_text, parse_mode='Markdown')
@@ -427,10 +427,10 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
                 config.set_ai_provider(requested)
                 await message.reply_text(f"Switched to {requested} provider.")
             else:
-                await message.reply_text(f"Unknown provider: {requested}. Options: gemini, claude, agy")
+                await message.reply_text(f"Unknown provider: {requested}. Options: {', '.join(user_visible_provider_names())}")
         else:
             current = config.get_ai_provider()
-            await message.reply_text(f"Current provider: {current}. Usage: /provider <gemini|claude|agy>")
+            await message.reply_text(f"Current provider: {current}. Usage: /provider <{'|'.join(user_visible_provider_names())}>")
         return
 
     attachment_paths = await extract_attachments(update)

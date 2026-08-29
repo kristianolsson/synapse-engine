@@ -60,7 +60,7 @@ class TestEmailListenerClass(unittest.TestCase):
         mock_client.fetch.return_value = {uid: {b"RFC822": b"raw_email_bytes"}}
 
         # Mock process_email to return (should_reply=False, ...)
-        mock_process.return_value = (False, "", None)
+        mock_process.return_value = (False, "", None, None)
 
         # Mock search to return empty list (stop loop)
         mock_client.search.return_value = []
@@ -81,7 +81,7 @@ class TestEmailListenerClass(unittest.TestCase):
 
         uid = 123
         mock_client.fetch.return_value = {uid: {b"RFC822": b"raw_email_bytes"}}
-        mock_process.return_value = (True, "Reply text", None)
+        mock_process.return_value = (True, "Reply text", None, None)
         mock_client.search.return_value = []
 
         self.listener._fetch_and_process([uid])

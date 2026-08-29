@@ -22,7 +22,7 @@ from ...core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provide
 from ...core.rate_limiter import RateLimiter
 from ...tools.stocks import etrade_pin_auth
 from ...core.session_manager import SessionManager, UserSession
-from ...providers import PROVIDER_REGISTRY
+from ...providers import PROVIDER_REGISTRY, user_visible_provider_names
 
 logger = logging.getLogger(__name__)
 
@@ -135,13 +135,17 @@ def _send_reply_with_retry(**kwargs) -> bool:
 # ── Message Processing ──────────────────────────────────────────────
 
 
-def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bool, str, Optional[dict]]:
+def process_email(
+    raw_bytes: bytes, session_manager: SessionManager
+) -> tuple[bool, str, Optional[dict], Optional[UserSession]]:
     """
     Parse a raw email, validate the sender, build a prompt, and pipe it.
 
-    Returns (should_reply, reply_text, stats).
+    Returns (should_reply, reply_text, stats, session).
     - should_reply=False, reply_text="", stats=None → success (silent)
     - should_reply=True, reply_text="...", stats={...} → error/clarification to relay
+    - stats is the raw, ungated dict; pass it to send_reply along with
+      session so send_reply's own gating decides whether to show it.
     """
     msg = email.message_from_bytes(raw_bytes, policy=email.policy.default)
     sender = extract_sender(msg)
@@ -180,7 +184,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
                 original_message_id=msg.get("Message-ID", ""),
                 original_references=msg.get("References", ""),
             )
-        return False, "", None
+        return False, "", None, None
 
     body = extract_text_body(msg)
 
@@ -196,7 +200,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         if prompt_id and (in_reply_to == prompt_id or prompt_id in references.split()):
             code = body.strip().splitlines()[0].strip() if body.strip() else ""
             if not code:
-                return True, "⚠️ Could not find a verification code in that reply.", None
+                return True, "⚠️ Could not find a verification code in that reply.", None, session
             try:
                 tokens = etrade_pin_auth.finish_pin_auth(
                     pending_etrade, code, config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
@@ -208,13 +212,13 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
                 )
             except Exception as e:
                 etrade_pin_auth.clear_pending()
-                return True, f"❌ E*TRADE login failed: {e}", None
+                return True, f"❌ E*TRADE login failed: {e}", None, session
             etrade_pin_auth.clear_pending()
             try:
                 etrade_pin_auth.complete_and_maybe_retry(pending_etrade, session_manager)
             except Exception as e:
                 logger.exception("E*TRADE retry failed after successful PIN completion: %s", e)
-            return True, "✅ E*TRADE login successful.", None
+            return True, "✅ E*TRADE login successful.", None, session
 
     # --- ONE-TAP COMPLETION (MAILTO LINKS) ---
     if subject.startswith("DONE:") or subject.startswith("UNDO:"):
@@ -234,7 +238,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
             task_text = re.sub(r"\s+", " ", body).strip()
 
         if not task_text:
-            return True, "⚠️ Could not identify this task from the email payload. Please complete it manually.", None
+            return True, "⚠️ Could not identify this task from the email payload. Please complete it manually.", None, session
             
         if is_done:
             prompt = f"Mark the following task as completed: {task_text}"
@@ -257,23 +261,21 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         if result.session_id:
             session.save(result.session_id)
 
-        stats_to_return = result.stats if session.stats_enabled else None
-
         if result.is_error:
             logger.error("Task completion failed for '%s': %s", task_text, result.output)
-            return True, f"⚠️ Failed to complete task: {task_text}\n\nError: {result.output}", stats_to_return
+            return True, f"⚠️ Failed to complete task: {task_text}\n\nError: {result.output}", result.stats, session
 
         if result.requires_reply:
-            return True, result.output, stats_to_return
+            return True, result.output, result.stats, session
 
         # Success - no need to reply to a button click
-        return False, "", stats_to_return
+        return False, "", result.stats, session
 
     if body.strip() in ("/new", "/clear"):
         if session.clear():
-            return True, "Session cleared. Starting a fresh context.", None
+            return True, "Session cleared. Starting a fresh context.", None, session
         else:
-            return True, "No active session to clear.", None
+            return True, "No active session to clear.", None, session
 
     # /stats on|off command
     stripped_body = body.strip().lower()
@@ -281,7 +283,7 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         enabled = stripped_body == "/stats on"
         session.set_stats_enabled(enabled)
         label = "on" if enabled else "off"
-        return True, f"Stats display turned {label}.", None
+        return True, f"Stats display turned {label}.", None, session
 
     # /provider command
     if stripped_body.startswith("/provider"):
@@ -290,12 +292,12 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
             requested = parts[1]
             if requested in PROVIDER_REGISTRY:
                 config.set_ai_provider(requested)
-                return True, f"Switched to {requested} provider.", None
+                return True, f"Switched to {requested} provider.", None, session
             else:
-                return True, f"Unknown provider: {requested}. Options: gemini, claude, agy", None
+                return True, f"Unknown provider: {requested}. Options: {', '.join(user_visible_provider_names())}", None, session
         else:
             current = config.get_ai_provider()
-            return True, f"Current provider: {current}. Usage: /provider <gemini|claude|agy>", None
+            return True, f"Current provider: {current}. Usage: /provider <{'|'.join(user_visible_provider_names())}>", None, session
 
     attachments = extract_attachments(msg)
 
@@ -324,12 +326,10 @@ def process_email(raw_bytes: bytes, session_manager: SessionManager) -> tuple[bo
         session.save(result.session_id)
         etrade_pin_auth.backfill_session_id(session_key, result.session_id)
 
-    stats_to_return = result.stats if session.stats_enabled else None
-
     if result.requires_reply:
-        return True, result.output, stats_to_return
+        return True, result.output, result.stats, session
     else:
-        return False, "", stats_to_return
+        return False, "", result.stats, session
 
 
 # ── IMAP IDLE Loop ──────────────────────────────────────────────────
@@ -429,7 +429,7 @@ class EmailListener:
                 raw_data = self.client.fetch([uid], ["RFC822"])
                 raw_bytes = raw_data[uid][b"RFC822"]
 
-                should_reply, reply_text, stats = process_email(raw_bytes, self.session_manager)
+                should_reply, reply_text, stats, session = process_email(raw_bytes, self.session_manager)
 
                 if should_reply and reply_text:
                     raw_msg = email.message_from_bytes(
@@ -442,6 +442,7 @@ class EmailListener:
                         original_message_id=raw_msg.get("Message-ID", ""),
                         original_references=raw_msg.get("References", ""),
                         stats=stats,
+                        session=session,
                     )
 
                 # Mark as read and archive (move out of INBOX)
