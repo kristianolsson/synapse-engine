@@ -111,7 +111,7 @@ docker build -f "$SYNAPSE_HOST_DIR"/synapse-engine/Dockerfile \
 docker run -it --name claude-login-temp --entrypoint bash claude-auth-temp
 ```
 
-Inside the container: run `claude`, then `/login`. Complete OAuth on your Mac. Exit, then:
+Inside the container: run `claude`, then `/login`. Complete OAuth in a browser on any device. Exit, then:
 
 ```bash
 docker cp claude-login-temp:/home/synapse/.claude/. \
@@ -128,7 +128,7 @@ This one-off bootstrap is only needed before the main `synapse` container exists
 
 Gemini CLI and Antigravity CLI (agy) both store configuration and authentication data under `~/.gemini`.
 
-On Mac:
+On a machine where you already use these CLIs and can authenticate (e.g. a browser to complete OAuth):
 ```bash
 # Transfer Gemini OAuth credentials
 scp ~/.gemini/oauth_creds.json ~/.gemini/google_accounts.json ~/.gemini/settings.json \
@@ -144,9 +144,9 @@ for you.
 
 ## 7. Set up E*TRADE credentials (Optional)
 
-If you use the `etrade` or `options-bot` CLI tools, you must authenticate on your Mac first to bypass E*TRADE's SMS 2FA. E*TRADE recognizes the saved Playwright profile as a "trusted device" and will not prompt the headless Docker container for SMS codes.
+If you use the `etrade` or `options-bot` CLI tools, you must authenticate first on a machine where you can complete SMS 2FA in a real browser. E*TRADE recognizes the saved Playwright profile as a "trusted device" and will not prompt the headless Docker container for SMS codes.
 
-On Mac:
+On that machine:
 ```bash
 # 1. Run etrade auth locally to generate tokens and trust the browser profile
 cd ~/Documents/code/synapse-engine
@@ -161,9 +161,9 @@ Same as step 6 — `./synapse.sh setup` handles ownership.
 
 ## 8. Set up Amazon Fresh credentials (Optional)
 
-If you use the `amazon-fresh` CLI tool, authenticate on your Mac first — Amazon's 2FA and device-trust checks require a headed browser. The saved Firefox profile is then recognized as a "trusted device" in the headless Docker container.
+If you use the `amazon-fresh` CLI tool, authenticate first on a machine with a headed browser — Amazon's 2FA and device-trust checks require one. The saved Firefox profile is then recognized as a "trusted device" in the headless Docker container.
 
-On Mac:
+On that machine:
 ```bash
 # 1. Log into Amazon Fresh headed (browser opens automatically)
 cd ~/Documents/code/synapse-engine
@@ -192,7 +192,7 @@ same as steps 6 and 7.
 
 ## 9. Set up .env and config files
 
-On Mac:
+On the machine where your `synapse-engine` checkout and its `.env` live:
 ```bash
 scp ~/Documents/code/synapse-engine/.env admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/.env
 scp ~/Documents/code/synapse-engine/calendars.json \
@@ -203,7 +203,7 @@ scp ~/Documents/code/synapse-engine/calendars.json \
 
 > **Note:** `token.json` covers both Google Calendar and Gmail (single shared OAuth token).
 > If you have just added Gmail to an existing setup, delete the old `token.json` first and
-> re-run `python -m services.ingestion.tools.setup_google` on your Mac to get a token with
+> re-run `python -m services.ingestion.tools.setup_google` locally to get a token with
 > both scopes before copying it to QNAP.
 
 > **Note:** this is the *runtime* `.env` (mounted into the container at
@@ -216,7 +216,7 @@ chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 `./synapse.sh setup` in step 10 sets `VAULT_PATH`, `CLAUDE_CMD`, `AGY_CMD`,
 `SESSION_STORAGE_PATH`, and `REMINDERS_JSON_PATH` on
 `$SYNAPSE_HOST_DIR/.env` to their fixed container-internal values,
-overwriting whatever your Mac's `.env` had for them.
+overwriting whatever the copied `.env` had for them.
 
 ## 10. Set up the vault and start
 
@@ -267,11 +267,11 @@ docker compose logs --tail=100
 
 **Claude:** Send `/update-claude-auth` to the bot in Telegram. It replies with an OAuth URL; open it, sign in, and reply with the code it gives you — the bot finishes the login and writes credentials straight to `$SYNAPSE_HOST_DIR/credentials/claude/` (no SSH needed). Falls back to re-running step 5 manually if the bot itself is down or unreachable.
 
-**Gemini:** Re-auth on Mac, re-run scp from step 6, then `./synapse.sh restart`.
+**Gemini:** Re-auth locally, re-run scp from step 6, then `./synapse.sh restart`.
 
-**Google (Calendar + Gmail):** Re-auth on Mac, then copy the fresh token to QNAP and restart:
+**Google (Calendar + Gmail):** Re-auth locally, then copy the fresh token to QNAP and restart:
 ```bash
-# On Mac — delete old token to force re-auth
+# Locally — delete old token to force re-auth
 rm ~/Documents/code/synapse-engine/token.json
 python -m services.ingestion.tools.setup_google
 
