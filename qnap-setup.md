@@ -161,9 +161,6 @@ scp -r ~/.gemini/antigravity-cli \
   admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/gemini/
 ```
 
-`./synapse.sh setup` in step 10 sets ownership on `credentials/` to `synapse`
-for you.
-
 ## 7. Set up E*TRADE credentials (Optional)
 
 If you use the `etrade` or `options-bot` CLI tools, you must authenticate first on a machine where you can complete SMS 2FA in a real browser. E*TRADE recognizes the saved Playwright profile as a "trusted device" and will not prompt the headless Docker container for SMS codes.
@@ -179,8 +176,6 @@ python3 -m services.ingestion.tools.etrade_cli balance
 scp ~/.etrade_tokens admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/etrade/.etrade_tokens
 scp -r ~/.etrade_browser_profile admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/etrade/
 ```
-
-Same as step 6 — `./synapse.sh setup` handles ownership.
 
 ## 8. Set up Amazon Fresh credentials (Optional)
 
@@ -210,7 +205,6 @@ On QNAP:
 # credentials/ — ./synapse.sh setup doesn't touch it)
 chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json
 ```
-Same as steps 6 and 7 — `./synapse.sh setup` handles ownership.
 
 ## 9. Set up .env and config files
 
