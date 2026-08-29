@@ -136,5 +136,77 @@ assert_contains "container script tracks changes to \$_REBUILD_TRIGGER_REGEX" \
     "$CAPTURED_ALT" "grep -qE '^sentinel\.txt\$'"
 _REBUILD_TRIGGER_REGEX="$_ORIG_REBUILD_REGEX"
 
+# --- _ensure_qnap_runtime_env_defaults ---
+RUNTIME_ENV="$TMP/runtime.env"
+cat > "$RUNTIME_ENV" <<'EOF'
+TELEGRAM_BOT_TOKEN=abc123
+CLAUDE_CMD=/opt/homebrew/bin/claude
+EOF
+_ensure_qnap_runtime_env_defaults "$RUNTIME_ENV"
+
+assert_eq "existing unrelated key is preserved" "abc123" "$(_env_var "$RUNTIME_ENV" TELEGRAM_BOT_TOKEN)"
+assert_eq "existing CLAUDE_CMD is overridden to the container path" "/usr/local/bin/claude" "$(_env_var "$RUNTIME_ENV" CLAUDE_CMD)"
+assert_eq "VAULT_PATH set to the container mount point" "/app/vault" "$(_env_var "$RUNTIME_ENV" VAULT_PATH)"
+assert_eq "AGY_CMD set to the container path" "/home/synapse/.local/bin/agy" "$(_env_var "$RUNTIME_ENV" AGY_CMD)"
+assert_eq "SESSION_STORAGE_PATH set to the container path" "/app/data/sessions.json" "$(_env_var "$RUNTIME_ENV" SESSION_STORAGE_PATH)"
+assert_eq "REMINDERS_JSON_PATH set to the container path" "/app/vault/reminders/reminders.json" "$(_env_var "$RUNTIME_ENV" REMINDERS_JSON_PATH)"
+
+LINES_BEFORE="$(wc -l < "$RUNTIME_ENV" | tr -d ' ')"
+_ensure_qnap_runtime_env_defaults "$RUNTIME_ENV"
+LINES_AFTER="$(wc -l < "$RUNTIME_ENV" | tr -d ' ')"
+assert_eq "re-running adds no duplicate lines" "$LINES_BEFORE" "$LINES_AFTER"
+
+# --- _ensure_qnap_host_dirs ---
+chown() { return 1; }  # no "synapse" user on the test machine — must be fail-soft, not fatal
+_ensure_qnap_host_dirs
+for d in credentials/claude credentials/gemini credentials/etrade credentials/amazon data; do
+    assert_eq "_ensure_qnap_host_dirs creates $d" "true" "$([ -d "$SYNAPSE_HOST_DIR/$d" ] && echo true || echo false)"
+done
+unset -f chown
+
+# --- _qnap_vault_clone_own ---
+OWN_VAULT_DIR="$TMP/own_vault"
+
+# Refuses to overwrite an existing directory, without touching docker.
+mkdir -p "$TMP/own_vault_exists"
+docker() { echo "DOCKER_SHOULD_NOT_RUN"; return 0; }
+if _qnap_vault_clone_own "$TMP/own_vault_exists" "git@github.com:someone/vault.git" 2>/dev/null; then
+    assert_eq "_qnap_vault_clone_own refuses an existing directory" "refused" "did not refuse"
+else
+    assert_eq "_qnap_vault_clone_own refuses an existing directory" "refused" "refused"
+fi
+unset -f docker
+
+# Refuses to run without the SSH deploy key present, without touching docker.
+NO_KEY_HOST_DIR="$TMP/no_key_host_dir"
+mkdir -p "$NO_KEY_HOST_DIR"
+docker() { echo "DOCKER_SHOULD_NOT_RUN"; return 0; }
+if (SYNAPSE_HOST_DIR="$NO_KEY_HOST_DIR"; _qnap_vault_clone_own "$NO_KEY_HOST_DIR/vault" "git@github.com:someone/vault.git") 2>/dev/null; then
+    assert_eq "_qnap_vault_clone_own refuses without an SSH key present" "refused" "did not refuse"
+else
+    assert_eq "_qnap_vault_clone_own refuses without an SSH key present" "refused" "refused"
+fi
+unset -f docker
+
+# Builds the expected docker invocation: mounts the SSH key and clones the
+# given URL (not the template's) into the vault dir's parent, by name.
+CAPTURE_FILE_OWN="$TMP/captured_own_clone_script"
+docker() {
+    local prev="" a mount_args=""
+    for a in "$@"; do
+        [ "$prev" = "-c" ] && printf '%s' "$a" > "$CAPTURE_FILE_OWN"
+        [ "$prev" = "-v" ] && mount_args="$mount_args|$a"
+        prev="$a"
+    done
+    printf '%s' "$mount_args" >> "$TMP/captured_own_clone_mounts"
+    return 0
+}
+chown() { return 0; }
+_qnap_vault_clone_own "$OWN_VAULT_DIR" "git@github.com:someone/vault.git" > /dev/null 2>&1
+CAPTURED_OWN="$(cat "$CAPTURE_FILE_OWN")"
+assert_contains "clones the given URL, not the template's" "$CAPTURED_OWN" "git clone 'git@github.com:someone/vault.git' 'own_vault'"
+assert_contains "mounts the SSH deploy key" "$(cat "$TMP/captured_own_clone_mounts")" "$SYNAPSE_HOST_DIR/ssh/id_ed25519:/root/.ssh/id_ed25519"
+unset -f docker chown
+
 test_summary
 exit $?

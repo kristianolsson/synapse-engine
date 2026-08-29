@@ -45,11 +45,50 @@ cmd_logs_qnap() {
     (cd "$PROJECT_DIR" && docker compose logs -f)
 }
 
+# Creates the credential/data directories docker-compose.yml bind-mounts,
+# and re-chowns them to synapse — cheap and idempotent, so safe to run on
+# every setup even once real credentials/browser profiles live under them
+# (only ownership changes, never permissions or content). Covers dirs a
+# still-manual qnap-setup.md step scp's or docker-cp's into before this
+# runs, in addition to creating them fresh on a brand new host.
+_ensure_qnap_host_dirs() {
+    mkdir -p "$SYNAPSE_HOST_DIR"/credentials/claude \
+        "$SYNAPSE_HOST_DIR"/credentials/gemini \
+        "$SYNAPSE_HOST_DIR"/credentials/etrade \
+        "$SYNAPSE_HOST_DIR"/credentials/amazon \
+        "$SYNAPSE_HOST_DIR"/data
+    chown -R synapse "$SYNAPSE_HOST_DIR"/credentials "$SYNAPSE_HOST_DIR"/data \
+        || echo "⚠️  Could not chown credentials/data dirs to synapse."
+}
+
+# These five keys are fixed container-internal paths (docker-compose.yml's
+# bind mounts and the Dockerfile's install locations) — never derived from
+# anything host-specific, so there's nothing for qnap-setup.md to ask the
+# user for. Uses _set_env_var (update-in-place-or-append) rather than the
+# old doc's mix of `sed` and `echo >>`, so re-running setup can't leave
+# duplicate lines the way a second `echo >>` would have.
+_ensure_qnap_runtime_env_defaults() {
+    local env_file="$1"
+    _set_env_var "$env_file" VAULT_PATH "/app/vault"
+    _set_env_var "$env_file" CLAUDE_CMD "/usr/local/bin/claude"
+    _set_env_var "$env_file" AGY_CMD "/home/synapse/.local/bin/agy"
+    _set_env_var "$env_file" SESSION_STORAGE_PATH "/app/data/sessions.json"
+    _set_env_var "$env_file" REMINDERS_JSON_PATH "/app/vault/reminders/reminders.json"
+}
+
 cmd_setup_qnap() {
     if [ -z "$SYNAPSE_HOST_DIR" ]; then
         echo "❌ SYNAPSE_HOST_DIR not set. Run: cp .env.compose.example .env, then edit it."
         exit 1
     fi
+
+    if [ ! -f "$APP_ENV_FILE" ]; then
+        echo "❌ Runtime .env not found at $APP_ENV_FILE. Copy your app's .env there first (see qnap-setup.md), then re-run setup."
+        exit 1
+    fi
+
+    _ensure_qnap_host_dirs
+    _ensure_qnap_runtime_env_defaults "$APP_ENV_FILE"
 
     if [ ! -d "$SYNAPSE_HOST_DIR/vault" ]; then
         echo ""
@@ -65,7 +104,17 @@ cmd_setup_qnap() {
             _setup_vault "$SYNAPSE_HOST_DIR/vault" _qnap_vault_clone _qnap_vault_git _qnap_vault_push \
                 || echo "⚠️  Vault setup did not complete — continuing with container setup."
         else
-            echo "Skipping — services will have nowhere to write until a vault exists there."
+            # QNAP has no host git, so cloning your OWN existing vault repo
+            # needs the same throwaway-container dance as the template
+            # clone above — offer to do that too, instead of leaving you to
+            # work out the docker/alpine-git incantation yourself.
+            read -rp "Clone your own existing vault repo instead? Git URL (blank to skip): " own_vault_url || true
+            if [ -n "$own_vault_url" ]; then
+                _qnap_vault_clone_own "$SYNAPSE_HOST_DIR/vault" "$own_vault_url" \
+                    || echo "⚠️  Vault clone did not complete — continuing with container setup."
+            else
+                echo "Skipping — services will have nowhere to write until a vault exists there."
+            fi
         fi
     fi
 
@@ -183,6 +232,37 @@ _qnap_vault_clone() {
         alpine/git \
         -c "cd '$parent_dir' && git clone '$SYNAPSE_VAULT_TEMPLATE_URL' '$name'" || rc=$?
     chown -R synapse "$dest_dir" || echo "⚠️  Could not restore ownership of $dest_dir to synapse."
+    return $rc
+}
+
+# Clones the user's OWN existing vault repo — unlike _qnap_vault_clone
+# (always $SYNAPSE_VAULT_TEMPLATE_URL over public HTTPS, no auth needed),
+# an existing personal vault is likely private, so this mounts the same SSH
+# deploy key used for synapse-engine itself. Cloned as-is: history and the
+# origin remote both stay intact (no detach/recommit — it's already theirs).
+_qnap_vault_clone_own() {
+    local dest_dir="$1" url="$2"
+    if [ -e "$dest_dir" ]; then
+        echo "❌ $dest_dir already exists — refusing to overwrite. Remove it or choose a different path."
+        return 1
+    fi
+    local key_path="$SYNAPSE_HOST_DIR/ssh/id_ed25519"
+    if [ ! -f "$key_path" ]; then
+        echo "⚠️  SSH deploy key not found at $key_path — cannot clone a private repo. If your vault is public, use an https:// URL; otherwise set up the key first (qnap-setup.md step 3)."
+        return 1
+    fi
+    local parent_dir name rc=0
+    parent_dir="$(dirname "$dest_dir")"
+    name="$(basename "$dest_dir")"
+    docker run --rm --entrypoint sh \
+        -v "$parent_dir:$parent_dir" \
+        -v "$key_path:/root/.ssh/id_ed25519" \
+        alpine/git \
+        -c "chmod 600 /root/.ssh/id_ed25519 && cd '$parent_dir' && GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git clone '$url' '$name'" || rc=$?
+    chown -R synapse "$dest_dir" || echo "⚠️  Could not restore ownership of $dest_dir to synapse."
+    if [ "$rc" -eq 0 ]; then
+        echo "✅ Vault cloned from $url into $dest_dir."
+    fi
     return $rc
 }
 

@@ -264,11 +264,15 @@ found, offer to clone the public
 [synapse-vault](https://github.com/kristianolsson/synapse-vault) template —
 a generic, personal-data-free starter vault — and detach it into your own
 independent local git repo (its own git history, no ties back to the
-template) before continuing setup. You can decline: on Mac, point `VAULT_PATH`
-at an existing vault instead; on QNAP, `VAULT_PATH` is fixed by
-`docker-compose.yml`'s bind mount, so place an existing vault repo at
-`$SYNAPSE_HOST_DIR/vault` before running `./synapse setup` and it'll be
-detected and the clone offer skipped.
+template) before continuing setup. You can decline and use an existing vault
+instead: on Mac, just point `VAULT_PATH` at it directly (Mac has git, so
+there's nothing to script). On QNAP, `VAULT_PATH` is fixed by
+`docker-compose.yml`'s bind mount, so either place an existing vault repo at
+`$SYNAPSE_HOST_DIR/vault` yourself before running `./synapse setup` (it'll
+be detected and the offer skipped), or decline the template prompt and give
+`./synapse setup` your vault's git URL instead — QNAP has no host git, so it
+clones it for you inside the same throwaway container it uses for the
+template, as-is (history and remote intact, no detach).
 
 ## Development
 
