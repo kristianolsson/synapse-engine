@@ -99,7 +99,9 @@ _qnap_git_pull() {
         return 1
     fi
 
-    local pull_output
+    # Mount $SYNAPSE_HOST_DIR at its absolute path (in prod, $PROJECT_DIR is
+    # always a subdirectory of $SYNAPSE_HOST_DIR, e.g. $SYNAPSE_HOST_DIR/synapse-engine).
+    local pull_output rc=0
     pull_output="$(docker run --rm --entrypoint sh \
         -v "$SYNAPSE_HOST_DIR:$SYNAPSE_HOST_DIR" \
         -v "$key_path:/root/.ssh/id_ed25519" \
@@ -116,9 +118,14 @@ _qnap_git_pull() {
                 echo SYNAPSE_REBUILD_NEEDED=1; \
             else \
                 echo SYNAPSE_REBUILD_NEEDED=0; \
-            fi")"
+            fi")" || rc=$?
 
     chown -R synapse "$PROJECT_DIR" || echo "⚠️  Could not restore ownership of $PROJECT_DIR to synapse."
+
+    if [ "$rc" -ne 0 ]; then
+        echo "⚠️  git pull failed inside the container (exit $rc)." >&2
+        return "$rc"
+    fi
 
     QNAP_PULL_BEFORE_SHA="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_BEFORE_SHA=//p')"
     QNAP_PULL_AFTER_SHA="$(printf '%s\n' "$pull_output" | sed -n 's/^SYNAPSE_AFTER_SHA=//p')"
@@ -127,7 +134,10 @@ _qnap_git_pull() {
 
 cmd_update_qnap() {
     echo "Pulling latest code..."
-    _qnap_git_pull
+    if ! _qnap_git_pull; then
+        echo "❌ Update failed — could not pull latest code." >&2
+        return 1
+    fi
 
     if [[ "$QNAP_PULL_BEFORE_SHA" == "$QNAP_PULL_AFTER_SHA" ]]; then
         echo "Already up to date."
