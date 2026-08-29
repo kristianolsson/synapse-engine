@@ -277,6 +277,16 @@ detected and the clone offer skipped.
 python -m pytest services/ -v
 ```
 
+The `./synapse` dispatcher and its shared helpers have their own bash test
+suites under `scripts/tests/` (plain bash assertions, no framework). Each is
+runnable directly:
+```bash
+bash scripts/tests/test_synapse_common.sh   # env-file + detection helpers
+bash scripts/tests/test_synapse_mac.sh      # launchd plist generation
+bash scripts/tests/test_synapse_qnap.sh     # host-dir resolution, rebuild trigger
+bash scripts/tests/test_vault_setup.sh      # vault clone/detach flow
+```
+
 **Manual Run:**
 ```bash
 python -m services.ingestion.main

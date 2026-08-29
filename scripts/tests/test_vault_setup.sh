@@ -73,6 +73,59 @@ else
     assert_eq "_setup_vault refuses an existing directory" "refused" "refused"
 fi
 
+# --- Regression: setup must survive non-TTY stdin. `read` returns non-zero
+# at EOF (a piped invocation, or `ssh host './synapse setup'` without -t),
+# which under the entrypoint's `set -e` aborted _setup_vault part-way —
+# after the vault had already been cloned and committed, but before the
+# caller could record VAULT_PATH. Each prompt has a usable default, so EOF
+# must simply take it. The subshell reproduces the entrypoint's `set -e`;
+# the trailing echo only runs if the function returned normally. ---
+NONINTERACTIVE_RESULT="$(
+    set -e
+    _setup_vault "$TMP/vault_noninteractive" _mac_vault_clone _mac_vault_git _mac_vault_push \
+        < /dev/null > /dev/null 2>&1
+    echo "COMPLETED"
+)"
+assert_eq "_setup_vault completes under set -e with non-TTY stdin" "COMPLETED" "$NONINTERACTIVE_RESULT"
+assert_eq "non-interactive run still produced a committed vault" "1" \
+    "$(git -C "$TMP/vault_noninteractive" log --oneline 2>/dev/null | wc -l | tr -d ' ')"
+
+# --- Regression: a failing template setup.sh must warn, not abort. An
+# un-personalized but committed vault beats a half-set-up one, and the
+# unchecked `(cd ... && ./setup.sh)` used to kill the whole run under
+# `set -e` before the vault was ever committed. ---
+FAKE_TEMPLATE_BAD="$TMP/fake-synapse-vault-badsetup"
+mkdir -p "$FAKE_TEMPLATE_BAD"
+(
+    cd "$FAKE_TEMPLATE_BAD"
+    git init -q
+    git config user.email test@example.com
+    git config user.name Test
+    echo "# fake template" > README.md
+    cat > setup.sh <<'EOF'
+#!/bin/bash
+echo "boom" >&2
+exit 1
+EOF
+    chmod +x setup.sh
+    git add -A
+    git commit -q -m "template initial commit"
+)
+
+BAD_VAULT="$TMP/vault_badsetup"
+SYNAPSE_VAULT_TEMPLATE_URL="$FAKE_TEMPLATE_BAD"
+BAD_OUTPUT="$(
+    set -e
+    _setup_vault "$BAD_VAULT" _mac_vault_clone _mac_vault_git _mac_vault_push < /dev/null 2>&1
+    echo "COMPLETED"
+)"
+SYNAPSE_VAULT_TEMPLATE_URL="$FAKE_TEMPLATE"
+
+assert_contains "a failing setup.sh produces a clear warning" "$BAD_OUTPUT" "setup.sh failed"
+assert_contains "a failing setup.sh does not abort _setup_vault" "$BAD_OUTPUT" "COMPLETED"
+assert_eq "vault is still committed after a failed setup.sh" "1" \
+    "$(git -C "$BAD_VAULT" log --oneline 2>/dev/null | wc -l | tr -d ' ')"
+
 # --- Regression: _qnap_vault_git must preserve argument boundaries.
 # The original code built the container's command string with `"$*"`,
 # which flattens all positional args into one space-joined string —

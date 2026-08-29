@@ -19,9 +19,17 @@ detect_target() {
 # QNAP has two separate env files (the compose .env and the app-runtime
 # .env), so there is no single "the" env file to default to.
 # Uses awk to safely handle keys/values with regex metacharacters.
+# A single matched pair of surrounding quotes is stripped, matching both
+# what `docker compose`'s own dotenv parser does with KEY="value" and what
+# the old `set -a; source .env` approach did — without it, a quoted
+# SYNAPSE_HOST_DIR would come back with literal quotes in the path.
 _env_var() {
-    local file="$1" key="$2"
-    awk -v k="$key" 'BEGIN{FS="="} $1 == k {print substr($0, length($1) + 2); exit}' "$file" 2>/dev/null || true
+    local file="$1" key="$2" value
+    value="$(awk -v k="$key" 'BEGIN{FS="="} $1 == k {print substr($0, length($1) + 2); exit}' "$file" 2>/dev/null || true)"
+    if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then
+        value="${value:1:${#value}-2}"
+    fi
+    printf '%s\n' "$value"
 }
 
 # Updates KEY=value in-place if present, else appends it.
@@ -34,16 +42,21 @@ _set_env_var() {
         return
     fi
 
-    # Use awk to update in place or append
+    # Use awk to update in place or append. On a match the WHOLE line is
+    # replaced with "key=value": field-based reassignment ($2 = v with
+    # FS/OFS "=") would only replace the first "="-delimited field and
+    # re-join the rest, corrupting any value that itself contains "="
+    # (TOKEN=abc=def would keep a stray "=def" tail). Rebuilding $0
+    # directly also avoids sub()'s special treatment of "&" in the
+    # replacement text.
     local temp_file=$(mktemp)
     awk -v k="$key" -v v="$value" '
     BEGIN {
         FS = "="
-        OFS = "="
         found = 0
     }
     $1 == k {
-        $2 = v
+        $0 = k "=" v
         found = 1
     }
     {
@@ -111,7 +124,10 @@ _setup_vault() {
         || { echo "⚠️  git init failed — vault left un-versioned at $vault_dir. Continuing."; return 0; }
 
     if [ -x "$vault_dir/setup.sh" ]; then
-        (cd "$vault_dir" && ./setup.sh)
+        # Fail-soft: a failed personalization still leaves a usable vault,
+        # and committing it is better than aborting with a half-set-up one.
+        (cd "$vault_dir" && ./setup.sh) \
+            || echo "⚠️  The template's setup.sh failed — the vault is still usable but not personalized."
     fi
 
     "$git_fn" "$vault_dir" add -A
@@ -119,7 +135,11 @@ _setup_vault() {
         || { echo "⚠️  Initial commit failed (is git user.name/user.email configured?) — vault left un-versioned at $vault_dir. Continuing."; return 0; }
     echo "✅ Vault ready at $vault_dir (independent git repo)."
 
-    read -rp "Git remote URL for this vault (blank to skip): " vault_remote
+    # `|| true`: read returns non-zero at EOF (non-TTY stdin — a piped or
+    # `ssh host './synapse setup'` invocation), which under the entrypoint's
+    # `set -e` would abort setup mid-way after the vault was already
+    # cloned and committed. Empty answer is a valid "skip" here.
+    read -rp "Git remote URL for this vault (blank to skip): " vault_remote || true
     if [ -z "$vault_remote" ]; then
         return 0
     fi
@@ -128,7 +148,7 @@ _setup_vault() {
         || { echo "⚠️  Could not add remote 'origin' — continuing without one."; return 0; }
     echo "✅ Remote 'origin' set to $vault_remote"
 
-    read -rp "Push now? [y/N]: " push_answer
+    read -rp "Push now? [y/N]: " push_answer || true
     if [[ ! "$push_answer" =~ ^[Yy] ]]; then
         echo "Skipped push — the vault has a remote configured but nothing pushed yet."
         return 0

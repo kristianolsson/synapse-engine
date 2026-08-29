@@ -62,6 +62,47 @@ assert_eq "_env_var reads key with brackets" "value2" "$(_env_var "$TMP/meta/env
 _set_env_var "$TMP/meta/env4" "KEY*STAR" "value3"
 assert_eq "_env_var reads key with asterisk" "value3" "$(_env_var "$TMP/meta/env4" "KEY*STAR")"
 
+# --- Regression: _env_var must strip a matched pair of surrounding quotes.
+# `KEY="value"` is legal in a .env and is what docker compose's own dotenv
+# parser (and the old `set -a; source .env`) unquotes. Returning the literal
+# quotes broke every downstream use of the value as a path (e.g. the -v
+# mount flags built from SYNAPSE_HOST_DIR). ---
+cat > "$TMP/env_quoted" <<'EOF'
+DQ="/share/vol/synapse"
+SQ='/share/vol/other'
+PLAIN=/share/vol/plain
+INNER=say "hi" there
+UNMATCHED_LEAD="/share/vol/oops
+UNMATCHED_TRAIL=/share/vol/oops"
+MISMATCHED="/share/vol/mixed'
+EMPTY_DQ=""
+EOF
+assert_eq "_env_var strips surrounding double quotes" "/share/vol/synapse" "$(_env_var "$TMP/env_quoted" DQ)"
+assert_eq "_env_var strips surrounding single quotes" "/share/vol/other" "$(_env_var "$TMP/env_quoted" SQ)"
+assert_eq "_env_var leaves an unquoted value alone" "/share/vol/plain" "$(_env_var "$TMP/env_quoted" PLAIN)"
+assert_eq "_env_var keeps quotes that aren't surrounding" 'say "hi" there' "$(_env_var "$TMP/env_quoted" INNER)"
+assert_eq "_env_var keeps an unmatched leading quote" '"/share/vol/oops' "$(_env_var "$TMP/env_quoted" UNMATCHED_LEAD)"
+assert_eq "_env_var keeps an unmatched trailing quote" '/share/vol/oops"' "$(_env_var "$TMP/env_quoted" UNMATCHED_TRAIL)"
+assert_eq "_env_var keeps mismatched quote characters" $'"/share/vol/mixed\'' "$(_env_var "$TMP/env_quoted" MISMATCHED)"
+assert_eq "_env_var unquotes an empty quoted value to empty" "" "$(_env_var "$TMP/env_quoted" EMPTY_DQ)"
+
+# --- Regression: _set_env_var must not corrupt values containing "=".
+# The old implementation split the whole line on every "=" (FS/OFS "=") and
+# assigned $2, which replaced only the first field and re-joined the rest —
+# updating TOKEN=abc=def== to xyz=123== produced TOKEN=xyz=123===def==. ---
+cat > "$TMP/env_eq" <<'EOF'
+TOKEN=abc=def==
+AFTER=untouched
+EOF
+assert_eq "_env_var reads a value containing =" "abc=def==" "$(_env_var "$TMP/env_eq" TOKEN)"
+_set_env_var "$TMP/env_eq" TOKEN "xyz=123=="
+assert_eq "_set_env_var replaces the whole value when the old value contained =" "xyz=123==" "$(_env_var "$TMP/env_eq" TOKEN)"
+assert_eq "_set_env_var leaves the following key intact" "untouched" "$(_env_var "$TMP/env_eq" AFTER)"
+assert_eq "_set_env_var did not grow the file" "2" "$(wc -l < "$TMP/env_eq" | tr -d ' ')"
+
+_set_env_var "$TMP/env_eq" TOKEN "no-equals-now"
+assert_eq "_set_env_var can shrink an =-containing value to one without" "no-equals-now" "$(_env_var "$TMP/env_eq" TOKEN)"
+
 # --- _detect_venv_dir ---
 mkdir -p "$TMP/proj_venv/venv/bin"
 touch "$TMP/proj_venv/venv/bin/python"

@@ -14,15 +14,19 @@ COMPOSE_ENV_FILE="$PROJECT_DIR/.env"
 SYNAPSE_HOST_DIR="$(_env_var "$COMPOSE_ENV_FILE" SYNAPSE_HOST_DIR)"
 APP_ENV_FILE="${SYNAPSE_HOST_DIR:+$SYNAPSE_HOST_DIR/.env}"
 
+# Single source of truth for "which changed files force an image rebuild".
+# Used both by _diff_needs_rebuild below (the unit-tested host-side check)
+# and, interpolated, by the container-side check embedded in _qnap_git_pull
+# — alpine/git's /bin/sh can't source this bash file, so the check has to be
+# passed in as a string, but the pattern itself is no longer duplicated.
+_REBUILD_TRIGGER_REGEX='^(Dockerfile|requirements\.txt)$'
+
 # Pure check: does this diff touch a file that requires an image rebuild?
 # Runs against whatever repo is CWD. Kept as a standalone function so it's
-# unit-testable with a real local git repo — the container-embedded copy in
-# _qnap_git_pull below duplicates this pattern as an inline string, because
-# alpine/git's shell can't source this file's bash syntax. Keep both in sync
-# if the file list changes.
+# unit-testable with a real local git repo.
 _diff_needs_rebuild() {
     local before="$1" after="$2"
-    git diff --name-only "$before" "$after" | grep -qE '^(Dockerfile|requirements\.txt)$'
+    git diff --name-only "$before" "$after" | grep -qE "$_REBUILD_TRIGGER_REGEX"
 }
 
 cmd_start_qnap() {
@@ -50,9 +54,16 @@ cmd_setup_qnap() {
     if [ ! -d "$SYNAPSE_HOST_DIR/vault" ]; then
         echo ""
         echo "No vault found at $SYNAPSE_HOST_DIR/vault."
-        read -rp "Clone the synapse-vault template there now? [Y/n]: " scaffold_answer
+        # `|| true`: read returns non-zero at EOF (non-TTY stdin — the usual
+        # `ssh qnap 'cd ... && ./synapse setup'` case), which under the
+        # entrypoint's `set -e` would abort setup instead of taking the
+        # prompt's default.
+        read -rp "Clone the synapse-vault template there now? [Y/n]: " scaffold_answer || true
         if [[ ! "$scaffold_answer" =~ ^[Nn] ]]; then
-            _setup_vault "$SYNAPSE_HOST_DIR/vault" _qnap_vault_clone _qnap_vault_git _qnap_vault_push
+            # Fail-soft, mirroring cmd_setup_mac's guarded call: a vault
+            # problem must never abort the container build/start below.
+            _setup_vault "$SYNAPSE_HOST_DIR/vault" _qnap_vault_clone _qnap_vault_git _qnap_vault_push \
+                || echo "⚠️  Vault setup did not complete — continuing with container setup."
         else
             echo "Skipping — services will have nowhere to write until a vault exists there."
         fi
@@ -102,8 +113,9 @@ _qnap_git_in_container_with_ssh() {
 # Pulls PROJECT_DIR's own git history (the synapse-engine checkout itself,
 # not the vault) and reports whether a rebuild is needed. Sets
 # QNAP_PULL_BEFORE_SHA / QNAP_PULL_AFTER_SHA / QNAP_REBUILD_NEEDED for the
-# caller. See the _diff_needs_rebuild comment above for why the rebuild
-# check is duplicated inline here instead of shared.
+# caller. The rebuild check runs inside the container (it needs the pulled
+# repo's git), but its pattern comes from $_REBUILD_TRIGGER_REGEX — see the
+# comment at the grep line for how it is quoted into the script string.
 _qnap_git_pull() {
     local key_path="$SYNAPSE_HOST_DIR/ssh/id_ed25519"
     if [ ! -f "$key_path" ]; then
@@ -113,6 +125,14 @@ _qnap_git_pull() {
 
     # Mount $SYNAPSE_HOST_DIR at its absolute path (in prod, $PROJECT_DIR is
     # always a subdirectory of $SYNAPSE_HOST_DIR, e.g. $SYNAPSE_HOST_DIR/synapse-engine).
+    #
+    # Quoting note for the grep below: the -c argument is one double-quoted
+    # bash string, so $(_shell_quote "$_REBUILD_TRIGGER_REGEX") expands at
+    # build time into the literal text '^(Dockerfile|requirements\.txt)$'
+    # — surrounding single quotes included, any embedded single quote
+    # escaped as '\''. The container's /bin/sh then re-parses that and hands
+    # grep -qE exactly one argument: ^(Dockerfile|requirements\.txt)$
+    # (single quotes keep sh from expanding the trailing $ or globbing).
     local pull_output rc=0
     pull_output="$(docker run --rm --entrypoint sh \
         -v "$SYNAPSE_HOST_DIR:$SYNAPSE_HOST_DIR" \
@@ -126,7 +146,7 @@ _qnap_git_pull() {
             AFTER=\$(git rev-parse HEAD) && \
             echo \"SYNAPSE_BEFORE_SHA=\$BEFORE\" && \
             echo \"SYNAPSE_AFTER_SHA=\$AFTER\" && \
-            if [ \"\$BEFORE\" != \"\$AFTER\" ] && git diff --name-only \"\$BEFORE\" \"\$AFTER\" | grep -qE '^(Dockerfile|requirements\.txt)\$'; then \
+            if [ \"\$BEFORE\" != \"\$AFTER\" ] && git diff --name-only \"\$BEFORE\" \"\$AFTER\" | grep -qE $(_shell_quote "$_REBUILD_TRIGGER_REGEX"); then \
                 echo SYNAPSE_REBUILD_NEEDED=1; \
             else \
                 echo SYNAPSE_REBUILD_NEEDED=0; \

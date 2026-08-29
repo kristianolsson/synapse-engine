@@ -49,9 +49,13 @@ cmd_setup_mac() {
         default_vault_dir="$(cd "$PROJECT_DIR/.." && pwd)/vault"
         echo ""
         echo "No VAULT_PATH configured."
-        read -rp "Clone the synapse-vault template to set one up now? [Y/n]: " scaffold_answer
+        # `|| true`: read returns non-zero at EOF (non-TTY stdin — piped, or
+        # `ssh host './synapse setup'` without -t), which under the
+        # entrypoint's `set -e` would abort setup rather than fall through
+        # to each prompt's default.
+        read -rp "Clone the synapse-vault template to set one up now? [Y/n]: " scaffold_answer || true
         if [[ ! "$scaffold_answer" =~ ^[Nn] ]]; then
-            read -rp "Vault path [$default_vault_dir]: " vault_dir
+            read -rp "Vault path [$default_vault_dir]: " vault_dir || true
             vault_dir="${vault_dir:-$default_vault_dir}"
             if _setup_vault "$vault_dir" _mac_vault_clone _mac_vault_git _mac_vault_push; then
                 _set_env_var "$PROJECT_DIR/.env" VAULT_PATH "$vault_dir"
