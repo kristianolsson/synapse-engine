@@ -244,3 +244,16 @@ STOCKS_OPTIONS_CONFIG_PATH = os.getenv(
     "STOCKS_OPTIONS_CONFIG_PATH",
     str(Path(VAULT_PATH) / "stocks" / "options_config.yaml")
 )
+
+# --- SmartThings ---
+SMARTTHINGS_CLIENT_ID = os.getenv("SMARTTHINGS_CLIENT_ID", "")
+SMARTTHINGS_CLIENT_SECRET = os.getenv("SMARTTHINGS_CLIENT_SECRET", "")
+SMARTTHINGS_TOKEN_PATH = os.getenv(
+    "SMARTTHINGS_TOKEN_PATH",
+    str(Path(__file__).resolve().parent.parent.parent / "smartthings_token.json")
+)
+SMARTTHINGS_DEVICE_CACHE_PATH = os.getenv(
+    "SMARTTHINGS_DEVICE_CACHE_PATH",
+    str(Path(__file__).resolve().parent.parent.parent / "smartthings_devices_cache.json")
+)
+SMARTTHINGS_DEVICE_CACHE_TTL_SECONDS = int(os.getenv("SMARTTHINGS_DEVICE_CACHE_TTL_SECONDS", "300"))
