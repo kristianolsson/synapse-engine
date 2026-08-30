@@ -47,3 +47,21 @@ class SmartThingsClient:
             if not resp.content:
                 return {}
             return resp.json()
+
+    def list_devices(self) -> list:
+        data = self._request("GET", "/devices")
+        return data.get("items", [])
+
+    def get_device_status(self, device_id: str) -> dict:
+        return self._request("GET", f"/devices/{device_id}/status")
+
+    def send_commands(self, device_id: str, commands: list) -> dict:
+        """Send device commands, split into chunks of at most
+        MAX_COMMANDS_PER_REQUEST — SmartThings' guardrail is 10 commands
+        per request."""
+        results = []
+        for i in range(0, len(commands), MAX_COMMANDS_PER_REQUEST):
+            chunk = commands[i:i + MAX_COMMANDS_PER_REQUEST]
+            result = self._request("POST", f"/devices/{device_id}/commands", {"commands": chunk})
+            results.extend(result.get("results", []))
+        return {"results": results}

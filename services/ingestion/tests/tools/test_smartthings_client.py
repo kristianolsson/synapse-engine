@@ -110,3 +110,42 @@ def test_request_returns_empty_dict_on_2xx_with_no_content():
     client = SmartThingsClient("token", session=session)
     result = client._request("GET", "/devices")
     assert result == {}
+
+
+def test_list_devices_returns_items():
+    session = _FakeSession([_FakeResponse(200, {"items": [{"deviceId": "d1", "label": "Kitchen Light"}]})])
+    client = SmartThingsClient("token", session=session)
+    devices = client.list_devices()
+    assert devices == [{"deviceId": "d1", "label": "Kitchen Light"}]
+    assert session.calls[0] == ("GET", "https://api.smartthings.com/v1/devices", None)
+
+
+def test_get_device_status_hits_correct_path():
+    session = _FakeSession([_FakeResponse(200, {"switch": {"switch": {"value": "on"}}})])
+    client = SmartThingsClient("token", session=session)
+    status = client.get_device_status("d1")
+    assert status == {"switch": {"switch": {"value": "on"}}}
+    assert session.calls[0][1] == "https://api.smartthings.com/v1/devices/d1/status"
+
+
+def test_send_commands_single_chunk_for_small_command_list():
+    session = _FakeSession([_FakeResponse(200, {"results": [{"status": "ACCEPTED"}]})])
+    client = SmartThingsClient("token", session=session)
+    result = client.send_commands("d1", [{"capability": "switch", "command": "on"}])
+
+    assert len(session.calls) == 1
+    assert session.calls[0][1] == "https://api.smartthings.com/v1/devices/d1/commands"
+    assert session.calls[0][2] == {"commands": [{"capability": "switch", "command": "on"}]}
+    assert result["results"] == [{"status": "ACCEPTED"}]
+
+
+def test_send_commands_splits_into_batches_of_ten():
+    commands = [{"capability": "switch", "command": "on"}] * 25
+    session = _FakeSession([_FakeResponse(200, {"results": []}) for _ in range(3)])
+    client = SmartThingsClient("token", session=session)
+    client.send_commands("d1", commands)
+
+    assert len(session.calls) == 3  # 10 + 10 + 5
+    assert len(session.calls[0][2]["commands"]) == 10
+    assert len(session.calls[1][2]["commands"]) == 10
+    assert len(session.calls[2][2]["commands"]) == 5
