@@ -264,10 +264,6 @@ the Devices REST API with 429 backoff-and-retry-once; `resolver.py`
 resolves a fuzzy device name to a device id via a short-TTL local cache so
 repeated resolutions don't burn API calls.
 
-There is no MCP wrapper for this integration. Unlike `tools/calendar_mcp.py`
-(unused legacy — see `CLAUDE.md`), MCP was deliberately never built here;
-every SmartThings operation goes through the CLI.
-
 ## Tests
 
 Tests live under `services/ingestion/tests/<module>/`, mirroring the source
