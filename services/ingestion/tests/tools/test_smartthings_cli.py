@@ -120,3 +120,127 @@ def test_capture_authorization_code_ignores_stray_requests_and_waits_for_real_ca
     # Verify the real callback was captured, not the stray request
     assert result["code"] == "xyz456"
     assert result["state"] == "abc789"
+
+
+# ── Tests for list-devices, get-status, set-state, and helpers ──
+
+from services.ingestion.tools.smartthings.client import SmartThingsAPIError
+
+
+class _FakeClient:
+    def __init__(self, devices=None, status=None, send_result=None, raise_on=None):
+        self._devices = devices or []
+        self._status = status or {}
+        self._send_result = send_result or {"results": []}
+        self._raise_on = raise_on  # e.g. "list_devices" to simulate an API error
+
+    def list_devices(self):
+        if self._raise_on == "list_devices":
+            raise SmartThingsAPIError("boom")
+        return self._devices
+
+    def get_device_status(self, device_id):
+        if self._raise_on == "get_device_status":
+            raise SmartThingsAPIError("boom")
+        return self._status
+
+    def send_commands(self, device_id, commands):
+        if self._raise_on == "send_commands":
+            raise SmartThingsAPIError("boom")
+        return self._send_result
+
+
+def _patch_client_and_token(monkeypatch, fake_client):
+    # Patch the name as bound in smartthings_cli's own namespace (it did
+    # `from ...client import SmartThingsClient`) — patching the source
+    # module's attribute instead would miss, since that import already
+    # copied the reference. Matches test_etrade_cli.py's convention of
+    # patching etrade_cli.ETradeAuth directly, not stocks.auth.ETradeAuth.
+    monkeypatch.setattr(smartthings_cli.auth, "get_valid_access_token", lambda *a, **kw: "AT")
+    monkeypatch.setattr(smartthings_cli, "SmartThingsClient", lambda access_token: fake_client)
+
+
+def test_cmd_list_devices_outputs_id_and_label(monkeypatch, capsys, tmp_path):
+    fake_client = _FakeClient(devices=[{"deviceId": "d1", "label": "Kitchen Light"}])
+    _patch_client_and_token(monkeypatch, fake_client)
+    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+
+    smartthings_cli.cmd_list_devices(argparse.Namespace(), env)
+
+    out = json.loads(capsys.readouterr().out)
+    assert out["devices"] == [{"id": "d1", "label": "Kitchen Light"}]
+
+
+def test_cmd_get_status_resolves_device_and_returns_status(monkeypatch, capsys, tmp_path):
+    fake_client = _FakeClient(
+        devices=[{"deviceId": "d1", "label": "Kitchen Light"}],
+        status={"switch": {"switch": {"value": "on"}}},
+    )
+    _patch_client_and_token(monkeypatch, fake_client)
+    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
+
+    smartthings_cli.cmd_get_status(argparse.Namespace(device="kitchen"), env)
+
+    out = json.loads(capsys.readouterr().out)
+    assert out["device"]["id"] == "d1"
+    assert out["status"]["switch"]["switch"]["value"] == "on"
+
+
+def test_cmd_get_status_not_found_fails_loud(monkeypatch, capsys, tmp_path):
+    fake_client = _FakeClient(devices=[{"deviceId": "d1", "label": "Kitchen Light"}])
+    _patch_client_and_token(monkeypatch, fake_client)
+    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
+
+    with pytest.raises(SystemExit):
+        smartthings_cli.cmd_get_status(argparse.Namespace(device="thermostat"), env)
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "not_found"
+
+
+def test_cmd_get_status_ambiguous_fails_loud_with_candidates(monkeypatch, capsys, tmp_path):
+    fake_client = _FakeClient(devices=[
+        {"deviceId": "d1", "label": "Kitchen Light"},
+        {"deviceId": "d2", "label": "Bedroom Light"},
+    ])
+    _patch_client_and_token(monkeypatch, fake_client)
+    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
+
+    with pytest.raises(SystemExit):
+        smartthings_cli.cmd_get_status(argparse.Namespace(device="light"), env)
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "ambiguous"
+    assert "Kitchen Light" in out["error"] and "Bedroom Light" in out["error"]
+
+
+def test_cmd_set_state_coerces_numeric_argument(monkeypatch, capsys, tmp_path):
+    fake_client = _FakeClient(
+        devices=[{"deviceId": "d1", "label": "Kitchen Light"}],
+        send_result={"results": [{"status": "ACCEPTED"}]},
+    )
+    _patch_client_and_token(monkeypatch, fake_client)
+    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
+
+    smartthings_cli.cmd_set_state(
+        argparse.Namespace(device="kitchen", capability="switchLevel", command="setLevel", args=["50"]),
+        env,
+    )
+
+    out = json.loads(capsys.readouterr().out)
+    assert out["result"]["results"] == [{"status": "ACCEPTED"}]
+
+
+def test_coerce_converts_int_float_bool_and_leaves_strings():
+    assert smartthings_cli._coerce("50") == 50
+    assert smartthings_cli._coerce("50.5") == 50.5
+    assert smartthings_cli._coerce("true") is True
+    assert smartthings_cli._coerce("false") is False
+    assert smartthings_cli._coerce("auto") == "auto"
+
+
+def _resolver_stub(fake_client, tmp_path):
+    from services.ingestion.tools.smartthings.resolver import DeviceResolver
+    return DeviceResolver(fake_client, tmp_path / "cache.json", ttl_seconds=300)

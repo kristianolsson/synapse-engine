@@ -31,6 +31,8 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from services.ingestion.tools.smartthings import auth
+from services.ingestion.tools.smartthings.client import SmartThingsClient, SmartThingsAPIError
+from services.ingestion.tools.smartthings.resolver import DeviceResolver
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -127,6 +129,80 @@ def cmd_auth(args, env: dict) -> None:
     _out({"status": "authorized", "token_path": str(env["token_path"])})
 
 
+def _get_client(env: dict) -> SmartThingsClient:
+    try:
+        token = auth.get_valid_access_token(env["token_path"], env["client_id"], env["client_secret"])
+    except auth.SmartThingsAuthError as e:
+        _err(str(e), "auth_failed")
+    return SmartThingsClient(token)
+
+
+def _get_resolver(client: SmartThingsClient, env: dict) -> DeviceResolver:
+    from services.ingestion import config as syn_config
+    return DeviceResolver(client, Path(syn_config.SMARTTHINGS_DEVICE_CACHE_PATH), syn_config.SMARTTHINGS_DEVICE_CACHE_TTL_SECONDS)
+
+
+def _resolve_one(device_name: str, client: SmartThingsClient, env: dict) -> dict:
+    resolver = _get_resolver(client, env)
+    matches = resolver.resolve(device_name)
+    if not matches:
+        _err(f"No device found matching '{device_name}'", "not_found")
+    if len(matches) > 1:
+        _err(
+            f"Multiple devices match '{device_name}': " + ", ".join(m["label"] for m in matches),
+            "ambiguous",
+        )
+    return matches[0]
+
+
+def _coerce(value: str):
+    """Best-effort turn a CLI string arg into int/float/bool for the
+    SmartThings commands payload (e.g. `setLevel 50` needs the int 50,
+    not the string "50")."""
+    if value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    return value
+
+
+def cmd_list_devices(args, env: dict) -> None:
+    client = _get_client(env)
+    try:
+        devices = client.list_devices()
+    except SmartThingsAPIError as e:
+        _err(str(e), "api_error")
+    _out({"devices": [{"id": d["deviceId"], "label": d.get("label") or d.get("name", "")} for d in devices]})
+
+
+def cmd_get_status(args, env: dict) -> None:
+    client = _get_client(env)
+    device = _resolve_one(args.device, client, env)
+    try:
+        status = client.get_device_status(device["id"])
+    except SmartThingsAPIError as e:
+        _err(str(e), "api_error")
+    _out({"device": device, "status": status})
+
+
+def cmd_set_state(args, env: dict) -> None:
+    client = _get_client(env)
+    device = _resolve_one(args.device, client, env)
+    arguments = [_coerce(a) for a in args.args]
+    command = {"capability": args.capability, "command": args.command, "arguments": arguments}
+    try:
+        result = client.send_commands(device["id"], [command])
+    except SmartThingsAPIError as e:
+        _err(str(e), "api_error")
+    _out({"device": device, "result": result})
+
+
 # ── CLI entrypoint ─────────────────────────────────────────────────────────────
 
 def main():
@@ -139,10 +215,26 @@ def main():
         help="Local callback port (must match the SmartApp's registered redirect URI)",
     )
 
+    sub.add_parser("list-devices", help="List all SmartThings devices")
+
+    p_status = sub.add_parser("get-status", help="Get a device's current status")
+    p_status.add_argument("device", help="Device name (fuzzy-matched) or exact SmartThings device id")
+
+    p_set = sub.add_parser("set-state", help="Send a command to a device")
+    p_set.add_argument("device", help="Device name (fuzzy-matched) or exact SmartThings device id")
+    p_set.add_argument("capability", help="e.g. switch, switchLevel, thermostatMode")
+    p_set.add_argument("command", help="e.g. on, off, setLevel")
+    p_set.add_argument("args", nargs="*", help="Command arguments, e.g. 50 for setLevel")
+
     args = parser.parse_args()
     env = _load_env()
 
-    dispatch = {"auth": cmd_auth}
+    dispatch = {
+        "auth": cmd_auth,
+        "list-devices": cmd_list_devices,
+        "get-status": cmd_get_status,
+        "set-state": cmd_set_state,
+    }
     try:
         dispatch[args.command](args, env)
     except SystemExit:
