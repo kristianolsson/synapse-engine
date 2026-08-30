@@ -33,7 +33,10 @@ class SmartThingsClient:
                     raise SmartThingsAPIError(
                         f"SmartThings rate limit exceeded for {method} {path} after backoff retry"
                     )
-                reset_seconds = float(resp.headers.get("X-RateLimit-Reset", "1"))
+                try:
+                    reset_seconds = float(resp.headers.get("X-RateLimit-Reset", "1"))
+                except ValueError:
+                    reset_seconds = 1.0
                 time.sleep(max(reset_seconds, 0))
                 attempts += 1
                 continue

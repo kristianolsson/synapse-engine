@@ -87,3 +87,26 @@ def test_request_raises_on_non_2xx_non_429():
     client = SmartThingsClient("token", session=session)
     with pytest.raises(SmartThingsAPIError, match="500"):
         client._request("GET", "/devices")
+
+
+def test_request_handles_malformed_rate_limit_reset_header(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr("time.sleep", lambda s: sleeps.append(s))
+
+    session = _FakeSession([
+        _FakeResponse(429, headers={"X-RateLimit-Reset": "not-a-number"}),
+        _FakeResponse(200, {"ok": True}),
+    ])
+    client = SmartThingsClient("token", session=session)
+    result = client._request("GET", "/devices")
+
+    assert result == {"ok": True}
+    assert sleeps == [1.0]  # falls back to 1.0 when parsing fails
+    assert len(session.calls) == 2
+
+
+def test_request_returns_empty_dict_on_2xx_with_no_content():
+    session = _FakeSession([_FakeResponse(200, json_body=None)])
+    client = SmartThingsClient("token", session=session)
+    result = client._request("GET", "/devices")
+    assert result == {}
