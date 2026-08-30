@@ -2,9 +2,10 @@
 schema (expires_at, not expires_in) that get_valid_access_token relies on."""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
+import requests
 
 from services.ingestion.tools.smartthings import auth
 
@@ -45,3 +46,80 @@ def test_save_token_creates_parent_directory(tmp_path):
     token_path = tmp_path / "nested" / "dir" / "smartthings_token.json"
     auth.save_token(token_path, {"access_token": "AT", "refresh_token": "RT", "expires_in": 3600})
     assert token_path.exists()
+
+
+class _FakeResponse:
+    def __init__(self, status_code, json_body=None, text=""):
+        self.status_code = status_code
+        self._json_body = json_body or {}
+        self.text = text or json.dumps(self._json_body)
+
+    def json(self):
+        return self._json_body
+
+
+def test_build_authorize_url_includes_required_params():
+    url = auth.build_authorize_url("client-123", "http://localhost:8765/callback", "state-abc")
+    assert url.startswith("https://api.smartthings.com/oauth/authorize?")
+    assert "client_id=client-123" in url
+    assert "state=state-abc" in url
+    assert "response_type=code" in url
+
+
+def test_exchange_code_success_returns_token_response(monkeypatch):
+    def fake_post(url, data, auth, timeout):
+        assert data["grant_type"] == "authorization_code"
+        assert data["code"] == "the-code"
+        return _FakeResponse(200, {"access_token": "AT", "refresh_token": "RT", "expires_in": 86400})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    result = auth.exchange_code("cid", "csecret", "http://localhost:8765/callback", "the-code")
+    assert result["access_token"] == "AT"
+
+
+def test_exchange_code_failure_raises_auth_error(monkeypatch):
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: _FakeResponse(400, text="bad request"))
+    with pytest.raises(auth.SmartThingsAuthError):
+        auth.exchange_code("cid", "csecret", "http://localhost:8765/callback", "bad-code")
+
+
+def test_get_valid_access_token_returns_cached_token_when_not_expired(tmp_path, monkeypatch):
+    token_path = tmp_path / "token.json"
+    future = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
+    token_path.write_text(json.dumps({"access_token": "AT-cached", "refresh_token": "RT", "expires_at": future}))
+
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: pytest.fail("should not refresh"))
+    assert auth.get_valid_access_token(token_path, "cid", "csecret") == "AT-cached"
+
+
+def test_get_valid_access_token_refreshes_when_expired_and_saves_rotated_token(tmp_path, monkeypatch):
+    token_path = tmp_path / "token.json"
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    token_path.write_text(json.dumps({"access_token": "AT-old", "refresh_token": "RT-old", "expires_at": past}))
+
+    def fake_post(url, data, auth, timeout):
+        assert data["grant_type"] == "refresh_token"
+        assert data["refresh_token"] == "RT-old"
+        return _FakeResponse(200, {"access_token": "AT-new", "refresh_token": "RT-new", "expires_in": 86400})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    result = auth.get_valid_access_token(token_path, "cid", "csecret")
+
+    assert result == "AT-new"
+    saved = json.loads(token_path.read_text())
+    assert saved["refresh_token"] == "RT-new"  # rotated refresh_token persisted immediately
+
+
+def test_get_valid_access_token_raises_when_no_token_exists(tmp_path):
+    with pytest.raises(auth.SmartThingsAuthError, match="run 'smartthings auth'"):
+        auth.get_valid_access_token(tmp_path / "missing.json", "cid", "csecret")
+
+
+def test_get_valid_access_token_fails_loud_on_revoked_refresh_token(tmp_path, monkeypatch):
+    token_path = tmp_path / "token.json"
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    token_path.write_text(json.dumps({"access_token": "AT-old", "refresh_token": "RT-revoked", "expires_at": past}))
+
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: _FakeResponse(400, text="invalid_grant"))
+    with pytest.raises(auth.SmartThingsAuthError, match="reauthorize"):
+        auth.get_valid_access_token(token_path, "cid", "csecret")
