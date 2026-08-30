@@ -237,10 +237,24 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             and pending_etrade.get("chat_id") == chat.id
             and pending_etrade.get("prompt_message_id") == message.reply_to_message.message_id
         ):
+            # Atomically consume the pending request before doing anything
+            # slow (network OAuth exchange, then a full options-bot replay)
+            # — if the user resent this same code, or double-tapped send,
+            # only the first claim can win. See claim_pending()'s docstring
+            # for the duplicate-run bug this prevents.
+            claimed = etrade_pin_auth.claim_pending()
+            if (
+                claimed is None
+                or claimed.get("chat_id") != chat.id
+                or claimed.get("prompt_message_id") != message.reply_to_message.message_id
+            ):
+                await message.reply_text("This E*TRADE login was already completed.")
+                return
+
             await message.reply_text("Completing E*TRADE login...")
             try:
                 tokens = etrade_pin_auth.finish_pin_auth(
-                    pending_etrade, text.strip(), config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
+                    claimed, text.strip(), config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
                 )
                 etrade_pin_auth.save_access_token(
                     tokens["access_token"],
@@ -248,10 +262,15 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
                     sandbox=config.ETRADE_MODE.lower() == "sandbox",
                 )
             except Exception as e:
-                await message.reply_text(f"❌ E*TRADE login failed: {e}")
+                # Put it back rather than discarding it — a mistyped code
+                # shouldn't cost the reminder_task/session_key correlation;
+                # a follow-up reply (to the original prompt message, not
+                # this one) with the correct code should still work.
+                etrade_pin_auth.restore_pending(claimed)
+                await message.reply_text(
+                    f"❌ E*TRADE login failed: {e}\n\nReply to the original login prompt again with the correct code."
+                )
                 return
-            finally:
-                etrade_pin_auth.clear_pending()
 
             await message.reply_text("✅ E*TRADE login successful.")
 
@@ -259,7 +278,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
                 try:
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
-                        None, etrade_pin_auth.complete_and_maybe_retry, pending_etrade, session_manager
+                        None, etrade_pin_auth.complete_and_maybe_retry, claimed, session_manager
                     )
                 except Exception as e:
                     logger.error("Error in E*TRADE retry task: %s", e)

@@ -417,15 +417,16 @@ class TestProcessEmailEtradeAuth:
         mock_config.ETRADE_MODE = "production"
         pending = {"channel": "email", "prompt_message_id": "<abc123@synapse>"}
         mock_etrade.load_pending.return_value = pending
+        mock_etrade.claim_pending.return_value = pending
         mock_etrade.finish_pin_auth.return_value = {"access_token": "AT", "access_token_secret": "AS"}
 
         raw = _make_reply_email("<abc123@synapse>", "654321")
         session_manager = MagicMock(spec=SessionManager)
         should_reply, text, stats, _session = process_email(raw, session_manager)
 
+        mock_etrade.claim_pending.assert_called_once()
         mock_etrade.finish_pin_auth.assert_called_once_with(pending, "654321", "key", "secret")
         mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
-        mock_etrade.clear_pending.assert_called_once()
         mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending, session_manager)
         mock_pipe.assert_not_called()
         assert should_reply is True
@@ -434,18 +435,44 @@ class TestProcessEmailEtradeAuth:
     @patch("services.ingestion.channels.email.listener.etrade_pin_auth")
     @patch("services.ingestion.channels.email.listener.pipe_to_provider")
     @patch("services.ingestion.channels.email.listener.config")
-    def test_finish_failure_still_clears_pending(self, mock_config, mock_pipe, mock_etrade):
+    def test_finish_failure_restores_pending_for_retry(self, mock_config, mock_pipe, mock_etrade):
         mock_config.ALLOWED_SENDERS = ["user@example.com"]
         pending = {"channel": "email", "prompt_message_id": "<abc123@synapse>"}
         mock_etrade.load_pending.return_value = pending
+        mock_etrade.claim_pending.return_value = pending
         mock_etrade.finish_pin_auth.side_effect = RuntimeError("invalid verifier")
 
         raw = _make_reply_email("<abc123@synapse>", "wrong-code")
         should_reply, text, stats, _session = process_email(raw, MagicMock(spec=SessionManager))
 
-        mock_etrade.clear_pending.assert_called_once()
+        # A mistyped code shouldn't permanently kill the pending request —
+        # it goes back so a follow-up reply with the correct code still works.
+        mock_etrade.claim_pending.assert_called_once()
+        mock_etrade.restore_pending.assert_called_once_with(pending)
         assert should_reply is True
         assert "failed" in text.lower()
+        assert "reply again" in text.lower()
+
+    @patch("services.ingestion.channels.email.listener.etrade_pin_auth")
+    @patch("services.ingestion.channels.email.listener.pipe_to_provider")
+    @patch("services.ingestion.channels.email.listener.config")
+    def test_concurrent_reply_after_claim_is_treated_as_already_completed(self, mock_config, mock_pipe, mock_etrade):
+        """If two replies race (e.g. a duplicate IMAP fetch of the same
+        message, or the user resending the code), only the first can win
+        claim_pending() — a second concurrent handler must not redo the
+        token exchange or the retry."""
+        mock_config.ALLOWED_SENDERS = ["user@example.com"]
+        pending = {"channel": "email", "prompt_message_id": "<abc123@synapse>"}
+        mock_etrade.load_pending.return_value = pending
+        mock_etrade.claim_pending.return_value = None  # already claimed elsewhere
+
+        raw = _make_reply_email("<abc123@synapse>", "654321")
+        should_reply, text, stats, _session = process_email(raw, MagicMock(spec=SessionManager))
+
+        mock_etrade.finish_pin_auth.assert_not_called()
+        mock_etrade.complete_and_maybe_retry.assert_not_called()
+        assert should_reply is True
+        assert "already completed" in text.lower()
 
     @patch("services.ingestion.channels.email.listener.etrade_pin_auth")
     @patch("services.ingestion.channels.email.listener.pipe_to_provider")

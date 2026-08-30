@@ -201,9 +201,19 @@ def process_email(
             code = body.strip().splitlines()[0].strip() if body.strip() else ""
             if not code:
                 return True, "⚠️ Could not find a verification code in that reply.", None, session
+
+            # Atomically consume the pending request before doing anything
+            # slow (network OAuth exchange, then a full options-bot replay)
+            # — if the user resent this same code, or two replies raced in,
+            # only the first claim can win. See claim_pending()'s docstring
+            # for the duplicate-run bug this prevents.
+            claimed = etrade_pin_auth.claim_pending()
+            if claimed is None or claimed.get("prompt_message_id") != prompt_id:
+                return True, "This E*TRADE login was already completed.", None, session
+
             try:
                 tokens = etrade_pin_auth.finish_pin_auth(
-                    pending_etrade, code, config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
+                    claimed, code, config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
                 )
                 etrade_pin_auth.save_access_token(
                     tokens["access_token"],
@@ -211,11 +221,13 @@ def process_email(
                     sandbox=config.ETRADE_MODE.lower() == "sandbox",
                 )
             except Exception as e:
-                etrade_pin_auth.clear_pending()
-                return True, f"❌ E*TRADE login failed: {e}", None, session
-            etrade_pin_auth.clear_pending()
+                # Put it back rather than discarding it — a mistyped code
+                # shouldn't cost the reminder_task/session_key correlation;
+                # a follow-up reply with the correct code should still work.
+                etrade_pin_auth.restore_pending(claimed)
+                return True, f"❌ E*TRADE login failed: {e}\n\nReply again with the correct code.", None, session
             try:
-                etrade_pin_auth.complete_and_maybe_retry(pending_etrade, session_manager)
+                etrade_pin_auth.complete_and_maybe_retry(claimed, session_manager)
             except Exception as e:
                 logger.exception("E*TRADE retry failed after successful PIN completion: %s", e)
             return True, "✅ E*TRADE login successful.", None, session

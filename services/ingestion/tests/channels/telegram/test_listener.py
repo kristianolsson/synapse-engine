@@ -1000,6 +1000,7 @@ class TestTelegramEtradeAuth:
         mock_config.ETRADE_MODE = "production"
         pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555, "session_key": "12345"}
         mock_etrade.load_pending.return_value = pending
+        mock_etrade.claim_pending.return_value = pending
         mock_etrade.finish_pin_auth.return_value = {"access_token": "AT", "access_token_secret": "AS"}
         rl = RateLimiter(10, 60)
         update = _make_update(text="123456")
@@ -1012,9 +1013,9 @@ class TestTelegramEtradeAuth:
         if context.background_tasks:
             await asyncio.gather(*context.background_tasks)
 
+        mock_etrade.claim_pending.assert_called_once()
         mock_etrade.finish_pin_auth.assert_called_once_with(pending, "123456", "key", "secret")
         mock_etrade.save_access_token.assert_called_once_with("AT", "AS", sandbox=False)
-        mock_etrade.clear_pending.assert_called_once()
         mock_etrade.complete_and_maybe_retry.assert_called_once_with(pending, session_manager)
         replies = [c[0][0] for c in update.message.reply_text.call_args_list]
         assert any("successful" in r.lower() for r in replies)
@@ -1036,6 +1037,7 @@ class TestTelegramEtradeAuth:
         mock_config.ETRADE_MODE = "production"
         pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}  # no session_key
         mock_etrade.load_pending.return_value = pending
+        mock_etrade.claim_pending.return_value = pending
         mock_etrade.finish_pin_auth.return_value = {"access_token": "AT", "access_token_secret": "AS"}
         rl = RateLimiter(10, 60)
         update = _make_update(text="123456")
@@ -1053,10 +1055,11 @@ class TestTelegramEtradeAuth:
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")
     @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
-    async def test_finish_failure_still_clears_pending_and_reports_error(self, mock_etrade, mock_config):
+    async def test_finish_failure_restores_pending_for_retry(self, mock_etrade, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}
         mock_etrade.load_pending.return_value = pending
+        mock_etrade.claim_pending.return_value = pending
         mock_etrade.finish_pin_auth.side_effect = RuntimeError("invalid verifier")
         rl = RateLimiter(10, 60)
         update = _make_update(text="wrong-code")
@@ -1064,9 +1067,35 @@ class TestTelegramEtradeAuth:
 
         await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
-        mock_etrade.clear_pending.assert_called_once()
+        # A mistyped code shouldn't permanently kill the pending request —
+        # it goes back so a follow-up reply with the correct code still works.
+        mock_etrade.claim_pending.assert_called_once()
+        mock_etrade.restore_pending.assert_called_once_with(pending)
         reply = update.message.reply_text.call_args[0][0]
         assert "failed" in reply.lower()
+        assert "reply" in reply.lower()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_concurrent_reply_after_claim_is_treated_as_already_completed(self, mock_etrade, mock_config):
+        """If two replies race (e.g. the user resent the verification code),
+        only the first can win claim_pending() — a second concurrent handler
+        must not redo the token exchange or the retry."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        pending = {"channel": "telegram", "chat_id": 12345, "prompt_message_id": 555}
+        mock_etrade.load_pending.return_value = pending
+        mock_etrade.claim_pending.return_value = None  # already claimed by the other reply
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="123456")
+        update.message.reply_to_message = MagicMock(message_id=555)
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.finish_pin_auth.assert_not_called()
+        mock_etrade.complete_and_maybe_retry.assert_not_called()
+        reply = update.message.reply_text.call_args[0][0]
+        assert "already completed" in reply.lower()
 
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")

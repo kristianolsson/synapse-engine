@@ -16,6 +16,7 @@ long-lived Telegram/email listener process completes the exchange
 (finish_pin_auth) whenever the reply arrives.
 """
 
+import fcntl
 import json
 import logging
 import time
@@ -27,12 +28,15 @@ from authlib.integrations.requests_client import OAuth1Session
 logger = logging.getLogger(__name__)
 
 PENDING_FILE = Path.home() / ".etrade_pending_auth.json"
+PENDING_LOCK_FILE = Path(str(PENDING_FILE) + ".lock")
 PENDING_TTL_SECONDS = 30 * 60
 TOKEN_FILE = Path.home() / ".etrade_tokens"
 
 
-def load_pending() -> Optional[dict]:
-    """Return the pending auth request, or None if there isn't one or it expired."""
+def _read_pending_unlocked() -> Optional[dict]:
+    """Read and expiry-check the pending file with no locking. Only safe for
+    callers that don't need exclusivity — see load_pending() vs.
+    claim_pending()."""
     if not PENDING_FILE.exists():
         return None
     try:
@@ -40,9 +44,60 @@ def load_pending() -> Optional[dict]:
     except (json.JSONDecodeError, OSError):
         return None
     if time.time() - data.get("created_at", 0) > PENDING_TTL_SECONDS:
-        clear_pending()
+        PENDING_FILE.unlink(missing_ok=True)
         return None
     return data
+
+
+def load_pending() -> Optional[dict]:
+    """Return the pending auth request, or None if there isn't one or it
+    expired. Read-only, not locked — fine for a non-destructive check (e.g.
+    etrade_cli.py asking "is one already pending?"), but two callers racing
+    to *complete* the same request must use claim_pending() instead: this
+    function alone lets both see the same still-valid pending before either
+    finishes handling it (confirmed root cause of a duplicate options-bot
+    run + duplicate reply after the user resent a verification code)."""
+    return _read_pending_unlocked()
+
+
+def claim_pending() -> Optional[dict]:
+    """Atomically read-and-consume the pending auth request so that of
+    several near-simultaneous completion attempts (e.g. the user resending
+    the verification code, or double-tapping send), only the first can ever
+    proceed — the rest see no pending request at all and should treat that
+    as "already completed" rather than redoing the token exchange and
+    retry. Callers must still do their own channel/prompt-id match check on
+    the returned dict first (this only guarantees at most one winner across
+    concurrent callers, not that the request is the one *this* caller
+    expects)."""
+    with open(PENDING_LOCK_FILE, "a") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        try:
+            pending = _read_pending_unlocked()
+            if pending is None:
+                return None
+            PENDING_FILE.unlink(missing_ok=True)
+            return pending
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+
+
+def restore_pending(pending: dict) -> None:
+    """Put a claimed pending request back after a failed completion attempt
+    (e.g. a mistyped verification code), so a follow-up reply with the
+    correct code can still complete it against the same oauth_token —
+    preserving the reminder_task/session_key retry correlation instead of
+    silently losing it and forcing a fresh /update-etrade-auth run (which
+    starts a new, uncorrelated pending). If the underlying request token
+    itself was the problem (already consumed, expired at E*TRADE's end),
+    the next attempt will just fail the same way and the user falls back to
+    /update-etrade-auth manually — restoring is harmless either way."""
+    with open(PENDING_LOCK_FILE, "a") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        try:
+            PENDING_FILE.write_text(json.dumps(pending))
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
 
 
 def clear_pending() -> None:

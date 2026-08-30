@@ -11,6 +11,7 @@ from services.ingestion.tools.stocks import etrade_pin_auth
 def pending_file(tmp_path, monkeypatch):
     path = tmp_path / ".etrade_pending_auth.json"
     monkeypatch.setattr(etrade_pin_auth, "PENDING_FILE", path)
+    monkeypatch.setattr(etrade_pin_auth, "PENDING_LOCK_FILE", tmp_path / ".etrade_pending_auth.json.lock")
     return path
 
 
@@ -61,6 +62,64 @@ def test_clear_pending_removes_file(pending_file):
 
 def test_clear_pending_is_noop_when_missing():
     etrade_pin_auth.clear_pending()  # must not raise
+
+
+def test_claim_pending_returns_and_removes_data_when_fresh(pending_file):
+    pending_file.write_text('{"oauth_token": "t", "oauth_token_secret": "s", "created_at": %f}' % time.time())
+
+    result = etrade_pin_auth.claim_pending()
+
+    assert result == {"oauth_token": "t", "oauth_token_secret": "s", "created_at": result["created_at"]}
+    assert not pending_file.exists()
+
+
+def test_claim_pending_returns_none_when_no_file():
+    assert etrade_pin_auth.claim_pending() is None
+
+
+def test_claim_pending_second_call_returns_none():
+    """The concurrency guarantee this exists for: of two callers racing to
+    complete the same pending request, only the first can win."""
+    etrade_pin_auth.PENDING_FILE.write_text(
+        '{"oauth_token": "t", "oauth_token_secret": "s", "created_at": %f}' % time.time()
+    )
+
+    first = etrade_pin_auth.claim_pending()
+    second = etrade_pin_auth.claim_pending()
+
+    assert first is not None
+    assert second is None
+
+
+def test_restore_pending_allows_a_later_claim_to_succeed(pending_file):
+    """The failed-code-then-correct-code case: a claim that fails the OAuth
+    exchange restores the request, and a follow-up reply can still claim
+    and complete it — the correlation fields (e.g. reminder_task) survive
+    the round trip untouched."""
+    pending = {
+        "oauth_token": "t",
+        "oauth_token_secret": "s",
+        "created_at": time.time(),
+        "reminder_task": "Run options-bot scan --tickers AAPL",
+    }
+    claimed = pending  # simulates what the listener got from its own claim_pending()
+
+    etrade_pin_auth.restore_pending(claimed)
+
+    assert pending_file.exists()
+    second_claim = etrade_pin_auth.claim_pending()
+    assert second_claim == pending
+    assert not pending_file.exists()
+
+
+def test_claim_pending_returns_none_when_expired(pending_file):
+    pending_file.write_text(
+        '{"oauth_token": "t", "oauth_token_secret": "s", "created_at": %f}'
+        % (time.time() - etrade_pin_auth.PENDING_TTL_SECONDS - 1)
+    )
+
+    assert etrade_pin_auth.claim_pending() is None
+    assert not pending_file.exists()
 
 
 def test_start_pin_auth_writes_pending_state(pending_file):
