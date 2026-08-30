@@ -52,6 +52,8 @@ def _load_env() -> dict:
         "client_id": os.getenv("SMARTTHINGS_CLIENT_ID", "") or syn_config.SMARTTHINGS_CLIENT_ID,
         "client_secret": os.getenv("SMARTTHINGS_CLIENT_SECRET", "") or syn_config.SMARTTHINGS_CLIENT_SECRET,
         "token_path": Path(syn_config.SMARTTHINGS_TOKEN_PATH),
+        "device_cache_path": Path(syn_config.SMARTTHINGS_DEVICE_CACHE_PATH),
+        "device_cache_ttl": syn_config.SMARTTHINGS_DEVICE_CACHE_TTL_SECONDS,
     }
 
 
@@ -134,17 +136,21 @@ def _get_client(env: dict) -> SmartThingsClient:
         token = auth.get_valid_access_token(env["token_path"], env["client_id"], env["client_secret"])
     except auth.SmartThingsAuthError as e:
         _err(str(e), "auth_failed")
+    except (json.JSONDecodeError, KeyError) as e:
+        _err(f"SmartThings token file is corrupted or invalid: {e}", "auth_failed")
     return SmartThingsClient(token)
 
 
 def _get_resolver(client: SmartThingsClient, env: dict) -> DeviceResolver:
-    from services.ingestion import config as syn_config
-    return DeviceResolver(client, Path(syn_config.SMARTTHINGS_DEVICE_CACHE_PATH), syn_config.SMARTTHINGS_DEVICE_CACHE_TTL_SECONDS)
+    return DeviceResolver(client, env["device_cache_path"], env["device_cache_ttl"])
 
 
 def _resolve_one(device_name: str, client: SmartThingsClient, env: dict) -> dict:
     resolver = _get_resolver(client, env)
-    matches = resolver.resolve(device_name)
+    try:
+        matches = resolver.resolve(device_name)
+    except SmartThingsAPIError as e:
+        _err(str(e), "api_error")
     if not matches:
         _err(f"No device found matching '{device_name}'", "not_found")
     if len(matches) > 1:

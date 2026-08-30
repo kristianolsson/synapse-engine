@@ -42,6 +42,13 @@ def test_save_token_writes_atomically_leaving_no_tmp_file(tmp_path):
     assert set(data.keys()) == {"access_token", "refresh_token", "expires_at"}
 
 
+def test_save_token_writes_file_with_0600_permissions(tmp_path):
+    token_path = tmp_path / "smartthings_token.json"
+    auth.save_token(token_path, {"access_token": "AT", "refresh_token": "RT", "expires_in": 3600})
+
+    assert oct(token_path.stat().st_mode)[-3:] == "600"
+
+
 def test_save_token_creates_parent_directory(tmp_path):
     token_path = tmp_path / "nested" / "dir" / "smartthings_token.json"
     auth.save_token(token_path, {"access_token": "AT", "refresh_token": "RT", "expires_in": 3600})
@@ -123,3 +130,21 @@ def test_get_valid_access_token_fails_loud_on_revoked_refresh_token(tmp_path, mo
     monkeypatch.setattr(requests, "post", lambda *a, **kw: _FakeResponse(400, text="invalid_grant"))
     with pytest.raises(auth.SmartThingsAuthError, match="reauthorize"):
         auth.get_valid_access_token(token_path, "cid", "csecret")
+
+
+def test_get_valid_access_token_preserves_original_refresh_failure_detail(tmp_path, monkeypatch):
+    """The wrapped SmartThingsAuthError must not discard the original
+    refresh failure's status/message — otherwise a transient 5xx gets
+    misreported identically to a permanent revocation."""
+    token_path = tmp_path / "token.json"
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    token_path.write_text(json.dumps({"access_token": "AT-old", "refresh_token": "RT-old", "expires_at": past}))
+
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: _FakeResponse(503, text="upstream unavailable"))
+    with pytest.raises(auth.SmartThingsAuthError) as exc:
+        auth.get_valid_access_token(token_path, "cid", "csecret")
+
+    message = str(exc.value)
+    assert "503" in message
+    assert "upstream unavailable" in message
+    assert "reauthorize" in message

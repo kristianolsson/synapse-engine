@@ -40,6 +40,7 @@ def save_token(token_path, token_response: dict) -> None:
         f.write("\n")
         f.flush()
         os.fsync(f.fileno())
+    os.chmod(tmp_path, 0o600)
     os.replace(tmp_path, token_path)
 
 
@@ -111,9 +112,9 @@ def get_valid_access_token(token_path, client_id: str, client_secret: str) -> st
 
     try:
         refreshed = _refresh(client_id, client_secret, token["refresh_token"])
-    except SmartThingsAuthError:
+    except SmartThingsAuthError as e:
         raise SmartThingsAuthError(
-            "SmartThings auth expired — run 'smartthings auth' to reauthorize"
-        )
+            f"SmartThings auth expired ({e}) — run 'smartthings auth' to reauthorize"
+        ) from e
     save_token(token_path, refreshed)
     return refreshed["access_token"]

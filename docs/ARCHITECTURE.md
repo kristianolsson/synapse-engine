@@ -249,6 +249,25 @@ and recompute their own default paths instead of importing `config.py`'s
 majority pattern and the more machine-parseable one for the AI provider that
 actually calls these tools.
 
+## SmartThings
+
+`tools/smartthings_cli.py` is a thin argparse CLI over the
+`tools/smartthings/` package (`auth.py`, `client.py`, `resolver.py`),
+following the JSON/`_err`/`_out` convention above. `auth.py` implements the
+OAuth2 authorization-code flow: `smartthings auth` runs a one-time
+interactive browser flow to capture the first access/refresh token pair,
+and every later call goes through `get_valid_access_token()`, which
+transparently refreshes and re-persists the token when it's near expiry —
+the rotated `refresh_token` must be saved immediately, since SmartThings
+invalidates the old one as soon as a new one is issued. `client.py` wraps
+the Devices REST API with 429 backoff-and-retry-once; `resolver.py`
+resolves a fuzzy device name to a device id via a short-TTL local cache so
+repeated resolutions don't burn API calls.
+
+There is no MCP wrapper for this integration. Unlike `tools/calendar_mcp.py`
+(unused legacy — see `CLAUDE.md`), MCP was deliberately never built here;
+every SmartThings operation goes through the CLI.
+
 ## Tests
 
 Tests live under `services/ingestion/tests/<module>/`, mirroring the source

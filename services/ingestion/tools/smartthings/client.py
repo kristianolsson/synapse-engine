@@ -50,6 +50,11 @@ class SmartThingsClient:
 
     def list_devices(self) -> list:
         data = self._request("GET", "/devices")
+        if data.get("_links", {}).get("next"):
+            raise SmartThingsAPIError(
+                "SmartThings returned a paginated device list (more than one page) — "
+                "this client only reads the first page; pagination is not implemented."
+            )
         return data.get("items", [])
 
     def get_device_status(self, device_id: str) -> dict:

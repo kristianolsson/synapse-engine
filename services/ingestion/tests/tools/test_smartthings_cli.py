@@ -35,7 +35,13 @@ def test_cmd_auth_happy_path_exchanges_and_saves_token(monkeypatch, tmp_path):
     })
     monkeypatch.setattr(auth, "save_token", lambda token_path, token_response: saved.update(token_response))
 
-    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
     args = argparse.Namespace(port=8765)
 
     smartthings_cli.cmd_auth(args, env)
@@ -47,7 +53,13 @@ def test_cmd_auth_state_mismatch_fails_loud(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: None)
     monkeypatch.setattr(smartthings_cli.secrets, "token_urlsafe", lambda n: "expected-state")
 
-    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
     args = argparse.Namespace(port=8765)
 
     with pytest.raises(SystemExit):
@@ -62,7 +74,13 @@ def test_cmd_auth_no_code_received_fails_loud(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: None)
     monkeypatch.setattr(smartthings_cli.secrets, "token_urlsafe", lambda n: "expected-state")
 
-    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
     args = argparse.Namespace(port=8765)
 
     with pytest.raises(SystemExit):
@@ -163,7 +181,13 @@ def _patch_client_and_token(monkeypatch, fake_client):
 def test_cmd_list_devices_outputs_id_and_label(monkeypatch, capsys, tmp_path):
     fake_client = _FakeClient(devices=[{"deviceId": "d1", "label": "Kitchen Light"}])
     _patch_client_and_token(monkeypatch, fake_client)
-    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
 
     smartthings_cli.cmd_list_devices(argparse.Namespace(), env)
 
@@ -177,7 +201,13 @@ def test_cmd_get_status_resolves_device_and_returns_status(monkeypatch, capsys, 
         status={"switch": {"switch": {"value": "on"}}},
     )
     _patch_client_and_token(monkeypatch, fake_client)
-    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
     monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
 
     smartthings_cli.cmd_get_status(argparse.Namespace(device="kitchen"), env)
@@ -190,7 +220,13 @@ def test_cmd_get_status_resolves_device_and_returns_status(monkeypatch, capsys, 
 def test_cmd_get_status_not_found_fails_loud(monkeypatch, capsys, tmp_path):
     fake_client = _FakeClient(devices=[{"deviceId": "d1", "label": "Kitchen Light"}])
     _patch_client_and_token(monkeypatch, fake_client)
-    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
     monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
 
     with pytest.raises(SystemExit):
@@ -205,7 +241,13 @@ def test_cmd_get_status_ambiguous_fails_loud_with_candidates(monkeypatch, capsys
         {"deviceId": "d2", "label": "Bedroom Light"},
     ])
     _patch_client_and_token(monkeypatch, fake_client)
-    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
     monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
 
     with pytest.raises(SystemExit):
@@ -221,7 +263,13 @@ def test_cmd_set_state_coerces_numeric_argument(monkeypatch, capsys, tmp_path):
         send_result={"results": [{"status": "ACCEPTED"}]},
     )
     _patch_client_and_token(monkeypatch, fake_client)
-    env = {"client_id": "cid", "client_secret": "secret", "token_path": tmp_path / "token.json"}
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
     monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
 
     smartthings_cli.cmd_set_state(
@@ -244,3 +292,110 @@ def test_coerce_converts_int_float_bool_and_leaves_strings():
 def _resolver_stub(fake_client, tmp_path):
     from services.ingestion.tools.smartthings.resolver import DeviceResolver
     return DeviceResolver(fake_client, tmp_path / "cache.json", ttl_seconds=300)
+
+
+# ── I2/I3: API/auth errors must be reported via the CLI's own error
+# handlers (auth_failed/api_error), never fall through to the generic
+# "Unexpected error" catch-all in main() ──
+
+
+def _make_env(tmp_path):
+    return {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
+
+
+def test_cmd_list_devices_reports_api_error_on_client_failure(monkeypatch, capsys, tmp_path):
+    fake_client = _FakeClient(raise_on="list_devices")
+    _patch_client_and_token(monkeypatch, fake_client)
+    env = _make_env(tmp_path)
+
+    with pytest.raises(SystemExit):
+        smartthings_cli.cmd_list_devices(argparse.Namespace(), env)
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "api_error"
+
+
+def test_cmd_get_status_reports_api_error_on_client_failure(monkeypatch, capsys, tmp_path):
+    fake_client = _FakeClient(
+        devices=[{"deviceId": "d1", "label": "Kitchen Light"}],
+        raise_on="get_device_status",
+    )
+    _patch_client_and_token(monkeypatch, fake_client)
+    env = _make_env(tmp_path)
+    monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
+
+    with pytest.raises(SystemExit):
+        smartthings_cli.cmd_get_status(argparse.Namespace(device="kitchen"), env)
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "api_error"
+
+
+def test_cmd_set_state_reports_api_error_on_client_failure(monkeypatch, capsys, tmp_path):
+    fake_client = _FakeClient(
+        devices=[{"deviceId": "d1", "label": "Kitchen Light"}],
+        raise_on="send_commands",
+    )
+    _patch_client_and_token(monkeypatch, fake_client)
+    env = _make_env(tmp_path)
+    monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _resolver_stub(fake_client, tmp_path))
+
+    with pytest.raises(SystemExit):
+        smartthings_cli.cmd_set_state(
+            argparse.Namespace(device="kitchen", capability="switch", command="on", args=[]),
+            env,
+        )
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "api_error"
+
+
+def test_resolve_one_reports_api_error_when_resolver_raises(monkeypatch, capsys, tmp_path):
+    """A SmartThingsAPIError raised during device resolution (e.g. a 429
+    on the live device-list refresh) must be reported as api_error, not
+    escape to the generic catch-all in main()."""
+    class _RaisingResolver:
+        def resolve(self, name):
+            raise SmartThingsAPIError("rate limited")
+
+    env = _make_env(tmp_path)
+    monkeypatch.setattr(smartthings_cli, "_get_resolver", lambda client, env: _RaisingResolver())
+
+    with pytest.raises(SystemExit):
+        smartthings_cli._resolve_one("kitchen", client=None, env=env)
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "api_error"
+    assert "rate limited" in out["error"]
+
+
+def test_get_client_reports_auth_failed_when_token_refresh_raises(monkeypatch, capsys, tmp_path):
+    env = _make_env(tmp_path)
+    monkeypatch.setattr(
+        smartthings_cli.auth, "get_valid_access_token",
+        lambda *a, **kw: (_ for _ in ()).throw(auth.SmartThingsAuthError("token refresh failed")),
+    )
+
+    with pytest.raises(SystemExit):
+        smartthings_cli._get_client(env)
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "auth_failed"
+
+
+def test_get_client_reports_auth_failed_on_corrupted_token_file(capsys, tmp_path):
+    """A truncated/corrupted token file makes auth.load_token's json.load
+    raise a bare JSONDecodeError — _get_client must catch that too, not
+    just SmartThingsAuthError, or it falls through to the generic
+    "Unexpected error" catch-all."""
+    token_path = tmp_path / "token.json"
+    token_path.write_text("{not valid json")
+    env = _make_env(tmp_path)
+    env["token_path"] = token_path
+
+    with pytest.raises(SystemExit):
+        smartthings_cli._get_client(env)
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "auth_failed"
+    assert "corrupted" in out["error"].lower()

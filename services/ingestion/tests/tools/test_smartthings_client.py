@@ -120,6 +120,16 @@ def test_list_devices_returns_items():
     assert session.calls[0] == ("GET", "https://api.smartthings.com/v1/devices", None)
 
 
+def test_list_devices_raises_when_response_is_paginated():
+    session = _FakeSession([_FakeResponse(200, {
+        "items": [{"deviceId": "d1", "label": "Kitchen Light"}],
+        "_links": {"next": {"href": "https://api.smartthings.com/v1/devices?page=2"}},
+    })])
+    client = SmartThingsClient("token", session=session)
+    with pytest.raises(SmartThingsAPIError, match="paginated"):
+        client.list_devices()
+
+
 def test_get_device_status_hits_correct_path():
     session = _FakeSession([_FakeResponse(200, {"switch": {"switch": {"value": "on"}}})])
     client = SmartThingsClient("token", session=session)
