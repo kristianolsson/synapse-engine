@@ -54,28 +54,44 @@ def _load_env() -> dict:
 
 
 def _capture_authorization_code(port: int) -> tuple:
-    """Blocks until exactly one browser redirect hits the local callback
-    server, then returns (code, state) from its query string."""
+    """Blocks until a browser redirect to /callback hits the local callback
+    server, then returns (code, state) from its query string. Ignores stray
+    requests to other paths (e.g., /favicon.ico) and loops until the matching
+    callback is received, up to a cap of 20 stray requests."""
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from urllib.parse import urlparse, parse_qs
 
     captured = {}
+    stray_count = 0
+    MAX_STRAYS = 20
 
     class _CallbackHandler(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass  # suppress default request logging to stderr
 
         def do_GET(self):
-            params = parse_qs(urlparse(self.path).query)
-            captured["code"] = params.get("code", [None])[0]
-            captured["state"] = params.get("state", [None])[0]
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"SmartThings authorization complete. You can close this tab.")
+            nonlocal stray_count
+            path = urlparse(self.path).path
+            if path == "/callback":
+                params = parse_qs(urlparse(self.path).query)
+                captured["code"] = params.get("code", [None])[0]
+                captured["state"] = params.get("state", [None])[0]
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"SmartThings authorization complete. You can close this tab.")
+            else:
+                # Stray request (e.g., /favicon.ico), respond with 404 and loop
+                stray_count += 1
+                self.send_response(404)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"Not found.")
 
     server = HTTPServer(("localhost", port), _CallbackHandler)
-    server.handle_request()  # blocks for exactly one request, then returns
+    # Loop until we capture a real callback or hit the stray cap
+    while not captured and stray_count < MAX_STRAYS:
+        server.handle_request()  # blocks for exactly one request, then returns
     return captured.get("code"), captured.get("state")
 
 

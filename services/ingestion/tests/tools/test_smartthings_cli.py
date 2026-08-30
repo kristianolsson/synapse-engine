@@ -90,3 +90,33 @@ def test_capture_authorization_code_reads_query_params_from_real_request():
 
     assert result["code"] == "abc123"
     assert result["state"] == "xyz789"
+
+
+def test_capture_authorization_code_ignores_stray_requests_and_waits_for_real_callback():
+    import threading
+    import time
+    import requests as real_requests
+
+    port = 18766
+    result = {}
+
+    def run_capture():
+        result["code"], result["state"] = smartthings_cli._capture_authorization_code(port)
+
+    thread = threading.Thread(target=run_capture)
+    thread.start()
+    time.sleep(0.2)  # let the server start listening before we hit it
+
+    # Send a stray request to /favicon.ico (should be ignored)
+    try:
+        real_requests.get(f"http://localhost:{port}/favicon.ico", timeout=5)
+    except Exception:
+        pass  # ignore failures from favicon request
+
+    # Now send the real callback request
+    real_requests.get(f"http://localhost:{port}/callback?code=xyz456&state=abc789", timeout=5)
+    thread.join(timeout=5)
+
+    # Verify the real callback was captured, not the stray request
+    assert result["code"] == "xyz456"
+    assert result["state"] == "abc789"
