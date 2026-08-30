@@ -21,11 +21,15 @@ class DeviceResolver:
     def _read_cache(self) -> Optional[list]:
         if not self._cache_path.exists():
             return None
-        with open(self._cache_path) as f:
-            cache = json.load(f)
-        if time.time() - cache["fetched_at"] > self._ttl_seconds:
+        try:
+            with open(self._cache_path) as f:
+                cache = json.load(f)
+            if time.time() - cache["fetched_at"] > self._ttl_seconds:
+                return None
+            return cache["devices"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # Cache is corrupted, treat it like a cache miss
             return None
-        return cache["devices"]
 
     def _write_cache(self, devices: list) -> None:
         self._cache_path.parent.mkdir(parents=True, exist_ok=True)

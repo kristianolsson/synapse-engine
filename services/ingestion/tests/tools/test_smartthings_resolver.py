@@ -98,3 +98,25 @@ def test_cache_file_written_atomically(tmp_path):
     resolver.resolve("Kitchen Light")
     assert cache_path.exists()
     assert not cache_path.with_suffix(".json.tmp").exists()
+
+
+def test_resolve_recovers_from_corrupted_cache_invalid_json(tmp_path):
+    cache_path = tmp_path / "cache.json"
+    cache_path.write_text("{ invalid json }")
+    client = _FakeClient(DEVICES)
+    resolver = DeviceResolver(client, cache_path, ttl_seconds=300)
+
+    matches = resolver.resolve("Kitchen Light")
+    assert [m["id"] for m in matches] == ["d1"]
+    assert client.list_devices_calls == 1  # recovered by fetching live devices
+
+
+def test_resolve_recovers_from_corrupted_cache_missing_key(tmp_path):
+    cache_path = tmp_path / "cache.json"
+    cache_path.write_text(json.dumps({"fetched_at": time.time()}))  # missing "devices" key
+    client = _FakeClient(DEVICES)
+    resolver = DeviceResolver(client, cache_path, ttl_seconds=300)
+
+    matches = resolver.resolve("Garage Door")
+    assert [m["id"] for m in matches] == ["d4"]
+    assert client.list_devices_calls == 1  # recovered by fetching live devices
