@@ -169,7 +169,10 @@ def process_email(
     # Bound to session_key (per-thread) for conversation continuity, but to
     # sender (per-address) for the /stats preference — one person can have
     # many threads, and the preference should follow them, not the thread.
-    session = UserSession(session_manager, session_key, stats_key=sender)
+    # daily_reset=False: threads legitimately span multiple calendar days,
+    # so this session should live purely by SESSION_TTL_MINUTES rather than
+    # also resetting at the next midnight boundary.
+    session = UserSession(session_manager, session_key, stats_key=sender, daily_reset=False)
 
     logger.info("Processing email from=%s subject=%r", sender, subject)
 

@@ -57,17 +57,18 @@ class SessionManager:
             if now - last_seen > self.ttl_seconds:
                 cleaned_count += 1
                 continue
-                
-            # Check midnight reset for main user sessions
-            parts = key.split(":", 1)
-            actual_key = parts[1] if len(parts) > 1 else key
-            
-            if not actual_key.startswith("msg_"):
+
+            # Daily reset for main user sessions (e.g. Telegram's per-user
+            # default session) — opt out via daily_reset=False for sessions
+            # that should live purely by TTL instead (email threads,
+            # Telegram per-message reply-branches). Defaults to True so
+            # entries written before this flag existed keep today's behavior.
+            if info.get("daily_reset", True):
                 last_seen_date = date.fromtimestamp(last_seen) if last_seen else date.min
                 if last_seen_date != now_date:
                     cleaned_count += 1
                     continue
-                    
+
             cleaned_data[key] = info
 
         if cleaned_count > 0:
@@ -92,8 +93,16 @@ class SessionManager:
                 return data[pkey].get("session_id")
             return None
 
-    def save_session(self, session_key: str, session_id: str) -> None:
-        """Save a session ID and update its `last_seen` timestamp."""
+    def save_session(self, session_key: str, session_id: str, daily_reset: bool = True) -> None:
+        """Save a session ID and update its `last_seen` timestamp.
+
+        `daily_reset` controls whether this entry is dropped at the next
+        calendar-day boundary regardless of TTL (see `_read_data`). Defaults
+        to True to match the historical behavior of a per-user main session
+        resetting each morning; pass False for sessions that should live
+        purely by TTL instead (email threads, Telegram per-message
+        reply-branches).
+        """
         if not session_id:
             return
 
@@ -102,7 +111,8 @@ class SessionManager:
             data = self._read_data()
             data[pkey] = {
                 "session_id": session_id,
-                "last_seen": time.time()
+                "last_seen": time.time(),
+                "daily_reset": daily_reset,
             }
             self._write_data(data)
             logger.debug("Saved session_id %r for %r (provider=%s)", session_id, session_key, config.get_ai_provider())
@@ -125,7 +135,7 @@ class SessionManager:
 
     def save_message_session(self, message_id: int, session_id: str) -> None:
         """Save a session ID tied to a specific Telegram message ID."""
-        self.save_session(f"msg_{message_id}", session_id)
+        self.save_session(f"msg_{message_id}", session_id, daily_reset=False)
 
     def get_stats_enabled(self, user_key: str) -> bool:
         """Return whether stats are enabled for a user, falling back to config default."""
@@ -151,19 +161,31 @@ class UserSession:
     email threads use a per-thread `key` for session continuity but a
     per-sender `stats_key` for the /stats preference, since one person can
     have many threads. Defaults to `key` when omitted.
+
+    `daily_reset` is passed straight through to `SessionManager.save_session`
+    (see its docstring) — pass False for sessions that should live purely by
+    TTL instead of also resetting at the next calendar-day boundary (email
+    threads).
     """
 
-    def __init__(self, manager: "SessionManager", key: str, stats_key: Optional[str] = None):
+    def __init__(
+        self,
+        manager: "SessionManager",
+        key: str,
+        stats_key: Optional[str] = None,
+        daily_reset: bool = True,
+    ):
         self._manager = manager
         self.key = key
         self.stats_key = stats_key if stats_key is not None else key
+        self.daily_reset = daily_reset
 
     @property
     def session_id(self) -> Optional[str]:
         return self._manager.get_session(self.key)
 
     def save(self, session_id: str) -> None:
-        self._manager.save_session(self.key, session_id)
+        self._manager.save_session(self.key, session_id, daily_reset=self.daily_reset)
 
     def clear(self) -> bool:
         return self._manager.clear_session(self.key)
