@@ -312,6 +312,9 @@ def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_email()
     assert mock_pipe.call_args.kwargs["model"] == "work"
     prompt_arg = mock_pipe.call_args.args[0]
     assert "Run options-bot scan --tickers AAPL,MSFT" in prompt_arg
+    # Self-describing sender so a log-reading agent doesn't need to
+    # cross-reference ARCHITECTURE.md to know this was an auto-retry.
+    assert "Sender: system (retry after E*TRADE re-auth)" in prompt_arg
     # The raw stats dict and a UserSession handle are forwarded as-is —
     # send_reply does its own gating internally. Reminders carry no
     # session/user key, so the handle's stats identity falls back to the
@@ -337,6 +340,8 @@ def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_telegra
 
         etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
 
+    prompt_arg = mock_pipe.call_args.args[0]
+    assert "Sender: system (retry after E*TRADE re-auth)" in prompt_arg
     # Reminders carry no session/user key, so the handle's stats identity
     # for the telegram case falls back to the configured allowed user id —
     # the same identity scheduler.py's _handle_work_reminder uses.

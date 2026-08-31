@@ -255,7 +255,14 @@ def complete_and_maybe_retry(pending: dict, session_manager) -> None:
         # result back to the user once auth is unblocked.
         incoming = IncomingMessage(
             source_type="scheduled_work",
-            sender="system",
+            # Distinct from the plain "system" sender used elsewhere (e.g.
+            # _reminder_stats_sender's stats-key fallback) — this one is
+            # purely the "Sender:" line a log-reading agent sees (pipe.py's
+            # sync_and_build_prompt), so it should self-explain why a
+            # reminder fired under Sender: system shortly after the same
+            # task's normal Sender: <email/telegram id> attempt failed,
+            # without needing to cross-reference ARCHITECTURE.md.
+            sender="system (retry after E*TRADE re-auth)",
             subject="Scheduled Work Task",
             body=reminder_task,
         )
