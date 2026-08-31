@@ -175,7 +175,7 @@ def cmd_set_state(args, env: dict) -> None:
 
 def main():
     parser = argparse.ArgumentParser(prog="smartthings", description="SmartThings CLI for Synapse.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="subcommand", required=True)
 
     p_auth = sub.add_parser("auth", help="One-time interactive OAuth authorization")
     p_auth.add_argument(
@@ -209,7 +209,7 @@ def main():
         "set-state": cmd_set_state,
     }
     try:
-        dispatch[args.command](args, env)
+        dispatch[args.subcommand](args, env)
     except SystemExit:
         raise
     except Exception as e:

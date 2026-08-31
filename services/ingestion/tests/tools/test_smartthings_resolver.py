@@ -59,6 +59,21 @@ def test_resolve_no_match_returns_empty_list(tmp_path):
     assert matches == []
 
 
+def test_resolve_distinguishes_devices_sharing_a_word(tmp_path):
+    """"Front light" must not also match other "* Light" devices just
+    because they share the suffix word — the differentiating word
+    ("front" vs "tv"/"stairs") has to match too."""
+    devices = [
+        {"deviceId": "d1", "label": "Front Light"},
+        {"deviceId": "d2", "label": "Tv Light"},
+        {"deviceId": "d3", "label": "Stairs Light"},
+    ]
+    client = _FakeClient(devices)
+    resolver = DeviceResolver(client, tmp_path / "cache.json", ttl_seconds=300)
+    matches = resolver.resolve("Front Light")
+    assert [m["id"] for m in matches] == ["d1"]
+
+
 def test_resolve_uses_cache_on_second_call_within_ttl(tmp_path):
     client = _FakeClient(DEVICES)
     resolver = DeviceResolver(client, tmp_path / "cache.json", ttl_seconds=300)

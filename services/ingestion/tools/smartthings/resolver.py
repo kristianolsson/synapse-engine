@@ -58,7 +58,14 @@ class DeviceResolver:
         label = label.lower()
         if query in label:
             return True
-        return difflib.SequenceMatcher(None, query, label).ratio() >= FUZZY_MATCH_THRESHOLD
+        label_words = label.split()
+        return all(
+            any(
+                qw in lw or difflib.SequenceMatcher(None, qw, lw).ratio() >= FUZZY_MATCH_THRESHOLD
+                for lw in label_words
+            )
+            for qw in query.split()
+        )
 
     def resolve(self, name: str) -> list:
         """Return every device matching *name* — by exact device id
