@@ -116,7 +116,7 @@ When interacting with the bot via Telegram, the following commands are available
 - `/update` — Pulls the latest code via git and gracefully restarts the service.
 - `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
 - `/update-claude-auth` — Re-authenticates the Claude CLI: replies with an OAuth URL, then completes login once you reply with the code (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
-- `/update-smartthings-auth` — Re-authenticates SmartThings the same way: replies with an authorization URL, then exchanges and saves the token once you reply with the code — no SSH/scp needed (see [Token refresh](qnap-setup.md#token-refresh)).
+- `/update-smartthings-auth` — Re-authenticates SmartThings: replies with an authorization URL, then exchanges and saves `smartthings_token.json` directly once you reply with the code shown on the redirect page — no SSH/scp needed (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
 - `/provider <claude|agy|gemini>` — Switches the active AI provider (`gemini` deprecated — replaced by agy). Without an argument, shows the current provider.
 - `/amazon heal` — Re-bootstraps the Amazon Fresh CSS selectors from the live pages when the scraper breaks.
 - `/help` — Shows the available Telegram commands.
@@ -220,7 +220,14 @@ When interacting with the bot via Telegram, the following commands are available
        ```bash
        python -m services.ingestion.tools.smartthings_cli list-devices
        ```
-    7. Automatically injected as a global `smartthings` command to AI providers, same as the others — no additional configuration needed.
+    7. Automatically injected as a global `smartthings` command to AI providers — no additional configuration needed.
+
+    This manual run is only needed once, to register the app and get the
+    first token. Deployed on QNAP? Reauthorizing later (the refresh token
+    lapses only after 30+ days idle) doesn't need this local flow again —
+    send `/update-smartthings-auth` to the bot in Telegram instead; it
+    exchanges and saves the token directly, no SSH needed (see
+    [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
 
 3.  **Install & run:** installation is deployment-specific — jump to [Deployment](#deployment) below and follow whichever fits:
     - **Option A — macOS (`launchd`)**: runs directly on your Mac in a local Python venv.

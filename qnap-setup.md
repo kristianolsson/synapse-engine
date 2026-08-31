@@ -343,13 +343,13 @@ if the bot itself is unreachable).
 **SmartThings:** Refreshes silently on its own under normal (at-least-
 monthly) usage — no action needed. Only required if the CLI fails loud
 with `SmartThings auth expired` (refresh_token lapsed from 30+ days of
-inactivity). Send `/update-smartthings-auth` to the bot in Telegram — same
-shape as Claude's re-auth above: it replies with an authorization URL,
-open it, sign in, and reply with the code SmartThings shows you (via the
-`https://httpbin.org/get` redirect page) — the bot exchanges and writes
-`smartthings_token.json` straight into its own container, no SSH/scp
-needed. Falls back to re-running step 9 manually and copying the token
-over (below) if the bot itself is down or unreachable:
+inactivity). Send `/update-smartthings-auth` to the bot in Telegram; it
+replies with an authorization URL — open it, sign in, and reply with the
+code SmartThings shows you on the `https://httpbin.org/get` redirect page.
+The bot exchanges that code and writes `smartthings_token.json` straight
+into its own container, no SSH/scp needed. Falls back to re-running step 9
+manually and copying the token over (below) if the bot itself is down or
+unreachable:
 ```bash
 # Locally — re-run auth (opens a browser, then prompts for the pasted code)
 cd ~/Documents/code/synapse-engine
