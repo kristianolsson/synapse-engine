@@ -116,6 +116,7 @@ When interacting with the bot via Telegram, the following commands are available
 - `/update` — Pulls the latest code via git and gracefully restarts the service.
 - `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
 - `/update-claude-auth` — Re-authenticates the Claude CLI: replies with an OAuth URL, then completes login once you reply with the code (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
+- `/update-smartthings-auth` — Re-authenticates SmartThings the same way: replies with an authorization URL, then exchanges and saves the token once you reply with the code — no SSH/scp needed (see [Token refresh](qnap-setup.md#token-refresh)).
 - `/provider <claude|agy|gemini>` — Switches the active AI provider (`gemini` deprecated — replaced by agy). Without an argument, shows the current provider.
 - `/amazon heal` — Re-bootstraps the Amazon Fresh CSS selectors from the live pages when the scraper breaks.
 - `/help` — Shows the available Telegram commands.
@@ -129,7 +130,7 @@ When interacting with the bot via Telegram, the following commands are available
     -   (Recommended) A Telegram bot token from [@BotFather](https://t.me/BotFather).
 
     **Install dependencies** (needed for the Google API Setup commands
-    below, and for E\*TRADE/Amazon Fresh if you use those):
+    below, and for E\*TRADE/Amazon Fresh/SmartThings if you use those):
     ```bash
     python3 -m venv venv
     source venv/bin/activate
@@ -180,6 +181,46 @@ When interacting with the bot via Telegram, the following commands are available
        python -m services.ingestion.tools.gmail_cli list-inbox --limit 5
        ```
     8. Both integrations are automatically injected as global `calendar` and `gmail` commands to AI providers — no additional configuration needed.
+
+    **SmartThings API Setup (Optional):**
+
+    Registration happens through the separate **SmartThings CLI** (an npm
+    tool, not this repo's own `smartthings` command) — its command names
+    have shifted between versions, so if a step below doesn't match what
+    you see, run `smartthings help` / `smartthings apps --help` to find
+    the current equivalent.
+
+    1. Install and log in:
+       ```bash
+       npm install -g @smartthings/cli
+       smartthings apps
+       ```
+       There's no explicit `login` command — the first command that needs
+       auth opens a browser for you automatically.
+    2. Register an app: `smartthings apps:create`, choosing **"OAuth-In
+       App"** (not "Webhook SmartApp"/Automation — a different,
+       incompatible flow). At the prompts:
+       - Scopes: **`r:devices:*` and `x:devices:*` only** — don't select
+         `w:devices:*`, this integration never edits device config.
+       - Redirect URI: `https://httpbin.org/get`. SmartThings requires
+         HTTPS and rejects `http://localhost` with 403 — httpbin is a
+         public page that just echoes the code back to you to copy, which
+         is what `smartthings auth` below expects by default.
+    3. Copy the `clientId`/`clientSecret` the CLI prints at the end — SmartThings only shows them once.
+    4. Add them to `.env`:
+       ```
+       SMARTTHINGS_CLIENT_ID=<clientId>
+       SMARTTHINGS_CLIENT_SECRET=<clientSecret>
+       ```
+    5. Run this repo's own auth flow (opens a browser, then prompts you to paste back the code httpbin displays):
+       ```bash
+       python -m services.ingestion.tools.smartthings_cli auth
+       ```
+    6. Test it:
+       ```bash
+       python -m services.ingestion.tools.smartthings_cli list-devices
+       ```
+    7. Automatically injected as a global `smartthings` command to AI providers, same as the others — no additional configuration needed.
 
 3.  **Install & run:** installation is deployment-specific — jump to [Deployment](#deployment) below and follow whichever fits:
     - **Option A — macOS (`launchd`)**: runs directly on your Mac in a local Python venv.

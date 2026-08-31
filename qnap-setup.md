@@ -200,12 +200,17 @@ chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon
 ## 9. Set up SmartThings credentials (Optional)
 
 If you use the `smartthings` CLI, authenticate first on a machine with a
-browser — `smartthings auth` opens one to complete SmartThings' OAuth flow
-via a local callback server (`http://localhost:8765/callback`). This
-requires a SmartApp already registered in the SmartThings developer
-console with `r:devices:*`/`x:devices:*` scopes and that redirect URI, and
-`SMARTTHINGS_CLIENT_ID`/`SMARTTHINGS_CLIENT_SECRET` filled in `.env` (see
-`.env.example`).
+browser — `smartthings auth` opens one to complete SmartThings' OAuth flow,
+then prompts you to paste back the authorization code (SmartThings
+requires an HTTPS redirect URI and rejects `http://localhost` with 403, so
+there's no local callback server to capture it automatically — same
+manual-code-paste shape as the E\*TRADE auth flow). This requires an
+OAuth-In SmartApp already registered via the `smartthings` CLI
+(`smartthings apps:create`, or your CLI version's equivalent edit command)
+with `r:devices:*`/`x:devices:*` scopes and redirect URI
+`https://httpbin.org/get` (the tool's default — echoes the code back for
+you to copy), and `SMARTTHINGS_CLIENT_ID`/`SMARTTHINGS_CLIENT_SECRET`
+filled in `.env` (see `.env.example`).
 
 On that machine (needs the `synapse-engine` checkout + venv from
 [Prerequisites](#prerequisites)):
@@ -213,11 +218,18 @@ On that machine (needs the `synapse-engine` checkout + venv from
 cd ~/Documents/code/synapse-engine
 python3 -m services.ingestion.tools.smartthings_cli auth
 ```
+Authorize in the browser, then paste the code httpbin's response page
+shows you back into the prompt.
 
 This writes `smartthings_token.json` to the checkout root — transferred to
 QNAP alongside `.env` in the next step (same pattern as Google's
 `token.json`; unlike E\*TRADE/Amazon Fresh there's no separate browser
 profile to carry, so it doesn't get its own `credentials/` subdirectory).
+
+This manual run is only needed once, for the initial `client_id`/`secret`
+and first token — after that, `/update-smartthings-auth` in Telegram
+handles reauthorization directly on QNAP with no SSH/scp (see
+[Token refresh](#token-refresh)).
 
 ## 10. Set up .env and config files
 
@@ -331,10 +343,15 @@ if the bot itself is unreachable).
 **SmartThings:** Refreshes silently on its own under normal (at-least-
 monthly) usage — no action needed. Only required if the CLI fails loud
 with `SmartThings auth expired` (refresh_token lapsed from 30+ days of
-inactivity). Re-auth locally, then copy the fresh token to QNAP and send
-`/update` via Telegram to restart:
+inactivity). Send `/update-smartthings-auth` to the bot in Telegram — same
+shape as Claude's re-auth above: it replies with an authorization URL,
+open it, sign in, and reply with the code SmartThings shows you (via the
+`https://httpbin.org/get` redirect page) — the bot exchanges and writes
+`smartthings_token.json` straight into its own container, no SSH/scp
+needed. Falls back to re-running step 9 manually and copying the token
+over (below) if the bot itself is down or unreachable:
 ```bash
-# Locally — re-run auth (opens a browser)
+# Locally — re-run auth (opens a browser, then prompts for the pasted code)
 cd ~/Documents/code/synapse-engine
 python3 -m services.ingestion.tools.smartthings_cli auth
 

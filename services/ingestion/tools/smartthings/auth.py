@@ -48,6 +48,14 @@ AUTHORIZE_URL = "https://api.smartthings.com/oauth/authorize"
 TOKEN_URL = "https://api.smartthings.com/oauth/token"
 SCOPES = "r:devices:* x:devices:*"
 
+# Public "echo my query string" page — SmartThings requires an HTTPS
+# redirect_uri and rejects http://localhost with 403 (confirmed live).
+# Nothing we control sits behind this URL; the human copies the `code`
+# value from its response and pastes it back to whichever caller asked
+# (smartthings_cli.py's terminal input(), or the Telegram
+# /update-smartthings-auth reply flow).
+DEFAULT_REDIRECT_URI = "https://httpbin.org/get"
+
 # Refresh this long before actual expiry so a request never races a
 # token that expires mid-flight.
 EXPIRY_BUFFER_SECONDS = 60

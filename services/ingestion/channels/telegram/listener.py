@@ -10,6 +10,7 @@ import functools
 import logging
 import os
 import re
+import secrets
 import signal
 import subprocess
 import time
@@ -39,6 +40,7 @@ from ...utils.html_utils import sanitize_telegram_html
 from ...utils.task_formatter import recover_task_from_callback
 from ...utils.form_formatter import render_form_display
 from ...tools.stocks import etrade_pin_auth
+from ...tools.smartthings import auth as smartthings_auth
 from .form_buttons import build_form_keyboard
 from .reply_dispatch import build_reply_keyboard, attach_form_message_id, safe_reply_text, safe_edit_text
 
@@ -54,6 +56,16 @@ _pending_retries: dict[int, dict] = {}
 # Pending Claude re-auth: maps user_key → {child, created_at} between the
 # "/update-claude-auth" URL reply and the user pasting back the OAuth code.
 _pending_claude_auth: dict[str, dict] = {}
+
+SMARTTHINGS_AUTH_TIMEOUT_SECONDS = 300
+
+# Pending SmartThings re-auth: maps user_key → {state, created_at} between
+# the "/update-smartthings-auth" URL reply and the user pasting back the
+# authorization code. No background job triggers this one (unlike E*TRADE's
+# PIN-auth fallback) — it's foreground-only, so the simpler
+# next-plain-text-message correlation Claude's auth uses is enough; no
+# reply_to_message tracking needed.
+_pending_smartthings_auth: dict[str, dict] = {}
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
@@ -224,6 +236,36 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             await message.reply_text(f"❌ Claude login failed:\n{output[-1500:]}")
         return
 
+    # Pending SmartThings re-auth: a plain-text reply while a login is in
+    # flight is treated as the pasted authorization code, not a normal
+    # prompt. Same shape as Claude's above — SmartThings requires an HTTPS
+    # redirect_uri and rejects http://localhost with 403 (confirmed), so
+    # there's no way to capture the redirect automatically; the code
+    # exchange itself is a single quick network call (unlike Claude's
+    # pexpect session), so it's called inline rather than via executor —
+    # matches E*TRADE's finish_pin_auth() precedent below.
+    pending_st_auth = _pending_smartthings_auth.get(user_key)
+    if pending_st_auth and not text.strip().startswith("/"):
+        if time.time() - pending_st_auth["created_at"] > SMARTTHINGS_AUTH_TIMEOUT_SECONDS:
+            del _pending_smartthings_auth[user_key]
+            await message.reply_text("SmartThings login expired. Run /update-smartthings-auth again.")
+            return
+        del _pending_smartthings_auth[user_key]
+        await message.reply_text("Completing SmartThings login...")
+        try:
+            token_response = smartthings_auth.exchange_code(
+                config.SMARTTHINGS_CLIENT_ID,
+                config.SMARTTHINGS_CLIENT_SECRET,
+                smartthings_auth.DEFAULT_REDIRECT_URI,
+                text.strip(),
+            )
+        except smartthings_auth.SmartThingsAuthError as e:
+            await message.reply_text(f"❌ SmartThings login failed: {e}")
+            return
+        smartthings_auth.save_token(config.SMARTTHINGS_TOKEN_PATH, token_response)
+        await message.reply_text("✅ SmartThings login successful.")
+        return
+
     # Pending E*TRADE re-auth: only a genuine Telegram reply to the prompt
     # message we sent counts as the pasted verification code — this must
     # never fall through to the general assistant/session dispatch below,
@@ -308,6 +350,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
             "/update-claude-auth — Re-authenticates the Claude CLI (OAuth login).\n"
             "/update-etrade-auth — Re-authenticates ETRADE (manual OAuth PIN).\n"
+            "/update-smartthings-auth — Re-authenticates SmartThings (manual OAuth code).\n"
             f"/provider <{'|'.join(user_visible_provider_names())}> — Switches the active AI provider.\n"
             "/help — Shows this help message."
         )
@@ -407,6 +450,30 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             f"{pending['authorize_url']}"
         )
         etrade_pin_auth.mark_prompt_sent(channel="telegram", chat_id=chat.id, prompt_message_id=sent.message_id)
+        return
+
+    # /update-smartthings-auth command — start (or restart) the SmartThings
+    # OAuth flow in place. SmartThings requires an HTTPS redirect_uri and
+    # rejects http://localhost with 403 (confirmed) — there's no local
+    # callback server to run, so this writes smartthings_token.json
+    # directly via the same functions smartthings_cli.py's `auth`
+    # subcommand uses, with the code arriving over Telegram instead of a
+    # terminal paste. Normally only needed once ever (initial setup is a
+    # manual local run — see qnap-setup.md); this exists for the rare case
+    # the refresh_token lapses from 30+ days of inactivity.
+    if stripped == "/update-smartthings-auth":
+        if not config.SMARTTHINGS_CLIENT_ID or not config.SMARTTHINGS_CLIENT_SECRET:
+            await message.reply_text("SMARTTHINGS_CLIENT_ID/SMARTTHINGS_CLIENT_SECRET not set in .env.")
+            return
+        state = secrets.token_urlsafe(16)
+        authorize_url = smartthings_auth.build_authorize_url(
+            config.SMARTTHINGS_CLIENT_ID, smartthings_auth.DEFAULT_REDIRECT_URI, state
+        )
+        _pending_smartthings_auth[user_key] = {"state": state, "created_at": time.time()}
+        await message.reply_text(
+            "Open this URL, sign in, and reply here with the code it gives you "
+            f"(expires in {SMARTTHINGS_AUTH_TIMEOUT_SECONDS // 60} min):\n{authorize_url}"
+        )
         return
 
     # /amazon command — interact with Amazon Fresh CLI

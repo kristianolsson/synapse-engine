@@ -946,6 +946,148 @@ class TestTelegramClaudeAuth:
         update.message.reply_text.assert_called_once_with("Stats display turned on.")
 
 
+# ── SmartThings re-auth tests ───────────────────────────────────────
+
+
+class TestTelegramSmartThingsAuth:
+    def setup_method(self):
+        listener._pending_smartthings_auth.clear()
+
+    def teardown_method(self):
+        listener._pending_smartthings_auth.clear()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.smartthings_auth")
+    async def test_update_smartthings_auth_replies_with_url(self, mock_auth, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.SMARTTHINGS_CLIENT_ID = "cid"
+        mock_config.SMARTTHINGS_CLIENT_SECRET = "secret"
+        mock_auth.DEFAULT_REDIRECT_URI = "https://httpbin.org/get"
+        mock_auth.build_authorize_url.return_value = "https://api.smartthings.com/oauth/authorize?client_id=cid"
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-smartthings-auth")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        assert "12345" in listener._pending_smartthings_auth
+        reply = update.message.reply_text.call_args[0][0]
+        assert "https://api.smartthings.com/oauth/authorize?client_id=cid" in reply
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    async def test_update_smartthings_auth_missing_credentials(self, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.SMARTTHINGS_CLIENT_ID = ""
+        mock_config.SMARTTHINGS_CLIENT_SECRET = ""
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-smartthings-auth")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        assert "12345" not in listener._pending_smartthings_auth
+        reply = update.message.reply_text.call_args[0][0]
+        assert "not set in .env" in reply
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.smartthings_auth")
+    async def test_pasted_code_completes_login(self, mock_auth, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.SMARTTHINGS_CLIENT_ID = "cid"
+        mock_config.SMARTTHINGS_CLIENT_SECRET = "secret"
+        mock_config.SMARTTHINGS_TOKEN_PATH = "smartthings_token.json"
+        mock_auth.DEFAULT_REDIRECT_URI = "https://httpbin.org/get"
+        mock_auth.exchange_code.return_value = {
+            "access_token": "AT", "refresh_token": "RT", "expires_in": 86400
+        }
+        mock_auth.SmartThingsAuthError = Exception
+        listener._pending_smartthings_auth["12345"] = {
+            "state": "expected-state",
+            "created_at": time.time(),
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="the-code")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_auth.exchange_code.assert_called_once_with(
+            "cid", "secret", "https://httpbin.org/get", "the-code"
+        )
+        mock_auth.save_token.assert_called_once_with(
+            "smartthings_token.json", mock_auth.exchange_code.return_value
+        )
+        assert "12345" not in listener._pending_smartthings_auth
+        replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+        assert any("successful" in r.lower() for r in replies)
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.smartthings_auth")
+    async def test_pasted_code_reports_failure(self, mock_auth, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.SMARTTHINGS_CLIENT_ID = "cid"
+        mock_config.SMARTTHINGS_CLIENT_SECRET = "secret"
+        mock_auth.DEFAULT_REDIRECT_URI = "https://httpbin.org/get"
+
+        class _AuthError(Exception):
+            pass
+
+        mock_auth.SmartThingsAuthError = _AuthError
+        mock_auth.exchange_code.side_effect = _AuthError("invalid code")
+        listener._pending_smartthings_auth["12345"] = {
+            "state": "expected-state",
+            "created_at": time.time(),
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="wrong-code")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        assert "12345" not in listener._pending_smartthings_auth
+        replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+        assert any("failed" in r.lower() for r in replies)
+        mock_auth.save_token.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.smartthings_auth")
+    async def test_expired_pending_auth_is_rejected(self, mock_auth, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        listener._pending_smartthings_auth["12345"] = {
+            "state": "expected-state",
+            "created_at": time.time() - listener.SMARTTHINGS_AUTH_TIMEOUT_SECONDS - 1,
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="the-code")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_auth.exchange_code.assert_not_called()
+        assert "12345" not in listener._pending_smartthings_auth
+        reply = update.message.reply_text.call_args[0][0]
+        assert "expired" in reply.lower()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.pipe_to_provider")
+    async def test_pending_auth_ignored_for_slash_commands(self, mock_pipe, mock_config):
+        """A slash command while a login is pending should not be swallowed as the code."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        listener._pending_smartthings_auth["12345"] = {
+            "state": "expected-state",
+            "created_at": time.time(),
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/stats on")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        # Pending auth should be untouched, and /stats should have run normally.
+        assert "12345" in listener._pending_smartthings_auth
+        update.message.reply_text.assert_called_once_with("Stats display turned on.")
+
+
 # ── E*TRADE re-auth tests ───────────────────────────────────────────
 
 

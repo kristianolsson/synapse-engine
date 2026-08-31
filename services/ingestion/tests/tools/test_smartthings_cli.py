@@ -1,5 +1,5 @@
-"""Tests for the smartthings CLI's auth subcommand: OAuth callback
-capture and the exchange/save/error-handling around it."""
+"""Tests for the smartthings CLI's auth subcommand: manual code-paste
+OAuth flow and the exchange/save/error-handling around it."""
 
 import argparse
 import json
@@ -25,9 +25,8 @@ def test_out_prints_json(capsys):
 
 
 def test_cmd_auth_happy_path_exchanges_and_saves_token(monkeypatch, tmp_path):
-    monkeypatch.setattr(smartthings_cli, "_capture_authorization_code", lambda port: ("the-code", "expected-state"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "the-code")
     monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: None)
-    monkeypatch.setattr(smartthings_cli.secrets, "token_urlsafe", lambda n: "expected-state")
 
     saved = {}
     monkeypatch.setattr(auth, "exchange_code", lambda cid, secret, redirect_uri, code: {
@@ -42,18 +41,14 @@ def test_cmd_auth_happy_path_exchanges_and_saves_token(monkeypatch, tmp_path):
         "device_cache_path": tmp_path / "cache.json",
         "device_cache_ttl": 300,
     }
-    args = argparse.Namespace(port=8765, redirect_uri=None)
+    args = argparse.Namespace(redirect_uri=None)
 
     smartthings_cli.cmd_auth(args, env)
     assert saved["access_token"] == "AT"
 
 
-def test_cmd_auth_redirect_uri_override_used_for_authorize_and_exchange(monkeypatch, tmp_path):
-    """SmartThings rejects a bare localhost redirect_uri with 403 — the
-    override must flow into both the authorize URL and the code exchange,
-    while the local capture server still listens on --port unchanged."""
-    monkeypatch.setattr(smartthings_cli, "_capture_authorization_code", lambda port: ("the-code", "expected-state"))
-    monkeypatch.setattr(smartthings_cli.secrets, "token_urlsafe", lambda n: "expected-state")
+def test_cmd_auth_uses_default_redirect_uri_when_not_overridden(monkeypatch, tmp_path):
+    monkeypatch.setattr("builtins.input", lambda prompt="": "the-code")
 
     opened_urls = []
     monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: opened_urls.append(url))
@@ -74,39 +69,31 @@ def test_cmd_auth_redirect_uri_override_used_for_authorize_and_exchange(monkeypa
         "device_cache_path": tmp_path / "cache.json",
         "device_cache_ttl": 300,
     }
-    args = argparse.Namespace(port=8765, redirect_uri="https://abc123.ngrok-free.app/callback")
+    args = argparse.Namespace(redirect_uri=None)
 
     smartthings_cli.cmd_auth(args, env)
 
-    assert "redirect_uri=https%3A%2F%2Fabc123.ngrok-free.app%2Fcallback" in opened_urls[0]
-    assert exchanged["redirect_uri"] == "https://abc123.ngrok-free.app/callback"
+    from urllib.parse import quote
+    assert f"redirect_uri={quote(auth.DEFAULT_REDIRECT_URI, safe='')}" in opened_urls[0]
+    assert exchanged["redirect_uri"] == auth.DEFAULT_REDIRECT_URI
 
 
-def test_cmd_auth_state_mismatch_fails_loud(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(smartthings_cli, "_capture_authorization_code", lambda port: ("the-code", "wrong-state"))
-    monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: None)
-    monkeypatch.setattr(smartthings_cli.secrets, "token_urlsafe", lambda n: "expected-state")
+def test_cmd_auth_redirect_uri_override_used_for_authorize_and_exchange(monkeypatch, tmp_path):
+    """A custom --redirect-uri must flow into both the authorize URL and
+    the code exchange — e.g. a self-hosted HTTPS page instead of httpbin."""
+    monkeypatch.setattr("builtins.input", lambda prompt="": "the-code")
 
-    env = {
-        "client_id": "cid",
-        "client_secret": "secret",
-        "token_path": tmp_path / "token.json",
-        "device_cache_path": tmp_path / "cache.json",
-        "device_cache_ttl": 300,
-    }
-    args = argparse.Namespace(port=8765, redirect_uri=None)
+    opened_urls = []
+    monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: opened_urls.append(url))
 
-    with pytest.raises(SystemExit):
-        smartthings_cli.cmd_auth(args, env)
-    out = json.loads(capsys.readouterr().out)
-    assert out["code"] == "auth_failed"
-    assert "state mismatch" in out["error"].lower()
+    exchanged = {}
 
+    def fake_exchange_code(cid, secret, redirect_uri, code):
+        exchanged["redirect_uri"] = redirect_uri
+        return {"access_token": "AT", "refresh_token": "RT", "expires_in": 86400}
 
-def test_cmd_auth_no_code_received_fails_loud(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(smartthings_cli, "_capture_authorization_code", lambda port: (None, "expected-state"))
-    monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: None)
-    monkeypatch.setattr(smartthings_cli.secrets, "token_urlsafe", lambda n: "expected-state")
+    monkeypatch.setattr(auth, "exchange_code", fake_exchange_code)
+    monkeypatch.setattr(auth, "save_token", lambda token_path, token_response: None)
 
     env = {
         "client_id": "cid",
@@ -115,7 +102,26 @@ def test_cmd_auth_no_code_received_fails_loud(monkeypatch, tmp_path, capsys):
         "device_cache_path": tmp_path / "cache.json",
         "device_cache_ttl": 300,
     }
-    args = argparse.Namespace(port=8765, redirect_uri=None)
+    args = argparse.Namespace(redirect_uri="https://example.com/callback")
+
+    smartthings_cli.cmd_auth(args, env)
+
+    assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcallback" in opened_urls[0]
+    assert exchanged["redirect_uri"] == "https://example.com/callback"
+
+
+def test_cmd_auth_no_code_entered_fails_loud(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: None)
+
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
+    args = argparse.Namespace(redirect_uri=None)
 
     with pytest.raises(SystemExit):
         smartthings_cli.cmd_auth(args, env)
@@ -123,55 +129,29 @@ def test_cmd_auth_no_code_received_fails_loud(monkeypatch, tmp_path, capsys):
     assert out["code"] == "auth_failed"
 
 
-def test_capture_authorization_code_reads_query_params_from_real_request():
-    import threading
-    import time
-    import requests as real_requests
+def test_cmd_auth_exchange_failure_fails_loud(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("builtins.input", lambda prompt="": "bad-code")
+    monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: None)
 
-    port = 18765
-    result = {}
+    def raise_auth_error(cid, secret, redirect_uri, code):
+        raise auth.SmartThingsAuthError("Code exchange failed (400): invalid_grant")
 
-    def run_capture():
-        result["code"], result["state"] = smartthings_cli._capture_authorization_code(port)
+    monkeypatch.setattr(auth, "exchange_code", raise_auth_error)
 
-    thread = threading.Thread(target=run_capture)
-    thread.start()
-    time.sleep(0.2)  # let the server start listening before we hit it
-    real_requests.get(f"http://localhost:{port}/callback?code=abc123&state=xyz789", timeout=5)
-    thread.join(timeout=5)
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
+    args = argparse.Namespace(redirect_uri=None)
 
-    assert result["code"] == "abc123"
-    assert result["state"] == "xyz789"
-
-
-def test_capture_authorization_code_ignores_stray_requests_and_waits_for_real_callback():
-    import threading
-    import time
-    import requests as real_requests
-
-    port = 18766
-    result = {}
-
-    def run_capture():
-        result["code"], result["state"] = smartthings_cli._capture_authorization_code(port)
-
-    thread = threading.Thread(target=run_capture)
-    thread.start()
-    time.sleep(0.2)  # let the server start listening before we hit it
-
-    # Send a stray request to /favicon.ico (should be ignored)
-    try:
-        real_requests.get(f"http://localhost:{port}/favicon.ico", timeout=5)
-    except Exception:
-        pass  # ignore failures from favicon request
-
-    # Now send the real callback request
-    real_requests.get(f"http://localhost:{port}/callback?code=xyz456&state=abc789", timeout=5)
-    thread.join(timeout=5)
-
-    # Verify the real callback was captured, not the stray request
-    assert result["code"] == "xyz456"
-    assert result["state"] == "abc789"
+    with pytest.raises(SystemExit):
+        smartthings_cli.cmd_auth(args, env)
+    out = json.loads(capsys.readouterr().out)
+    assert out["code"] == "auth_failed"
+    assert "invalid_grant" in out["error"]
 
 
 # ── Tests for list-devices, get-status, set-state, and helpers ──

@@ -12,7 +12,7 @@ Error codes:
   ambiguous     — Multiple devices matched the given name
 
 Usage:
-  smartthings auth [--port 8765] [--redirect-uri URL]
+  smartthings auth [--redirect-uri URL]
   smartthings list-devices
   smartthings get-status <device>
   smartthings set-state <device> <capability> <command> [args...]
@@ -57,76 +57,32 @@ def _load_env() -> dict:
     }
 
 
-def _capture_authorization_code(port: int) -> tuple:
-    """Blocks until a browser redirect to /callback hits the local callback
-    server, then returns (code, state) from its query string. Ignores stray
-    requests to other paths (e.g., /favicon.ico) and loops until the matching
-    callback is received, up to a cap of 20 stray requests."""
-    from http.server import BaseHTTPRequestHandler, HTTPServer
-    from urllib.parse import urlparse, parse_qs
-
-    captured = {}
-    stray_count = 0
-    MAX_STRAYS = 20
-
-    class _CallbackHandler(BaseHTTPRequestHandler):
-        def log_message(self, *a):
-            pass  # suppress default request logging to stderr
-
-        def do_GET(self):
-            nonlocal stray_count
-            path = urlparse(self.path).path
-            if path == "/callback":
-                params = parse_qs(urlparse(self.path).query)
-                captured["code"] = params.get("code", [None])[0]
-                captured["state"] = params.get("state", [None])[0]
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain")
-                self.end_headers()
-                self.wfile.write(b"SmartThings authorization complete. You can close this tab.")
-            else:
-                # Stray request (e.g., /favicon.ico), respond with 404 and loop
-                stray_count += 1
-                self.send_response(404)
-                self.send_header("Content-Type", "text/plain")
-                self.end_headers()
-                self.wfile.write(b"Not found.")
-
-    server = HTTPServer(("localhost", port), _CallbackHandler)
-    # Loop until we capture a real callback or hit the stray cap
-    while not captured and stray_count < MAX_STRAYS:
-        server.handle_request()  # blocks for exactly one request, then returns
-    return captured.get("code"), captured.get("state")
-
-
 # ── Subcommands ───────────────────────────────────────────────────────────────
 
 def cmd_auth(args, env: dict) -> None:
-    """One-time interactive OAuth flow: opens a browser, runs a local
-    callback server to capture the authorization code, exchanges it for
-    the first access/refresh token pair.
-
-    SmartThings' authorize endpoint rejects a bare `http://localhost`
-    redirect_uri (confirmed: 403 Forbidden). --redirect-uri lets the
-    registered app use a public HTTPS URL (e.g. an ngrok tunnel) that
-    forwards to this same local callback server on --port, so the
-    capture flow below is unchanged either way."""
+    """One-time interactive OAuth flow: opens a browser, then blocks on
+    input() for the human to paste back the authorization code SmartThings
+    puts in the redirect page's query string — same manual-code-entry shape
+    as E*TRADE's authenticate() in tools/stocks/auth.py, used there for the
+    same reason (no way to capture the redirect automatically)."""
     if not env["client_id"] or not env["client_secret"]:
         _err("SMARTTHINGS_CLIENT_ID and SMARTTHINGS_CLIENT_SECRET must be set in .env", "config_error")
 
-    redirect_uri = args.redirect_uri or f"http://localhost:{args.port}/callback"
+    redirect_uri = args.redirect_uri or auth.DEFAULT_REDIRECT_URI
     state = secrets.token_urlsafe(16)
     authorize_url = auth.build_authorize_url(env["client_id"], redirect_uri, state)
 
     print(f"Opening browser for SmartThings authorization:\n{authorize_url}", file=sys.stderr)
+    print(
+        f"\nAfter you authorize, SmartThings redirects to {redirect_uri} — "
+        "copy the 'code' value from its response.",
+        file=sys.stderr,
+    )
     webbrowser.open(authorize_url)
 
-    code, returned_state = _capture_authorization_code(args.port)
-
-    if returned_state != state:
-        _err("OAuth state mismatch — possible interference, aborting.", "auth_failed")
+    code = input("\nPaste the authorization code: ").strip()
     if not code:
-        _err("No authorization code received from SmartThings.", "auth_failed")
+        _err("No authorization code entered.", "auth_failed")
 
     try:
         token_response = auth.exchange_code(env["client_id"], env["client_secret"], redirect_uri, code)
@@ -223,16 +179,12 @@ def main():
 
     p_auth = sub.add_parser("auth", help="One-time interactive OAuth authorization")
     p_auth.add_argument(
-        "--port", type=int, default=8765,
-        help="Local callback port the capture server listens on",
-    )
-    p_auth.add_argument(
         "--redirect-uri", default=None,
         help=(
-            "Override the redirect_uri sent to SmartThings (default: "
-            "http://localhost:<port>/callback). SmartThings rejects a bare "
-            "localhost redirect_uri with 403 — use a public HTTPS URL (e.g. "
-            "an ngrok tunnel to <port>) registered on the SmartApp instead."
+            f"Override the redirect_uri sent to SmartThings (default: "
+            f"{auth.DEFAULT_REDIRECT_URI}). Must exactly match a redirect URI "
+            "registered on the SmartApp, and must be HTTPS — SmartThings "
+            "rejects http://localhost with 403."
         ),
     )
 
