@@ -42,10 +42,44 @@ def test_cmd_auth_happy_path_exchanges_and_saves_token(monkeypatch, tmp_path):
         "device_cache_path": tmp_path / "cache.json",
         "device_cache_ttl": 300,
     }
-    args = argparse.Namespace(port=8765)
+    args = argparse.Namespace(port=8765, redirect_uri=None)
 
     smartthings_cli.cmd_auth(args, env)
     assert saved["access_token"] == "AT"
+
+
+def test_cmd_auth_redirect_uri_override_used_for_authorize_and_exchange(monkeypatch, tmp_path):
+    """SmartThings rejects a bare localhost redirect_uri with 403 — the
+    override must flow into both the authorize URL and the code exchange,
+    while the local capture server still listens on --port unchanged."""
+    monkeypatch.setattr(smartthings_cli, "_capture_authorization_code", lambda port: ("the-code", "expected-state"))
+    monkeypatch.setattr(smartthings_cli.secrets, "token_urlsafe", lambda n: "expected-state")
+
+    opened_urls = []
+    monkeypatch.setattr(smartthings_cli.webbrowser, "open", lambda url: opened_urls.append(url))
+
+    exchanged = {}
+
+    def fake_exchange_code(cid, secret, redirect_uri, code):
+        exchanged["redirect_uri"] = redirect_uri
+        return {"access_token": "AT", "refresh_token": "RT", "expires_in": 86400}
+
+    monkeypatch.setattr(auth, "exchange_code", fake_exchange_code)
+    monkeypatch.setattr(auth, "save_token", lambda token_path, token_response: None)
+
+    env = {
+        "client_id": "cid",
+        "client_secret": "secret",
+        "token_path": tmp_path / "token.json",
+        "device_cache_path": tmp_path / "cache.json",
+        "device_cache_ttl": 300,
+    }
+    args = argparse.Namespace(port=8765, redirect_uri="https://abc123.ngrok-free.app/callback")
+
+    smartthings_cli.cmd_auth(args, env)
+
+    assert "redirect_uri=https%3A%2F%2Fabc123.ngrok-free.app%2Fcallback" in opened_urls[0]
+    assert exchanged["redirect_uri"] == "https://abc123.ngrok-free.app/callback"
 
 
 def test_cmd_auth_state_mismatch_fails_loud(monkeypatch, tmp_path, capsys):
@@ -60,7 +94,7 @@ def test_cmd_auth_state_mismatch_fails_loud(monkeypatch, tmp_path, capsys):
         "device_cache_path": tmp_path / "cache.json",
         "device_cache_ttl": 300,
     }
-    args = argparse.Namespace(port=8765)
+    args = argparse.Namespace(port=8765, redirect_uri=None)
 
     with pytest.raises(SystemExit):
         smartthings_cli.cmd_auth(args, env)
@@ -81,7 +115,7 @@ def test_cmd_auth_no_code_received_fails_loud(monkeypatch, tmp_path, capsys):
         "device_cache_path": tmp_path / "cache.json",
         "device_cache_ttl": 300,
     }
-    args = argparse.Namespace(port=8765)
+    args = argparse.Namespace(port=8765, redirect_uri=None)
 
     with pytest.raises(SystemExit):
         smartthings_cli.cmd_auth(args, env)

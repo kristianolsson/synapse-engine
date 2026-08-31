@@ -12,7 +12,7 @@ Error codes:
   ambiguous     — Multiple devices matched the given name
 
 Usage:
-  smartthings auth [--port 8765]
+  smartthings auth [--port 8765] [--redirect-uri URL]
   smartthings list-devices
   smartthings get-status <device>
   smartthings set-state <device> <capability> <command> [args...]
@@ -104,11 +104,17 @@ def _capture_authorization_code(port: int) -> tuple:
 def cmd_auth(args, env: dict) -> None:
     """One-time interactive OAuth flow: opens a browser, runs a local
     callback server to capture the authorization code, exchanges it for
-    the first access/refresh token pair."""
+    the first access/refresh token pair.
+
+    SmartThings' authorize endpoint rejects a bare `http://localhost`
+    redirect_uri (confirmed: 403 Forbidden). --redirect-uri lets the
+    registered app use a public HTTPS URL (e.g. an ngrok tunnel) that
+    forwards to this same local callback server on --port, so the
+    capture flow below is unchanged either way."""
     if not env["client_id"] or not env["client_secret"]:
         _err("SMARTTHINGS_CLIENT_ID and SMARTTHINGS_CLIENT_SECRET must be set in .env", "config_error")
 
-    redirect_uri = f"http://localhost:{args.port}/callback"
+    redirect_uri = args.redirect_uri or f"http://localhost:{args.port}/callback"
     state = secrets.token_urlsafe(16)
     authorize_url = auth.build_authorize_url(env["client_id"], redirect_uri, state)
 
@@ -218,7 +224,16 @@ def main():
     p_auth = sub.add_parser("auth", help="One-time interactive OAuth authorization")
     p_auth.add_argument(
         "--port", type=int, default=8765,
-        help="Local callback port (must match the SmartApp's registered redirect URI)",
+        help="Local callback port the capture server listens on",
+    )
+    p_auth.add_argument(
+        "--redirect-uri", default=None,
+        help=(
+            "Override the redirect_uri sent to SmartThings (default: "
+            "http://localhost:<port>/callback). SmartThings rejects a bare "
+            "localhost redirect_uri with 403 — use a public HTTPS URL (e.g. "
+            "an ngrok tunnel to <port>) registered on the SmartApp instead."
+        ),
     )
 
     sub.add_parser("list-devices", help="List all SmartThings devices")
