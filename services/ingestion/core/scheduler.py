@@ -522,9 +522,13 @@ class ReminderScheduler:
 
         # Save the session context for future replies if this is an email thread.
         # This allows the user to reply to the summary and continue the conversation.
+        # daily_reset=False: same rationale as channels/email/listener.py's own
+        # thread sessions — a reply may land a day or more later, and this
+        # session should live purely by SESSION_TTL_MINUTES, not also reset
+        # at the next midnight boundary.
         if channel == "email" and result.session_id:
             session_key = f"<{result.session_id}@synapse.local>"
-            self.session_manager.save_session(session_key, result.session_id)
+            self.session_manager.save_session(session_key, result.session_id, daily_reset=False)
 
         if channel == "email":
             subject = email_subject
