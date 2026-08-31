@@ -11,15 +11,16 @@ models. Follow steps in order.
 - A real data volume for persistent storage — this guide uses
   `<YOUR_VOLUME>` as a placeholder; substitute your NAS's actual volume
   name throughout
-- Steps 5-9 below authenticate things QNAP itself can't (it's headless).
+- Steps 5-10 below authenticate things QNAP itself can't (it's headless).
   What each needs varies:
   - **Step 5** (Claude): just a browser somewhere to open an OAuth URL —
     runs on QNAP itself over SSH, no separate machine needed.
   - **Step 6** (Gemini/Antigravity): a machine where those CLIs are already
     installed and authenticated (`~/.gemini` populated) — no
     `synapse-engine` checkout needed.
-  - **Steps 7-9** (E\*TRADE, Amazon Fresh, Google Calendar/Gmail): a
-    machine that's completed README.md's [Setup](README.md#setup) section —
+  - **Steps 7-10** (E\*TRADE, Amazon Fresh, SmartThings, Google
+    Calendar/Gmail): a machine that's completed README.md's
+    [Setup](README.md#setup) section —
     dependencies installed (`python3 -m venv venv && source
     venv/bin/activate && pip install -r requirements.txt`) and `.env`
     filled in — this guide doesn't recreate that first-time setup, it
@@ -112,7 +113,7 @@ chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
 
 Create the compose-local `.env` (drives `docker-compose.yml` variable
-substitution — separate from the runtime `.env` in step 9):
+substitution — separate from the runtime `.env` in step 10):
 ```bash
 cp "$SYNAPSE_HOST_DIR"/synapse-engine/.env.compose.example "$SYNAPSE_HOST_DIR"/synapse-engine/.env
 sed -i "s|SYNAPSE_HOST_DIR=.*|SYNAPSE_HOST_DIR=$SYNAPSE_HOST_DIR|" "$SYNAPSE_HOST_DIR"/synapse-engine/.env
@@ -196,7 +197,29 @@ On QNAP:
 chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json
 ```
 
-## 9. Set up .env and config files
+## 9. Set up SmartThings credentials (Optional)
+
+If you use the `smartthings` CLI, authenticate first on a machine with a
+browser — `smartthings auth` opens one to complete SmartThings' OAuth flow
+via a local callback server (`http://localhost:8765/callback`). This
+requires a SmartApp already registered in the SmartThings developer
+console with `r:devices:*`/`x:devices:*` scopes and that redirect URI, and
+`SMARTTHINGS_CLIENT_ID`/`SMARTTHINGS_CLIENT_SECRET` filled in `.env` (see
+`.env.example`).
+
+On that machine (needs the `synapse-engine` checkout + venv from
+[Prerequisites](#prerequisites)):
+```bash
+cd ~/Documents/code/synapse-engine
+python3 -m services.ingestion.tools.smartthings_cli auth
+```
+
+This writes `smartthings_token.json` to the checkout root — transferred to
+QNAP alongside `.env` in the next step (same pattern as Google's
+`token.json`; unlike E\*TRADE/Amazon Fresh there's no separate browser
+profile to carry, so it doesn't get its own `credentials/` subdirectory).
+
+## 10. Set up .env and config files
 
 On the machine where your `synapse-engine` checkout and its `.env` live
 (see [Prerequisites](#prerequisites)):
@@ -205,6 +228,7 @@ scp ~/Documents/code/synapse-engine/.env admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/.env
 scp ~/Documents/code/synapse-engine/calendars.json \
     ~/Documents/code/synapse-engine/credentials.json \
     ~/Documents/code/synapse-engine/token.json \
+    ~/Documents/code/synapse-engine/smartthings_token.json \
     admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/synapse-engine/
 ```
 
@@ -213,6 +237,9 @@ scp ~/Documents/code/synapse-engine/calendars.json \
 > re-run `python -m services.ingestion.tools.setup_google` locally to get a token with
 > both scopes before copying it to QNAP.
 
+> **Note:** omit `smartthings_token.json` from the scp command above if you
+> don't use the `smartthings` CLI — it only exists after step 9.
+
 > **Note:** this is the *runtime* `.env` (mounted into the container at
 > boot), separate from the compose-local `.env` created in step 4.
 
@@ -220,12 +247,12 @@ On QNAP:
 ```bash
 chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
-`./synapse.sh setup` in step 10 sets `VAULT_PATH`, `CLAUDE_CMD`, `AGY_CMD`,
+`./synapse.sh setup` in step 11 sets `VAULT_PATH`, `CLAUDE_CMD`, `AGY_CMD`,
 `SESSION_STORAGE_PATH`, and `REMINDERS_JSON_PATH` on
 `$SYNAPSE_HOST_DIR/.env` to their fixed container-internal values,
 overwriting whatever the copied `.env` had for them.
 
-## 10. Set up the vault and start
+## 11. Set up the vault and start
 
 ```bash
 cd "$SYNAPSE_HOST_DIR"/synapse-engine
@@ -233,14 +260,14 @@ cd "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
 
 This also creates `credentials/`/`data/` and sets the runtime `.env`
-defaults described in steps 6-9. If `$SYNAPSE_HOST_DIR/vault` doesn't exist
+defaults described in steps 6-10. If `$SYNAPSE_HOST_DIR/vault` doesn't exist
 yet, it prompts for one (see step 4); if `TZ` or `GIT_USER_NAME`/
 `GIT_USER_EMAIL` aren't set in the compose-local `.env` yet, it prompts for
 those too (the latter is required — `docker compose build` fails without
 it). Either way, it then builds the image and starts the containers
 (`docker compose build && docker compose up -d`).
 
-(Needs the runtime `.env` from step 9 to already exist at
+(Needs the runtime `.env` from step 10 to already exist at
 `$SYNAPSE_HOST_DIR/.env` — it exits with an error telling you so if it's
 missing.)
 
@@ -296,6 +323,23 @@ python -m services.ingestion.tools.setup_google
 
 # Copy fresh token to QNAP
 scp ~/Documents/code/synapse-engine/token.json \
+    admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/synapse-engine/
+```
+Then send `/update` via Telegram (or SSH in and run `./synapse.sh restart`
+if the bot itself is unreachable).
+
+**SmartThings:** Refreshes silently on its own under normal (at-least-
+monthly) usage — no action needed. Only required if the CLI fails loud
+with `SmartThings auth expired` (refresh_token lapsed from 30+ days of
+inactivity). Re-auth locally, then copy the fresh token to QNAP and send
+`/update` via Telegram to restart:
+```bash
+# Locally — re-run auth (opens a browser)
+cd ~/Documents/code/synapse-engine
+python3 -m services.ingestion.tools.smartthings_cli auth
+
+# Copy fresh token to QNAP
+scp ~/Documents/code/synapse-engine/smartthings_token.json \
     admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/synapse-engine/
 ```
 Then send `/update` via Telegram (or SSH in and run `./synapse.sh restart`

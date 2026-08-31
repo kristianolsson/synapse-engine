@@ -99,6 +99,19 @@ Each of these caused a real bug once. Don't reintroduce them.
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-etrade-pin-auth-fallback-and-retry-mechanism)
   first — the `SYNAPSE_*` env-var correlation mechanism spans four files and
   is easy to half-implement.
+- **New tool integration (`tools/<x>_cli.py` + optional `tools/<x>/`
+  package)? Mirror the closest existing integration's doc footprint, not
+  just this file's table.** Find the integration most like it (E\*TRADE or
+  Amazon Fresh for anything needing one-time interactive auth; Google for
+  shared-credential setups) and grep for where *it's* documented —
+  typically `README.md`'s Modules table, architecture diagram, and Setup
+  section; `qnap-setup.md`'s numbered credential-setup step and Token
+  refresh entry if local auth gets `scp`'d to QNAP; `.env.example`; this
+  file's "Where things live" table; `docs/ARCHITECTURE.md` only if the
+  integration is complex enough to earn a section there (most aren't — see
+  "Two CLI conventions in `tools/`"). Update every doc location the sibling
+  integration touches in the same change — a doc that's silent on the new
+  integration is stale the moment it merges, not just when someone notices.
 
 ## Running things
 
@@ -120,4 +133,5 @@ bash scripts/tests/test_*.sh          # deployment-dispatcher tests (one file pe
 | Email behavior | `channels/email/listener.py` + `reply.py` |
 | E*TRADE / options-bot | `tools/etrade_cli.py`, `tools/stocks/`, `tools/options_bot_cli.py` |
 | Gmail / Calendar | `tools/gmail_cli.py`, `tools/calendar_cli.py` — share OAuth conceptually (`get_credentials()`) though it's duplicated rather than actually shared today. `tools/calendar_mcp.py` (an MCP-protocol exposure of the same calendar functions, originally for Gemini CLI) is unused legacy — every calendar operation goes through the CLI, not MCP. Don't treat it as a live integration point. |
+| SmartThings / Home automation | `tools/smartthings_cli.py`, `tools/smartthings/` (`auth.py` OAuth2 token lifecycle, `client.py` REST wrapper, `resolver.py` device-name resolution). |
 | Deploying/updating the service (Mac `launchd` or QNAP/Docker) | `synapse.sh` (entrypoint) + `scripts/synapse-mac.sh`/`scripts/synapse-qnap.sh`/`scripts/synapse-common.sh` (shared helpers, vault clone/detach). See `README.md`'s Deployment section and `qnap-setup.md` for the user-facing walkthroughs these scripts implement. |

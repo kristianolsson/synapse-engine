@@ -235,7 +235,7 @@ today, each producer constructs its own `extra_env` dict.
 ## Two CLI conventions in `tools/`
 
 New tool CLIs (`etrade_cli.py`, `options_bot_cli.py`, `amazon_fresh_cli.py`,
-`reminder_cli.py`) follow one convention: JSON output via shared `_out(data)`/
+`reminder_cli.py`, `smartthings_cli.py`) follow one convention: JSON output via shared `_out(data)`/
 `_err(message, code)` helpers with a documented error-code taxonomy in the
 module docstring, `sys.path.insert(0, ...)` bootstrapping at the top, and path
 resolution exclusively through `services.ingestion.config` constants.

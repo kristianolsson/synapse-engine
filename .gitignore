@@ -11,6 +11,11 @@ calendars.json
 token.json
 credentials.json
 
+# SmartThings (OAuth token & device cache)
+smartthings_token.json
+smartthings_devices_cache.json
+*.json.tmp
+
 # Advisory lockfiles (fcntl.flock sidecars for reminders.json, token.json, etc.)
 *.json.lock
 

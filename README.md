@@ -61,11 +61,11 @@ flowchart TB
     subgraph exec["Agent Execution — serialized by GLOBAL_PROVIDER_LOCK"]
         direction TB
         VAULT[("Synapse Vault<br/>git-backed vault repo")]
-        TOOLS["Injected tool CLIs (bin/)<br/>calendar · gmail · etrade · options-bot · amazon-fresh · reminder"]
+        TOOLS["Injected tool CLIs (bin/)<br/>calendar · gmail · etrade · options-bot · amazon-fresh · reminder · smartthings"]
         VAULT --> TOOLS
     end
 
-    EXT["External APIs — Google · E*TRADE · Amazon"]
+    EXT["External APIs — Google · E*TRADE · Amazon · SmartThings"]
 
     EM --> RL
     TG --> RL
@@ -100,6 +100,7 @@ The service is organized into the following layers under `services/ingestion/`:
 | _via `bin/`)_ | `tools/etrade_cli.py` + `tools/stocks/` | E\*TRADE quotes, options, and positions (Playwright auth; falls back to a manual PIN-auth flow over Telegram/email when automated login is blocked — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)) |
 | | `tools/options_bot_cli.py` | Weekday options-opportunity scan → HTML report |
 | | `tools/amazon_fresh_cli.py` + `tools/amazon_fresh/` | Amazon Fresh grocery browsing (Playwright) |
+| | `tools/smartthings_cli.py` + `tools/smartthings/` | SmartThings device list/status/control (OAuth2, rate-limit backoff, TTL-cached device-name resolution) |
 | **Setup-only** | `tools/setup_google.py` | One-time OAuth2 setup for Calendar + Gmail — run manually, not agent-facing |
 | **Utils** | `utils/stats_formatter.py` | Per-channel token/cost/usage stats formatting |
 | | `utils/task_formatter.py` | Two-way task-completion parsing and formatting |
@@ -182,7 +183,7 @@ When interacting with the bot via Telegram, the following commands are available
 
 3.  **Install & run:** installation is deployment-specific — jump to [Deployment](#deployment) below and follow whichever fits:
     - **Option A — macOS (`launchd`)**: runs directly on your Mac in a local Python venv.
-    - **Option B — Docker / QNAP NAS**: runs in a container with everything bundled — no local venv needed to run the service itself. If you use Calendar/Gmail, E\*TRADE, or Amazon Fresh, though, you'll still need a local checkout + venv somewhere to bootstrap those credentials once — see [`qnap-setup.md`](qnap-setup.md)'s Prerequisites.
+    - **Option B — Docker / QNAP NAS**: runs in a container with everything bundled — no local venv needed to run the service itself. If you use Calendar/Gmail, E\*TRADE, Amazon Fresh, or SmartThings, though, you'll still need a local checkout + venv somewhere to bootstrap those credentials once — see [`qnap-setup.md`](qnap-setup.md)'s Prerequisites.
 
 ## Deployment
 
