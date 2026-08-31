@@ -61,7 +61,11 @@ class TestComputeNextFire:
 
     def test_daily_future_today(self):
         """If the time hasn't passed today, fires today."""
-        now = datetime.now(LOCAL_TZ)
+        # Anchored to noon (not live now()) so the +/-2h offset below never
+        # crosses a midnight boundary — it did, intermittently, when this
+        # ran within 2 hours of midnight, turning "future_time" into a
+        # time-of-day string that reads as already-past relative to `now`.
+        now = datetime.now(LOCAL_TZ).replace(hour=12, minute=0, second=0, microsecond=0)
         future_time = (now + timedelta(hours=2)).strftime("%H:%M")
         reminder = {"time": future_time, "recurring": "daily"}
         result = compute_next_fire(reminder, after=now)
@@ -70,7 +74,7 @@ class TestComputeNextFire:
 
     def test_daily_past_today(self):
         """If the time already passed today, fires tomorrow."""
-        now = datetime.now(LOCAL_TZ)
+        now = datetime.now(LOCAL_TZ).replace(hour=12, minute=0, second=0, microsecond=0)
         past_time = (now - timedelta(hours=2)).strftime("%H:%M")
         reminder = {"time": past_time, "recurring": "daily"}
         result = compute_next_fire(reminder, after=now)
@@ -79,7 +83,7 @@ class TestComputeNextFire:
 
     def test_weekly_same_day_future(self):
         """If today is the target day and time hasn't passed, fires today."""
-        now = datetime.now(LOCAL_TZ)
+        now = datetime.now(LOCAL_TZ).replace(hour=12, minute=0, second=0, microsecond=0)
         day_name = now.strftime("%A").lower()
         future_time = (now + timedelta(hours=2)).strftime("%H:%M")
         reminder = {"time": future_time, "day": day_name, "recurring": "weekly"}
@@ -89,7 +93,7 @@ class TestComputeNextFire:
 
     def test_weekly_same_day_past(self):
         """If today is the target day but time passed, fires next week."""
-        now = datetime.now(LOCAL_TZ)
+        now = datetime.now(LOCAL_TZ).replace(hour=12, minute=0, second=0, microsecond=0)
         day_name = now.strftime("%A").lower()
         past_time = (now - timedelta(hours=2)).strftime("%H:%M")
         reminder = {"time": past_time, "day": day_name, "recurring": "weekly"}
