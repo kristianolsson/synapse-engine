@@ -212,22 +212,20 @@ When interacting with the bot via Telegram, the following commands are available
        SMARTTHINGS_CLIENT_ID=<clientId>
        SMARTTHINGS_CLIENT_SECRET=<clientSecret>
        ```
-    5. Run this repo's own auth flow (opens a browser, then prompts you to paste back the code httpbin displays):
-       ```bash
-       python -m services.ingestion.tools.smartthings_cli auth
-       ```
-    6. Test it:
+    5. Get your first token — two ways to do this, pick one:
+       - **Run this repo's own auth flow locally** (opens a browser, then prompts you to paste back the code httpbin displays):
+         ```bash
+         python -m services.ingestion.tools.smartthings_cli auth
+         ```
+         Writes `smartthings_token.json` to this checkout — the right choice if you're running the service on this same machine, or if you're deploying to QNAP and will `scp` it over per `qnap-setup.md`.
+       - **Or, via Telegram, once the service is running** with the `.env` values from step 4 in place: restart it (send `/update` in Telegram, or run `./synapse.sh update` over SSH on QNAP), then send `/update-smartthings-auth` to the bot. It replies with the same authorization URL — open it, sign in, reply with the code — and writes the token directly wherever the service is running. No local Python checkout needed for this integration at all.
+    6. Test it (if you used the local CLI in step 5):
        ```bash
        python -m services.ingestion.tools.smartthings_cli list-devices
        ```
     7. Automatically injected as a global `smartthings` command to AI providers — no additional configuration needed.
 
-    This manual run is only needed once, to register the app and get the
-    first token. Deployed on QNAP? Reauthorizing later (the refresh token
-    lapses only after 30+ days idle) doesn't need this local flow again —
-    send `/update-smartthings-auth` to the bot in Telegram instead; it
-    exchanges and saves the token directly, no SSH needed (see
-    [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
+    Reauthorizing later (the refresh token lapses only after 30+ days idle) always works via `/update-smartthings-auth` in Telegram, regardless of which option you used for the first token (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
 
 3.  **Install & run:** installation is deployment-specific — jump to [Deployment](#deployment) below and follow whichever fits:
     - **Option A — macOS (`launchd`)**: runs directly on your Mac in a local Python venv.
