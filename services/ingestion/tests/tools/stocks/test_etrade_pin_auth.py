@@ -256,7 +256,7 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_telegram():
     # a bare unattributed instruction reads as a prompt injection attempt.
     assert "Type: telegram" in retry_prompt
     assert "Sender: user-1" in retry_prompt
-    mock_sm.save_session.assert_called_once_with("user-1", "sess-new")
+    mock_sm.save_session.assert_called_once_with("user-1", "sess-new", daily_reset=True)
     # The raw stats dict and a UserSession handle are forwarded as-is —
     # send_telegram_message does its own gating/formatting internally
     # (covered by test_sender.py), keyed off the same identity
@@ -284,7 +284,7 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_email():
     retry_prompt = mock_pipe.call_args.args[0]
     assert "Type: email" in retry_prompt
     assert "Sender: user@example.com" in retry_prompt
-    mock_sm.save_session.assert_called_once_with("<thread@synapse.local>", "sess-new")
+    mock_sm.save_session.assert_called_once_with("<thread@synapse.local>", "sess-new", daily_reset=False)
     # The raw stats dict and a UserSession handle are forwarded as-is —
     # send_reply does its own gating/formatting internally (covered by
     # test_reply.py). The handle's stats identity keys off the sender's

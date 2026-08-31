@@ -230,7 +230,12 @@ def complete_and_maybe_retry(pending: dict, session_manager) -> None:
             "— retry that now and complete my full original request."
         )
         from ...core.session_manager import UserSession
-        session = UserSession(session_manager, session_key, stats_key=sender)
+        # session_key is the email listener's own thread key when
+        # retry_channel is "email" (see channels/email/listener.py's
+        # SYNAPSE_SESSION_KEY correlation) — same daily_reset=False rationale
+        # applies: threads span multiple calendar days, so this session
+        # should live purely by SESSION_TTL_MINUTES.
+        session = UserSession(session_manager, session_key, stats_key=sender, daily_reset=retry_channel != "email")
         retry_prompt = sync_and_build_prompt(IncomingMessage(source_type=retry_channel, sender=sender or "system", body=retry_text))
         result = pipe_to_provider(retry_prompt, session_id=pending.get("session_id") or None)
         if result.session_id:

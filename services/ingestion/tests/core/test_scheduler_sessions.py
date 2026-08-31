@@ -41,7 +41,8 @@ class TestSchedulerSessions:
             # Should have saved session
             mock_save.assert_called_once_with(
                 f"<{returned_session_id}@synapse.local>",
-                returned_session_id
+                returned_session_id,
+                daily_reset=False,
             )
             
             # Should have delivered with session_id
