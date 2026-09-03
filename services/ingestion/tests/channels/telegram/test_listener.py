@@ -1099,6 +1099,7 @@ class TestTelegramEtradeAuth:
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
         mock_config.ETRADE_CONSUMER_KEY = "key"
         mock_config.ETRADE_CONSUMER_SECRET = "secret"
+        mock_etrade.load_pending.return_value = None
         mock_etrade.start_pin_auth.return_value = {"authorize_url": "https://us.etrade.com/authorize?token=abc"}
         mock_etrade.PENDING_TTL_SECONDS = 1800
         rl = RateLimiter(10, 60)
@@ -1107,8 +1108,8 @@ class TestTelegramEtradeAuth:
 
         await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
-        mock_etrade.clear_pending.assert_called_once()
         mock_etrade.start_pin_auth.assert_called_once_with("key", "secret")
+        mock_etrade.activate_pending_auth.assert_not_called()
         replies = [c[0][0] for c in update.message.reply_text.call_args_list]
         assert any("https://us.etrade.com/authorize?token=abc" in r for r in replies)
         mock_etrade.mark_prompt_sent.assert_called_once_with(
@@ -1120,6 +1121,7 @@ class TestTelegramEtradeAuth:
     @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
     async def test_update_etrade_auth_start_failure(self, mock_etrade, mock_config):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_etrade.load_pending.return_value = None
         mock_etrade.start_pin_auth.side_effect = RuntimeError("boom")
         rl = RateLimiter(10, 60)
         update = _make_update(text="/update-etrade-auth")
@@ -1129,6 +1131,68 @@ class TestTelegramEtradeAuth:
         mock_etrade.mark_prompt_sent.assert_not_called()
         reply = update.message.reply_text.call_args[0][0]
         assert "Failed to start E*TRADE login" in reply
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_update_etrade_auth_activates_existing_unactivated_pending(self, mock_etrade, mock_config):
+        """A scheduled job already left a skeleton (button-not-tapped-yet)
+        pending — running the manual command IS "I'm ready," so it should
+        activate that same pending (preserving whatever's queued onto it)
+        instead of clearing it and starting an uncorrelated fresh one."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.ETRADE_CONSUMER_KEY = "key"
+        mock_config.ETRADE_CONSUMER_SECRET = "secret"
+        mock_etrade.PENDING_TTL_SECONDS = 1800
+        existing = {"created_at": time.time(), "activated": False, "retries": [{"reminder_task": "scan AAPL"}]}
+        mock_etrade.load_pending.return_value = existing
+        mock_etrade.activate_pending_auth.return_value = {
+            **existing, "activated": True, "authorize_url": "https://us.etrade.com/authorize?token=fresh",
+        }
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-etrade-auth")
+        update.message.reply_text.return_value = MagicMock(message_id=555)
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.activate_pending_auth.assert_called_once_with("key", "secret")
+        mock_etrade.start_pin_auth.assert_not_called()
+        replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+        assert any("https://us.etrade.com/authorize?token=fresh" in r for r in replies)
+        mock_etrade.mark_prompt_sent.assert_called_once_with(
+            channel="telegram", chat_id=12345, prompt_message_id=555
+        )
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_update_etrade_auth_reuses_already_activated_pending(self, mock_etrade, mock_config):
+        """A pending is already activated (button already tapped, or a
+        prior manual run) — reuse its URL instead of fetching (and
+        wasting) a second E*TRADE request token, and don't drop whatever
+        is queued onto it."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_etrade.PENDING_TTL_SECONDS = 1800
+        existing = {
+            "created_at": time.time(), "activated": True,
+            "authorize_url": "https://us.etrade.com/authorize?token=existing",
+            "retries": [{"reminder_task": "scan AAPL"}],
+        }
+        mock_etrade.load_pending.return_value = existing
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-etrade-auth")
+        update.message.reply_text.return_value = MagicMock(message_id=555)
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        mock_etrade.start_pin_auth.assert_not_called()
+        mock_etrade.activate_pending_auth.assert_not_called()
+        replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+        assert any("https://us.etrade.com/authorize?token=existing" in r for r in replies)
+        assert any("already in progress" in r.lower() for r in replies)
+        mock_etrade.mark_prompt_sent.assert_called_once_with(
+            channel="telegram", chat_id=12345, prompt_message_id=555
+        )
 
     @pytest.mark.asyncio
     @patch("services.ingestion.channels.telegram.listener.config")
@@ -1281,6 +1345,124 @@ class TestTelegramEtradeAuth:
         await handle_message(update, None, rl, MagicMock(spec=SessionManager))
 
         mock_etrade.finish_pin_auth.assert_not_called()
+
+
+def _make_callback_update(chat_id=12345, message_id=555, data="etrade:activate", user_id=12345):
+    update = MagicMock()
+    update.callback_query.data = data
+    update.callback_query.from_user.id = user_id
+    update.callback_query.message.message_id = message_id
+    update.callback_query.message.chat.id = chat_id
+    update.callback_query.answer = AsyncMock()
+    update.callback_query.message.edit_text = AsyncMock()
+    return update
+
+
+class TestTelegramEtradeActivateCallback:
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_activate_button_fetches_url_and_edits_message_without_buttons(self, mock_etrade, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.ETRADE_CONSUMER_KEY = "key"
+        mock_config.ETRADE_CONSUMER_SECRET = "secret"
+        mock_etrade.PENDING_TTL_SECONDS = 1800
+        mock_etrade.load_pending.return_value = {
+            "created_at": time.time(), "activated": False,
+            "channel": "telegram", "chat_id": 12345, "prompt_message_id": 555, "retries": [],
+        }
+        mock_etrade.activate_pending_auth.return_value = {
+            "activated": True, "authorize_url": "https://us.etrade.com/authorize?token=fresh",
+        }
+        update = _make_callback_update()
+
+        await handle_callback_query(update, None, MagicMock(spec=SessionManager))
+
+        mock_etrade.activate_pending_auth.assert_called_once_with("key", "secret")
+        edit_args, edit_kwargs = update.callback_query.message.edit_text.call_args
+        assert "https://us.etrade.com/authorize?token=fresh" in edit_args[0]
+        assert edit_kwargs["reply_markup"] is None
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_activate_button_on_expired_pending_shows_expiry_message(self, mock_etrade, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_etrade.load_pending.return_value = None
+        update = _make_callback_update()
+
+        await handle_callback_query(update, None, MagicMock(spec=SessionManager))
+
+        mock_etrade.activate_pending_auth.assert_not_called()
+        edit_args, _ = update.callback_query.message.edit_text.call_args
+        assert "expired" in edit_args[0].lower()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_activate_button_on_mismatched_message_shows_expiry_message(self, mock_etrade, mock_config):
+        """A stale button from an older, already-superseded prompt (e.g. a
+        manual /update-etrade-auth run since sent a newer one) must not
+        activate against a pending that belongs to a different message."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_etrade.load_pending.return_value = {
+            "created_at": time.time(), "activated": False,
+            "channel": "telegram", "chat_id": 12345, "prompt_message_id": 999, "retries": [],
+        }
+        update = _make_callback_update(message_id=555)
+
+        await handle_callback_query(update, None, MagicMock(spec=SessionManager))
+
+        mock_etrade.activate_pending_auth.assert_not_called()
+        edit_args, _ = update.callback_query.message.edit_text.call_args
+        assert "expired" in edit_args[0].lower()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_activate_button_fetch_failure_clears_pending_and_reports_error(self, mock_etrade, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.ETRADE_CONSUMER_KEY = "key"
+        mock_config.ETRADE_CONSUMER_SECRET = "secret"
+        mock_etrade.load_pending.return_value = {
+            "created_at": time.time(), "activated": False,
+            "channel": "telegram", "chat_id": 12345, "prompt_message_id": 555, "retries": [],
+        }
+        mock_etrade.activate_pending_auth.side_effect = RuntimeError("boom")
+        update = _make_callback_update()
+
+        await handle_callback_query(update, None, MagicMock(spec=SessionManager))  # must not raise
+
+        mock_etrade.clear_pending.assert_called_once()
+        edit_args, _ = update.callback_query.message.edit_text.call_args
+        assert "failed" in edit_args[0].lower()
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.etrade_pin_auth")
+    async def test_activate_button_double_tap_is_idempotent(self, mock_etrade, mock_config):
+        """A double tap (or a tap after /update-etrade-auth already
+        activated the same pending) must not fetch a second token —
+        activate_pending_auth() itself is idempotent; the callback just
+        needs to redisplay whatever it returns without erroring."""
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.ETRADE_CONSUMER_KEY = "key"
+        mock_config.ETRADE_CONSUMER_SECRET = "secret"
+        mock_etrade.PENDING_TTL_SECONDS = 1800
+        mock_etrade.load_pending.return_value = {
+            "created_at": time.time(), "activated": True,
+            "channel": "telegram", "chat_id": 12345, "prompt_message_id": 555,
+            "authorize_url": "https://us.etrade.com/authorize?token=already", "retries": [],
+        }
+        mock_etrade.activate_pending_auth.return_value = {
+            "activated": True, "authorize_url": "https://us.etrade.com/authorize?token=already",
+        }
+        update = _make_callback_update()
+
+        await handle_callback_query(update, None, MagicMock(spec=SessionManager))  # must not raise
+
+        edit_args, _ = update.callback_query.message.edit_text.call_args
+        assert "https://us.etrade.com/authorize?token=already" in edit_args[0]
 
 
 @patch("services.ingestion.channels.telegram.listener.config")

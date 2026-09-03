@@ -437,18 +437,42 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
     # scheduled job's auth fallback (etrade_cli.py) — this command just
     # lets you kick it off proactively instead of waiting for one to fail.
     if stripped == "/update-etrade-auth":
-        etrade_pin_auth.clear_pending()
-        await message.reply_text("Starting E*TRADE login...")
-        try:
-            pending = etrade_pin_auth.start_pin_auth(config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET)
-        except Exception as e:
-            await message.reply_text(f"Failed to start E*TRADE login:\n{e}")
-            return
-        sent = await message.reply_text(
-            "Open this URL on your phone, log in normally, and reply to THIS message "
-            f"with the verification code it shows (expires in {etrade_pin_auth.PENDING_TTL_SECONDS // 60} min):\n"
-            f"{pending['authorize_url']}"
-        )
+        existing = etrade_pin_auth.load_pending()
+        if existing and existing.get("activated"):
+            # Reuse the already-fetched token/URL instead of clearing it —
+            # clearing would silently drop any scheduled jobs already
+            # queued onto it (see queue_retry), and E*TRADE tokens aren't
+            # meant to be fetched twice for one login.
+            pending = existing
+            n = len(pending.get("retries", []))
+            note = f" ({n} scheduled task{'s' if n != 1 else ''} waiting on it)" if n else ""
+            sent = await message.reply_text(
+                f"A login is already in progress{note}. Open this URL, log in, and reply to THIS "
+                f"message with the verification code:\n{pending['authorize_url']}"
+            )
+        else:
+            await message.reply_text("Starting E*TRADE login...")
+            try:
+                if existing:
+                    # A scheduled job's pending is waiting on a button tap
+                    # — running this command IS "I'm ready," so activate
+                    # it now instead of also requiring the tap, preserving
+                    # whatever's already queued onto it.
+                    pending = etrade_pin_auth.activate_pending_auth(
+                        config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
+                    )
+                else:
+                    pending = etrade_pin_auth.start_pin_auth(
+                        config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET
+                    )
+            except Exception as e:
+                await message.reply_text(f"Failed to start E*TRADE login:\n{e}")
+                return
+            sent = await message.reply_text(
+                "Open this URL on your phone, log in normally, and reply to THIS message "
+                f"with the verification code it shows (expires in {etrade_pin_auth.PENDING_TTL_SECONDS // 60} min):\n"
+                f"{pending['authorize_url']}"
+            )
         etrade_pin_auth.mark_prompt_sent(channel="telegram", chat_id=chat.id, prompt_message_id=sent.message_id)
         return
 
@@ -770,6 +794,58 @@ async def _handle_form_submit(query, context, session_manager: SessionManager) -
     form_state.delete_form(form_id)
 
 
+async def _handle_etrade_activate(query) -> None:
+    """Handle a tap on the deferred E*TRADE re-auth prompt's "I'm ready"
+    button: fetch the real request token/URL now (etrade_cli.py deferred
+    this to keep E*TRADE's own short-lived clock from running out while
+    the prompt sat unread) and edit the same message in place to show it,
+    dropping the button so it can't be double-tapped. Any queued retries
+    (see etrade_pin_auth.queue_retry) ride this same activation."""
+    pending = etrade_pin_auth.load_pending()
+    if (
+        pending is None
+        or pending.get("channel") != "telegram"
+        or pending.get("chat_id") != query.message.chat.id
+        or pending.get("prompt_message_id") != query.message.message_id
+    ):
+        await query.answer("This login request has expired.", show_alert=True)
+        await safe_edit_text(
+            query.message,
+            "This E*TRADE login request has expired. Run /update-etrade-auth to try again.",
+            reply_markup=None,
+        )
+        return
+
+    await query.answer("Getting your login link...")
+    try:
+        activated = etrade_pin_auth.activate_pending_auth(config.ETRADE_CONSUMER_KEY, config.ETRADE_CONSUMER_SECRET)
+    except Exception as e:
+        logger.warning("E*TRADE activate_pending_auth failed: %s", e)
+        etrade_pin_auth.clear_pending()
+        await safe_edit_text(
+            query.message,
+            f"Failed to start E*TRADE login:\n{e}\n\nRun /update-etrade-auth to try again.",
+            reply_markup=None,
+        )
+        return
+
+    if activated is None:
+        await safe_edit_text(
+            query.message,
+            "This E*TRADE login request has expired. Run /update-etrade-auth to try again.",
+            reply_markup=None,
+        )
+        return
+
+    await safe_edit_text(
+        query.message,
+        "Open this URL on your phone, log in normally, and reply to THIS message with the "
+        f"verification code (expires in {etrade_pin_auth.PENDING_TTL_SECONDS // 60} min):\n"
+        f"{activated['authorize_url']}",
+        reply_markup=None,
+    )
+
+
 async def handle_callback_query(update: Update, context, session_manager: SessionManager) -> None:
     """
     Handle inline keyboard button presses for task completion, undo, and forms.
@@ -796,6 +872,9 @@ async def handle_callback_query(update: Update, context, session_manager: Sessio
         return
     if query.data.startswith("formsubmit:"):
         await _handle_form_submit(query, context, session_manager)
+        return
+    if query.data == "etrade:activate":
+        await _handle_etrade_activate(query)
         return
 
     is_done = query.data.startswith("done_")

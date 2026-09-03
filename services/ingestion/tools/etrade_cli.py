@@ -61,33 +61,50 @@ def _load_env() -> dict:
     }
 
 
-def _send_pin_auth_prompt(pending: dict) -> bool:
-    """Notify the user that E*TRADE needs manual re-authentication, via
-    whichever channel is configured, and record which one so the reply
-    can be matched back to this prompt. Returns True if a prompt was
-    actually delivered."""
+def _send_pin_auth_prompt(pending: dict, use_telegram: bool) -> bool:
+    """Notify the user that E*TRADE needs manual re-authentication, and
+    record which channel/message so the reply can be matched back to
+    this prompt. Returns True if a prompt was actually delivered.
+
+    Telegram gets a button ("I'm ready") instead of a URL — the real
+    request-token fetch (which starts E*TRADE's own short-lived clock) is
+    deferred until the listener process handles that tap, or a manual
+    /update-etrade-auth run (see etrade_pin_auth.activate_pending_auth),
+    so it isn't burned by however long this message sits unread. Email
+    has no interactive buttons, so it keeps sending the URL immediately —
+    `pending['authorize_url']` must already be populated by
+    start_pin_auth() before this is called in that case."""
     from services.ingestion import config
     from services.ingestion.tools.stocks import etrade_pin_auth
 
-    prompt_text = (
-        "E*TRADE needs manual re-authentication — automated login is blocked "
-        "by their fraud detection.\n\n"
-        f"Open this link on your phone and log in normally:\n{pending['authorize_url']}\n\n"
-        "E*TRADE will show a verification code on screen — reply to this "
-        "message with that code to finish."
-    )
-
-    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_ALLOWED_USER_IDS:
+    if use_telegram:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         from services.ingestion.channels.telegram.sender import send_telegram_message
+
+        prompt_text = (
+            "E*TRADE needs manual re-authentication — automated login is blocked "
+            "by their fraud detection.\n\n"
+            "Tap below when you're ready to log in — E*TRADE's login links expire "
+            "fast, so I'll hold off generating yours until you're actually about to use it."
+        )
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ I'm ready", callback_data="etrade:activate")]])
         chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
-        message_id = send_telegram_message(chat_id, prompt_text)
+        message_id = send_telegram_message(chat_id, prompt_text, reply_markup=keyboard)
         if message_id:
             etrade_pin_auth.mark_prompt_sent(channel="telegram", chat_id=chat_id, prompt_message_id=message_id)
             return True
+        return False
 
     if config.REPLY_TO_ADDRESS:
         import email.utils
         from services.ingestion.channels.email.reply import send_reply
+        prompt_text = (
+            "E*TRADE needs manual re-authentication — automated login is blocked "
+            "by their fraud detection.\n\n"
+            f"Open this link on your phone and log in normally:\n{pending['authorize_url']}\n\n"
+            "E*TRADE will show a verification code on screen — reply to this "
+            "message with that code to finish."
+        )
         subject = "Synapse: E*TRADE re-authentication needed"
         prompt_message_id = email.utils.make_msgid()
         if send_reply(
@@ -101,36 +118,45 @@ def _send_pin_auth_prompt(pending: dict) -> bool:
 
 def _fallback_to_pin_auth(env: dict, original_error: Exception) -> None:
     """Automated login failed with no one there to complete it — send a
-    manual PIN-auth prompt via Telegram/email and exit. The listener that
-    receives the reply completes the exchange (see etrade_pin_auth.py and
-    the /update-etrade-auth wiring). Always exits via _err()."""
+    manual PIN-auth prompt via Telegram/email and exit, or if one is
+    already in flight, queue this job's retry onto it instead of losing
+    it. The listener that receives the reply completes the exchange (see
+    etrade_pin_auth.py and the /update-etrade-auth wiring). Always exits
+    via _err()."""
+    from services.ingestion import config
     from services.ingestion.tools.stocks import etrade_pin_auth
 
     logger.warning("Automated E*TRADE login failed (%s) — sending manual re-auth prompt", original_error)
 
-    if etrade_pin_auth.load_pending():
-        _err(
-            "E*TRADE authentication failed and a re-auth prompt is already pending — "
-            "reply to it with the verification code.",
-            "auth_pending",
-        )
+    use_telegram = bool(config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_ALLOWED_USER_IDS)
+    existing = etrade_pin_auth.load_pending()
+    first_job = existing is None
 
-    try:
-        pending = etrade_pin_auth.start_pin_auth(env["consumer_key"], env["consumer_secret"])
-    except Exception as e:
-        _err(f"E*TRADE authentication failed ({original_error}); could not start PIN fallback: {e}", "auth_failed")
+    if first_job:
+        if use_telegram:
+            pending = etrade_pin_auth.create_pending_request()
+        else:
+            try:
+                pending = etrade_pin_auth.start_pin_auth(env["consumer_key"], env["consumer_secret"])
+            except Exception as e:
+                _err(
+                    f"E*TRADE authentication failed ({original_error}); could not start PIN fallback: {e}",
+                    "auth_failed",
+                )
+    else:
+        pending = existing
 
     # Capture retry correlation, if the caller supplied any (set by the
     # channel listeners / scheduler via pipe_to_provider's extra_env).
-    # Presence of session_key or reminder_task is what marks this pending
-    # request as retryable — a manual /update-etrade-auth run never sets
-    # these, so it's correctly excluded from any retry attempt.
-    correlation = {}
+    # Presence of session_key or reminder_task is what marks this entry
+    # as retryable — a manual /update-etrade-auth run never sets these,
+    # so it's correctly excluded from any retry attempt.
+    entry = {}
     session_key = os.environ.get("SYNAPSE_SESSION_KEY", "")
     reminder_task = os.environ.get("SYNAPSE_REMINDER_TASK", "")
     if session_key:
-        correlation["session_key"] = session_key
-        correlation["session_id"] = os.environ.get("SYNAPSE_SESSION_ID", "")
+        entry["session_key"] = session_key
+        entry["session_id"] = os.environ.get("SYNAPSE_SESSION_ID", "")
         # Clean "<tool> <args>" display (e.g. "etrade balance"), not
         # sys.argv[0]'s raw interpreter path — an absolute internal script
         # path surfacing in a supposedly-user message reads as an attempt to
@@ -140,28 +166,41 @@ def _fallback_to_pin_auth(env: dict, original_error: Exception) -> None:
         if tool_name.endswith(".py"):
             tool_name = tool_name[:-3]
         tool_name = tool_name.removesuffix("_cli").replace("_", "-")
-        correlation["failed_command"] = " ".join([tool_name] + sys.argv[1:])
+        entry["failed_command"] = " ".join([tool_name] + sys.argv[1:])
     elif reminder_task:
-        correlation["reminder_task"] = reminder_task
-    if correlation:
+        entry["reminder_task"] = reminder_task
+    if entry:
         retry_channel = os.environ.get("SYNAPSE_CHANNEL", "")
         if retry_channel:
-            correlation["retry_channel"] = retry_channel
+            entry["retry_channel"] = retry_channel
         if os.environ.get("SYNAPSE_CHAT_ID"):
-            # Separate field from the plain `chat_id` that
-            # _send_pin_auth_prompt's mark_prompt_sent() call writes right
-            # after this (the chat the PIN PROMPT itself was sent to) — a
-            # dict.update() merge would otherwise silently clobber this
-            # with the wrong chat when the two differ.
-            correlation["retry_chat_id"] = int(os.environ["SYNAPSE_CHAT_ID"])
+            # Separate field from the pending's own `chat_id` (the chat
+            # the PIN PROMPT itself was sent to, set by
+            # _send_pin_auth_prompt's mark_prompt_sent() call) — this is
+            # the chat this specific job's retry result should go to.
+            entry["retry_chat_id"] = int(os.environ["SYNAPSE_CHAT_ID"])
         if os.environ.get("SYNAPSE_EMAIL_TO"):
-            correlation["email_to"] = os.environ["SYNAPSE_EMAIL_TO"]
-            correlation["email_subject"] = os.environ.get("SYNAPSE_EMAIL_SUBJECT", "")
-            correlation["email_message_id"] = os.environ.get("SYNAPSE_EMAIL_MESSAGE_ID", "")
-            correlation["email_references"] = os.environ.get("SYNAPSE_EMAIL_REFERENCES", "")
-        etrade_pin_auth.mark_prompt_sent(**correlation)
+            entry["email_to"] = os.environ["SYNAPSE_EMAIL_TO"]
+            entry["email_subject"] = os.environ.get("SYNAPSE_EMAIL_SUBJECT", "")
+            entry["email_message_id"] = os.environ.get("SYNAPSE_EMAIL_MESSAGE_ID", "")
+            entry["email_references"] = os.environ.get("SYNAPSE_EMAIL_REFERENCES", "")
+        etrade_pin_auth.queue_retry(entry)
 
-    if not _send_pin_auth_prompt(pending):
+    if not first_job:
+        if entry:
+            logger.info("E*TRADE re-auth already pending — queued this task's retry onto it.")
+            _err(
+                "E*TRADE authentication failed — a re-auth prompt is already pending; this task's "
+                "retry was queued onto it and will run once you complete that login.",
+                "auth_pending",
+            )
+        _err(
+            "E*TRADE authentication failed and a re-auth prompt is already pending — "
+            "reply to it with the verification code.",
+            "auth_pending",
+        )
+
+    if not _send_pin_auth_prompt(pending, use_telegram):
         etrade_pin_auth.clear_pending()
         _err(
             f"E*TRADE authentication failed ({original_error}); no Telegram/email channel "

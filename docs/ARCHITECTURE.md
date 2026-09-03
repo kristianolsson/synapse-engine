@@ -195,9 +195,40 @@ verification code, and whichever listener receives that reply completes the
 token exchange.
 
 What makes this more than a one-off auth prompt: once the human completes the
-PIN, the **original request that triggered the fallback** gets retried
-automatically, and the result is delivered back to wherever that original
-request came from — even if the PIN reply arrived on a different channel.
+PIN, **every job that failed while this login was in flight** gets retried
+automatically, and each result is delivered back to wherever that job's
+original request came from — even if the PIN reply arrived on a different
+channel than any of them.
+
+**Telegram gets a deferred, button-gated login link; email gets one
+immediately.** E*TRADE's request token has its own short server-side expiry
+that starts ticking the moment it's fetched — if the login URL is generated
+right when the job fails, it can go stale before anyone actually opens it
+(the message may sit unread for a while). So for Telegram, `_fallback_to_pin_auth`
+writes a bare pending record (`etrade_pin_auth.create_pending_request()`, no
+E*TRADE call yet) and sends a message with a single "✅ I'm ready" inline
+button (`callback_data="etrade:activate"`) instead of a URL. Only when that
+button is tapped — handled by `channels/telegram/listener.py`'s
+`_handle_etrade_activate` — does `etrade_pin_auth.activate_pending_auth()`
+actually fetch the request token and edit the same message in place to show
+the URL, dropping the button so it can't be double-tapped. Running
+`/update-etrade-auth` manually also counts as "I'm ready" and activates an
+already-waiting pending immediately instead of requiring the tap too. Email
+has no interactive buttons, so it keeps the immediate-URL behavior:
+`start_pin_auth()` fetches the token eagerly, the same as before.
+
+**Several jobs failing while one login is in flight all ride the same
+login.** Rather than each failure starting (or being locked out of) its own
+pending record, the pending record holds a `retries` list: the first job to
+fail creates the record (and, for Telegram, sends the one button); any later
+job that fails while a pending record already exists — whether still waiting
+on the button or already activated — just appends its own retry-correlation
+entry onto that same list via `etrade_pin_auth.queue_retry()`, with no new
+message sent. Completing the one login (`complete_and_maybe_retry`) then
+loops over `retries` and replays/delivers every entry independently; one
+entry failing doesn't stop the rest. A manual `/update-etrade-auth` run
+against an already-pending record preserves whatever's queued on it rather
+than clearing it — clearing would silently orphan those jobs.
 
 This works by threading a small set of `SYNAPSE_*` environment variables from
 whichever component made the original dispatch call, down through
@@ -214,17 +245,22 @@ environment:
 | `SYNAPSE_REMINDER_TASK` | Scheduler | The literal reminder text to replay fresh (scheduled case — never has a session to resume) |
 
 `etrade_cli.py`'s `_fallback_to_pin_auth` reads whichever of these are
-present and merges them onto a pending-request record
-(`~/.etrade_pending_auth.json`, 30-minute TTL). **Presence of
-`SYNAPSE_SESSION_KEY` or `SYNAPSE_REMINDER_TASK` is itself the signal that
-this fallback was triggered by a task failure** (as opposed to a manual
-`/update-etrade-auth` run, which sets none of these and is correctly excluded
-from any retry). Once the human completes the PIN,
+present and queues them as one entry on the pending-request record's
+`retries` list (`~/.etrade_pending_auth.json`, single 120-minute TTL,
+restarted from `activate_pending_auth()`'s fetch so the window covers "time
+to tap the button" and "time to finish login and paste the code" either
+way). **Presence of `SYNAPSE_SESSION_KEY` or `SYNAPSE_REMINDER_TASK` is
+itself the signal that this fallback was triggered by a task failure** (as
+opposed to a manual `/update-etrade-auth` run, which sets none of these and
+so queues nothing). Once the human completes the PIN,
 `tools/stocks/etrade_pin_auth.py`'s `complete_and_maybe_retry(pending,
-session_manager)` either resumes the exact failed session (interactive case)
-or replays the reminder task fresh via the same call shape
-`scheduler.py`'s `_handle_work_reminder` uses (scheduled case), then delivers
-the result back via the stored channel/target.
+session_manager)` iterates `retries` and, per entry, either resumes the
+exact failed session (interactive case) or replays the reminder task fresh
+via the same call shape `scheduler.py`'s `_handle_work_reminder` uses
+(scheduled case), then delivers each result back via its own stored
+channel/target — falling back to the pending record's own `chat_id` (the
+chat the login prompt was sent to) when an entry doesn't carry one of its
+own, which is always true for the reminder case.
 
 If you're adding a new dispatch site that could hit an E*TRADE auth wall
 (or extending this mechanism to another tool), thread the same `SYNAPSE_*`

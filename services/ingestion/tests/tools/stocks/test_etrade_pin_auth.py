@@ -158,6 +158,78 @@ def test_mark_prompt_sent_is_noop_when_no_pending_request():
     assert etrade_pin_auth.load_pending() is None
 
 
+def test_create_pending_request_writes_skeleton_with_no_oauth_call(pending_file):
+    pending = etrade_pin_auth.create_pending_request()
+
+    assert pending["activated"] is False
+    assert pending["retries"] == []
+    assert "created_at" in pending
+    assert "oauth_token" not in pending
+
+    on_disk = etrade_pin_auth.load_pending()
+    assert on_disk == pending
+
+
+def test_queue_retry_appends_entry_onto_existing_pending(pending_file):
+    etrade_pin_auth.create_pending_request()
+
+    etrade_pin_auth.queue_retry({"reminder_task": "task A"})
+    etrade_pin_auth.queue_retry({"session_key": "user-1"})
+
+    on_disk = etrade_pin_auth.load_pending()
+    assert on_disk["retries"] == [{"reminder_task": "task A"}, {"session_key": "user-1"}]
+
+
+def test_queue_retry_is_noop_when_no_pending_request():
+    etrade_pin_auth.queue_retry({"reminder_task": "task A"})  # must not raise
+    assert etrade_pin_auth.load_pending() is None
+
+
+def test_activate_pending_auth_fetches_token_and_merges_onto_skeleton(pending_file):
+    etrade_pin_auth.create_pending_request()
+    etrade_pin_auth.queue_retry({"reminder_task": "task A"})
+
+    fake_session = MagicMock()
+    fake_session.fetch_request_token.return_value = {
+        "oauth_token": "REQ_TOKEN",
+        "oauth_token_secret": "REQ_SECRET",
+    }
+
+    with patch.object(etrade_pin_auth, "OAuth1Session", return_value=fake_session):
+        pending = etrade_pin_auth.activate_pending_auth("consumer_key", "consumer_secret")
+
+    assert pending["activated"] is True
+    assert pending["oauth_token"] == "REQ_TOKEN"
+    assert pending["oauth_token_secret"] == "REQ_SECRET"
+    assert pending["authorize_url"] == "https://us.etrade.com/e/t/etws/authorize?key=consumer_key&token=REQ_TOKEN"
+    # Correlation queued before activation must survive it.
+    assert pending["retries"] == [{"reminder_task": "task A"}]
+
+    on_disk = etrade_pin_auth.load_pending()
+    assert on_disk["oauth_token"] == "REQ_TOKEN"
+
+
+def test_activate_pending_auth_returns_none_when_no_pending_request():
+    assert etrade_pin_auth.activate_pending_auth("key", "secret") is None
+
+
+def test_activate_pending_auth_is_idempotent_when_already_activated(pending_file):
+    """A stale button tap after a manual /update-etrade-auth run already
+    activated the same pending (or a double tap) must not fetch a second,
+    wasted E*TRADE request token."""
+    pending_file.write_text(json.dumps({
+        "created_at": time.time(), "activated": True,
+        "oauth_token": "EXISTING", "oauth_token_secret": "S", "authorize_url": "https://x/y",
+        "retries": [],
+    }))
+
+    with patch.object(etrade_pin_auth, "OAuth1Session") as mock_session_cls:
+        pending = etrade_pin_auth.activate_pending_auth("key", "secret")
+
+    mock_session_cls.assert_not_called()
+    assert pending["oauth_token"] == "EXISTING"
+
+
 def test_finish_pin_auth_returns_access_token():
     fake_session = MagicMock()
     fake_session.token = {"oauth_token": "ACCESS_TOKEN", "oauth_token_secret": "ACCESS_SECRET"}
@@ -190,45 +262,63 @@ def test_save_access_token_writes_expected_schema(token_file):
 def test_backfill_session_id_fills_empty_session_id_when_key_matches(pending_file):
     pending_file.write_text(json.dumps({
         "oauth_token": "t", "oauth_token_secret": "s", "created_at": time.time(),
-        "session_key": "user-1", "session_id": "",
+        "retries": [{"session_key": "user-1", "session_id": ""}],
     }))
 
     etrade_pin_auth.backfill_session_id("user-1", "sess-abc")
 
-    assert etrade_pin_auth.load_pending()["session_id"] == "sess-abc"
+    assert etrade_pin_auth.load_pending()["retries"][0]["session_id"] == "sess-abc"
 
 
 def test_backfill_session_id_noop_when_key_does_not_match(pending_file):
     pending_file.write_text(json.dumps({
         "oauth_token": "t", "oauth_token_secret": "s", "created_at": time.time(),
-        "session_key": "user-1", "session_id": "",
+        "retries": [{"session_key": "user-1", "session_id": ""}],
     }))
 
     etrade_pin_auth.backfill_session_id("user-2", "sess-abc")
 
-    assert etrade_pin_auth.load_pending()["session_id"] == ""
+    assert etrade_pin_auth.load_pending()["retries"][0]["session_id"] == ""
 
 
 def test_backfill_session_id_noop_when_already_set(pending_file):
     pending_file.write_text(json.dumps({
         "oauth_token": "t", "oauth_token_secret": "s", "created_at": time.time(),
-        "session_key": "user-1", "session_id": "sess-original",
+        "retries": [{"session_key": "user-1", "session_id": "sess-original"}],
     }))
 
     etrade_pin_auth.backfill_session_id("user-1", "sess-new")
 
-    assert etrade_pin_auth.load_pending()["session_id"] == "sess-original"
+    assert etrade_pin_auth.load_pending()["retries"][0]["session_id"] == "sess-original"
 
 
 def test_backfill_session_id_noop_when_new_session_id_empty(pending_file):
     pending_file.write_text(json.dumps({
         "oauth_token": "t", "oauth_token_secret": "s", "created_at": time.time(),
-        "session_key": "user-1", "session_id": "",
+        "retries": [{"session_key": "user-1", "session_id": ""}],
     }))
 
     etrade_pin_auth.backfill_session_id("user-1", "")
 
-    assert etrade_pin_auth.load_pending()["session_id"] == ""
+    assert etrade_pin_auth.load_pending()["retries"][0]["session_id"] == ""
+
+
+def test_backfill_session_id_fills_matching_entry_among_several_queued():
+    pending_file_path = etrade_pin_auth.PENDING_FILE
+    pending_file_path.write_text(json.dumps({
+        "created_at": time.time(),
+        "retries": [
+            {"reminder_task": "scan AAPL"},
+            {"session_key": "user-1", "session_id": ""},
+            {"session_key": "user-2", "session_id": ""},
+        ],
+    }))
+
+    etrade_pin_auth.backfill_session_id("user-1", "sess-abc")
+
+    retries = etrade_pin_auth.load_pending()["retries"]
+    assert retries[1]["session_id"] == "sess-abc"
+    assert retries[2]["session_id"] == ""
 
 
 def test_backfill_session_id_noop_when_no_pending_request():
@@ -237,10 +327,10 @@ def test_backfill_session_id_noop_when_no_pending_request():
 
 
 def test_complete_and_maybe_retry_resumes_session_and_delivers_via_telegram():
-    pending = {
+    pending = {"retries": [{
         "session_key": "user-1", "session_id": "sess-abc",
-        "failed_command": "etrade balance", "retry_channel": "telegram", "chat_id": 555,
-    }
+        "failed_command": "etrade balance", "retry_channel": "telegram", "retry_chat_id": 555,
+    }]}
     fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000", stats={"cost": 0.01})
     mock_sm = MagicMock()
 
@@ -267,12 +357,12 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_telegram():
 
 
 def test_complete_and_maybe_retry_resumes_session_and_delivers_via_email():
-    pending = {
+    pending = {"retries": [{
         "session_key": "<thread@synapse.local>", "session_id": "",
         "failed_command": "etrade balance", "retry_channel": "email",
         "email_to": "user@example.com", "email_subject": "Check my balance",
         "email_message_id": "<orig@example.com>", "email_references": "<orig@example.com>",
-    }
+    }]}
     fake_result = MagicMock(session_id="sess-new", output="Your balance is $1,000", stats={"cost": 0.01})
     mock_sm = MagicMock()
 
@@ -300,7 +390,9 @@ def test_complete_and_maybe_retry_resumes_session_and_delivers_via_email():
 
 
 def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_email():
-    pending = {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "email", "email_to": "user@example.com"}
+    pending = {"retries": [
+        {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "email", "email_to": "user@example.com"},
+    ]}
     fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities", stats={"cost": 0.01})
     mock_sm = MagicMock()
 
@@ -329,7 +421,14 @@ def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_email()
 
 
 def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_telegram():
-    pending = {"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "telegram", "chat_id": 555}
+    # Reminder entries never carry their own chat_id (SYNAPSE_CHAT_ID is
+    # never set for the scheduled/reminder case — see
+    # _fallback_to_pin_auth) — delivery falls back to the *pending's*
+    # chat_id, the chat the login prompt itself was sent to.
+    pending = {
+        "chat_id": 555,
+        "retries": [{"reminder_task": "Run options-bot scan --tickers AAPL,MSFT", "retry_channel": "telegram"}],
+    }
     fake_result = MagicMock(session_id="sess-new", output="Found 2 opportunities", stats={"cost": 0.01})
     mock_sm = MagicMock()
 
@@ -348,6 +447,33 @@ def test_complete_and_maybe_retry_replays_reminder_task_and_delivers_via_telegra
     mock_send.assert_called_once_with(555, "Found 2 opportunities", stats={"cost": 0.01}, session=ANY)
     session_arg = mock_send.call_args.kwargs["session"]
     assert session_arg.stats_key == "999"
+
+
+def test_complete_and_maybe_retry_delivers_every_queued_entry():
+    """Two jobs (one interactive, one a reminder) both fail while the same
+    E*TRADE login is in flight and queue onto it (see queue_retry) — once
+    it completes, both must be retried and delivered independently."""
+    pending = {
+        "chat_id": 555,
+        "retries": [
+            {"session_key": "user-1", "session_id": "sess-abc", "failed_command": "etrade balance", "retry_channel": "telegram"},
+            {"reminder_task": "Run options-bot scan --tickers AAPL", "retry_channel": "telegram"},
+        ],
+    }
+    fake_result = MagicMock(session_id="sess-new", output="ok", stats=None)
+    mock_sm = MagicMock()
+
+    with patch("services.ingestion.core.pipe.pipe_to_provider", return_value=fake_result) as mock_pipe, \
+         patch("services.ingestion.channels.telegram.sender.send_telegram_message") as mock_send, \
+         patch("services.ingestion.config") as mock_config:
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [999]
+
+        etrade_pin_auth.complete_and_maybe_retry(pending, mock_sm)
+
+    assert mock_pipe.call_count == 2
+    assert mock_send.call_count == 2
+    assert mock_send.call_args_list[0].args[0] == 555
+    assert mock_send.call_args_list[1].args[0] == 555
 
 
 def test_complete_and_maybe_retry_noop_when_no_retry_fields():
