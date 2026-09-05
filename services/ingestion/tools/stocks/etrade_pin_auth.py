@@ -104,6 +104,23 @@ def clear_pending() -> None:
     PENDING_FILE.unlink(missing_ok=True)
 
 
+def _retry_identity(entry: dict) -> Optional[tuple]:
+    """Stable identity for a queued retry entry, used by queue_retry() to
+    collapse repeat failures of the same logical job instead of queuing a
+    duplicate replay of it. Keyed by whichever correlation field the entry
+    carries (see _fallback_to_pin_auth): session_key for the interactive
+    case (a retried tool call within the same conversation turn resumes
+    the same session), reminder_task for the scheduled case (a retried
+    tool call within the same reminder firing replays the same task
+    text). Returns None for an entry with neither — nothing to dedupe
+    against, so it's always queued."""
+    if entry.get("session_key"):
+        return ("session", entry["session_key"])
+    if entry.get("reminder_task"):
+        return ("reminder", entry["reminder_task"])
+    return None
+
+
 def queue_retry(entry: dict) -> None:
     """Append a retry-correlation entry (session-resume or reminder-replay
     shape — see complete_and_maybe_retry) onto the pending request's
@@ -111,11 +128,25 @@ def queue_retry(entry: dict) -> None:
     already in flight all queue onto the same pending request instead of
     each starting (or being locked out of) their own — completing that
     one login retries all of them. No-op if there's no pending request
-    (e.g. it expired first)."""
+    (e.g. it expired first).
+
+    Collapses onto an existing entry with the same _retry_identity()
+    instead of appending a second one — a single logical job (one
+    reminder firing, one conversation turn) can hit this fallback more
+    than once, e.g. an agent retrying its own failed tool call, and each
+    such retry must not queue its own extra replay (confirmed root cause
+    of a real double-email incident: one options-bot reminder firing
+    queued two identical entries, and completing the one login replayed
+    the same scan twice)."""
     pending = load_pending()
     if pending is None:
         return
-    pending.setdefault("retries", []).append(entry)
+    retries = pending.setdefault("retries", [])
+    identity = _retry_identity(entry)
+    if identity is not None and any(_retry_identity(e) == identity for e in retries):
+        logger.info("queue_retry: duplicate retry for %r already queued — collapsing", identity)
+        return
+    retries.append(entry)
     PENDING_FILE.write_text(json.dumps(pending))
 
 

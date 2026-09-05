@@ -230,6 +230,20 @@ entry failing doesn't stop the rest. A manual `/update-etrade-auth` run
 against an already-pending record preserves whatever's queued on it rather
 than clearing it — clearing would silently orphan those jobs.
 
+**One logical job can hit this fallback more than once — `queue_retry()`
+collapses those onto a single entry instead of queuing a duplicate
+replay.** A reminder firing is one `pipe_to_provider` call, but nothing
+stops the agent inside that one call from retrying its own failed
+`options-bot`/`etrade` tool invocation before giving up — each retried
+invocation runs `_fallback_to_pin_auth` again with the identical
+`SYNAPSE_REMINDER_TASK` (or, interactively, the identical
+`SYNAPSE_SESSION_KEY`). `queue_retry()` keys each entry by
+`_retry_identity()` (session_key, or reminder_task text) and no-ops if an
+entry with that same identity is already queued, so repeat failures of one
+job collapse onto the one entry that was there first. Without this, one
+login completion replayed the same options-bot scan twice and sent two
+duplicate emails — confirmed in production.
+
 This works by threading a small set of `SYNAPSE_*` environment variables from
 whichever component made the original dispatch call, down through
 `pipe_to_provider`'s `extra_env` parameter, into the E*TRADE CLI subprocess's

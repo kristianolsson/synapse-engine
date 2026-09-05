@@ -185,6 +185,47 @@ def test_queue_retry_is_noop_when_no_pending_request():
     assert etrade_pin_auth.load_pending() is None
 
 
+def test_queue_retry_collapses_duplicate_reminder_task(pending_file):
+    """Reproduces the double-email bug: an agent retrying a failed
+    options-bot tool call within the same reminder firing calls
+    _fallback_to_pin_auth twice with the identical SYNAPSE_REMINDER_TASK.
+    Both queue onto the one pending request, but only one should end up
+    in `retries` — otherwise complete_and_maybe_retry replays the same
+    job twice and the user gets two emails from one login."""
+    etrade_pin_auth.create_pending_request()
+
+    etrade_pin_auth.queue_retry({"reminder_task": "Run options-bot scan --tickers AAPL", "retry_channel": "telegram"})
+    etrade_pin_auth.queue_retry({"reminder_task": "Run options-bot scan --tickers AAPL", "retry_channel": "telegram"})
+
+    on_disk = etrade_pin_auth.load_pending()
+    assert on_disk["retries"] == [{"reminder_task": "Run options-bot scan --tickers AAPL", "retry_channel": "telegram"}]
+
+
+def test_queue_retry_collapses_duplicate_session_key(pending_file):
+    """Same collapse behavior for the interactive (session-resume) shape —
+    a retried tool call within the same conversation turn must not queue
+    a second resume of the same session."""
+    etrade_pin_auth.create_pending_request()
+
+    etrade_pin_auth.queue_retry({"session_key": "user-1", "failed_command": "etrade balance"})
+    etrade_pin_auth.queue_retry({"session_key": "user-1", "failed_command": "etrade balance"})
+
+    on_disk = etrade_pin_auth.load_pending()
+    assert on_disk["retries"] == [{"session_key": "user-1", "failed_command": "etrade balance"}]
+
+
+def test_queue_retry_keeps_distinct_reminder_tasks(pending_file):
+    """Two different scheduled jobs failing while one login is in flight
+    are genuinely distinct — both must still be queued and replayed."""
+    etrade_pin_auth.create_pending_request()
+
+    etrade_pin_auth.queue_retry({"reminder_task": "task A"})
+    etrade_pin_auth.queue_retry({"reminder_task": "task B"})
+
+    on_disk = etrade_pin_auth.load_pending()
+    assert on_disk["retries"] == [{"reminder_task": "task A"}, {"reminder_task": "task B"}]
+
+
 def test_activate_pending_auth_fetches_token_and_merges_onto_skeleton(pending_file):
     etrade_pin_auth.create_pending_request()
     etrade_pin_auth.queue_retry({"reminder_task": "task A"})
