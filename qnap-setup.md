@@ -260,6 +260,10 @@ scp ~/Documents/code/synapse-engine/calendars.json \
 
 > **Note:** this is the *runtime* `.env` (mounted into the container at
 > boot), separate from the compose-local `.env` created in step 4.
+> Docker reads it only when the container is created, so after editing it
+> later run `docker compose up -d --force-recreate` from
+> `$SYNAPSE_HOST_DIR/synapse-engine` — `/update` and `./synapse.sh restart`
+> reuse the old environment.
 
 On QNAP:
 ```bash
