@@ -184,21 +184,32 @@ def cmd_list_events(days: int = None, date: str = "", calendar: str = "",
         cal_list = filtered
 
     all_events = []
+    warnings = []
+    fetched_calendars = 0
 
     for cal in cal_list:
         cal_id = cal["id"]
         label = cal.get("label", cal_id)
+        cal_events = []
         try:
-            result = service.events().list(
-                calendarId=cal_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                singleEvents=True,
-                orderBy="startTime",
-                maxResults=100,
-            ).execute()
+            # Follow nextPageToken so long ranges never silently drop later events
+            page_token = None
+            while True:
+                result = service.events().list(
+                    calendarId=cal_id,
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    singleEvents=True,
+                    orderBy="startTime",
+                    maxResults=250,
+                    pageToken=page_token,
+                ).execute()
+                cal_events.extend(result.get("items", []))
+                page_token = result.get("nextPageToken")
+                if not page_token:
+                    break
 
-            for event in result.get("items", []):
+            for event in cal_events:
                 start_raw = event["start"].get("dateTime", event["start"].get("date", ""))
                 end_raw = event["end"].get("dateTime", event["end"].get("date", ""))
                 is_all_day = "dateTime" not in event["start"]
@@ -214,8 +225,9 @@ def cmd_list_events(days: int = None, date: str = "", calendar: str = "",
                     "location": event.get("location", ""),
                     "description": event.get("description", ""),
                 })
+            fetched_calendars += 1
         except Exception as e:
-            out.write(f"Warning: Could not fetch events from '{label}': {e}\n")
+            warnings.append(f"Warning: Could not fetch events from '{label}': {e}\n")
 
     # Sort: normalize all datetimes to local tz for correct ordering
     def sort_key(e):
@@ -225,9 +237,18 @@ def cmd_list_events(days: int = None, date: str = "", calendar: str = "",
 
     all_events.sort(key=sort_key)
 
+    # Summary goes first so it survives if the output is cut off downstream
+    for warning in warnings:
+        out.write(warning)
+
     if not all_events:
         out.write(f"No events found for {range_desc}.")
         return out.getvalue()
+
+    total = len(all_events)
+    failed = f" ({len(warnings)} failed, see warnings)" if warnings else ""
+    out.write(f"# Found {total} event(s) across {fetched_calendars} calendar(s){failed} for {range_desc}. "
+              f"Output ends with '— end of {total} events —'; if missing, the output was truncated.\n")
 
     # Group by local date and format
     current_date = None
@@ -273,6 +294,7 @@ def cmd_list_events(days: int = None, date: str = "", calendar: str = "",
         description = f"\n  {event['description']}" if event["description"] else ""
         out.write(f"- {time_str} | {event['summary']}{cal_label}{location}{event_id}{description}\n")
 
+    out.write(f"\n— end of {total} events —\n")
     return out.getvalue()
 
 

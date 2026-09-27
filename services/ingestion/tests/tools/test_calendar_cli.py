@@ -189,6 +189,52 @@ class TestListEvents:
         assert "Sarah" in result
         assert "Kids Sports" in result
 
+    def test_list_events_follows_pagination(self, sample_calendars, mock_google_modules):
+        """Later pages must be fetched, not silently dropped."""
+        cal_cli = mock_google_modules["module"]
+        service = mock_google_modules["service"]
+
+        def event(day, summary):
+            return {
+                "start": {"dateTime": f"2026-03-{day:02d}T10:00:00-08:00"},
+                "end": {"dateTime": f"2026-03-{day:02d}T11:00:00-08:00"},
+                "summary": summary,
+            }
+
+        service.events().list().execute.side_effect = [
+            {"items": [event(1, "Page one")], "nextPageToken": "tok"},
+            {"items": [event(20, "Page two")]},
+            {"items": []},
+            {"items": []},
+        ]
+
+        result = cal_cli.cmd_list_events(days=30, calendars=sample_calendars, service=service)
+
+        assert "Page one" in result
+        assert "Page two" in result
+        assert "Found 2 event(s) across 3 calendar(s)" in result
+        assert service.events().list.call_args_list[-3].kwargs["pageToken"] == "tok"
+
+    def test_list_events_summary_header_and_end_marker(self, sample_calendars, mock_google_modules):
+        cal_cli = mock_google_modules["module"]
+        service = mock_google_modules["service"]
+
+        service.events().list().execute.side_effect = [
+            {"items": [{
+                "start": {"dateTime": "2026-03-01T10:00:00-08:00"},
+                "end": {"dateTime": "2026-03-01T11:00:00-08:00"},
+                "summary": "Meeting",
+            }]},
+            Exception("API error"),
+            {"items": []},
+        ]
+
+        result = cal_cli.cmd_list_events(calendars=sample_calendars, service=service)
+
+        header = result.index("Found 1 event(s) across 2 calendar(s) (1 failed, see warnings)")
+        assert result.index("Warning: Could not fetch") < header < result.index("Meeting")
+        assert result.rstrip().endswith("— end of 1 events —")
+
     def test_list_events_empty(self, sample_calendars, mock_google_modules):
         cal_cli = mock_google_modules["module"]
         service = mock_google_modules["service"]
