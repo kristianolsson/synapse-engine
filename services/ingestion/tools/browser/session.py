@@ -212,8 +212,10 @@ class Session:
         ]
 
     async def snapshot(self, page) -> tuple:
-        raw = await page.aria_snapshot(mode="ai")
+        # doc id first: if a navigation lands mid-snapshot, the old refs are filed under the
+        # old doc id and resolve as stale_ref instead of pointing into the new document.
         doc = await doc_id(page)
+        raw = await page.aria_snapshot(mode="ai")
         nodes = self._remap(page, doc, filter_interactive(parse(raw)))
         raw = _RAW_REF_RE.sub(lambda m: f"[ref={self._display_ref(page, doc, m.group(1))}]", raw)
         reverse = {d: pw for pw, d in self._ref_maps.get((page, doc), {}).items()}

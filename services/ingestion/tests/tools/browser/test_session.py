@@ -194,3 +194,25 @@ async def test_start_failure_after_launch_closes_browser(tmp_path):
         with pytest.raises(RuntimeError, match="boom"):
             await s.start()
     assert runtime.find_browser(profile) is None
+
+
+class _NavigatingPage:
+    """Fake page whose document changes while aria_snapshot runs."""
+
+    def __init__(self):
+        self.doc = "old-doc"
+
+    async def aria_snapshot(self, mode):
+        self.doc = "new-doc"  # a navigation lands mid-snapshot
+        return '- button "Old" [ref=e1]'
+
+    async def evaluate(self, js):
+        return self.doc
+
+
+async def test_snapshot_reads_doc_id_before_aria_snapshot(tmp_path):
+    s = Session(profile=tmp_path / "p", artifacts=tmp_path / "a", allow_private=True)
+    page = _NavigatingPage()
+    _raw, _prev, state = await s.snapshot(page)
+    # Refs from the old document must be filed under the old doc id, so they go stale.
+    assert state.doc == "old-doc"
