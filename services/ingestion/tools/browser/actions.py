@@ -272,7 +272,8 @@ class Actions:
         try:
             result = await page.evaluate(_require(req, "js"))
         except PlaywrightError as e:
-            raise BrowserError(f"eval failed: {_first_line(e)}", "eval_error") from e
+            raise BrowserError("eval threw an exception (message omitted: page-controlled)", "eval_error",
+                               {"untrusted": _first_line(e)}) from e
         return await self._info(page, json.dumps(result, ensure_ascii=False, default=str, indent=1))
 
     async def _run(self, req: dict) -> dict:
@@ -288,9 +289,11 @@ class Actions:
             try:
                 resp = await self.execute(step)
             except BrowserError as e:
-                raise BrowserError(f"step {i} ({step['cmd']}) failed: {e.message}", e.code,
-                                   {"completed": completed}) from e
-            completed.append({"step": i, "cmd": step["cmd"], "url": resp["header"]["url"],
-                              "settled": resp["header"].get("settled")})
+                details = {"completed": completed}
+                if e.details and "untrusted" in e.details:
+                    details["untrusted"] = e.details["untrusted"]
+                raise BrowserError(f"step {i} ({step['cmd']}) failed: {e.message}", e.code, details) from e
+            # No url here: steps also land in error details on stderr, which must stay page-text free.
+            completed.append({"step": i, "cmd": step["cmd"], "settled": resp["header"].get("settled")})
         resp["header"]["steps"] = completed
         return resp

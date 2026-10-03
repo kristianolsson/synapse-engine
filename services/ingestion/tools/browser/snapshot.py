@@ -43,7 +43,8 @@ def parse(text: str) -> list:
     try:
         data = yaml.load(text, Loader=yaml.BaseLoader) if text.strip() else None
     except yaml.YAMLError as e:
-        raise BrowserError(f"could not parse page snapshot: {e}", "browser_error")
+        # The parser message quotes the page, so it goes in details.untrusted, not the message.
+        raise BrowserError("could not parse page snapshot", "browser_error", {"untrusted": str(e)})
     if data is not None and not isinstance(data, list):
         raise BrowserError(f"could not parse page snapshot: expected list, got {type(data).__name__}", "browser_error")
     return [n for n in (_parse_item(i) for i in data or []) if n]

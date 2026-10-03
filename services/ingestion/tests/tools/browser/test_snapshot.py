@@ -182,7 +182,8 @@ def test_parse_invalid_yaml_raises_browser_error():
     with pytest.raises(BrowserError) as exc_info:
         parse(invalid_yaml)
     assert exc_info.value.code == "browser_error"
-    assert "could not parse page snapshot" in exc_info.value.message
+    assert exc_info.value.message == "could not parse page snapshot"
+    assert "indentation" in exc_info.value.details["untrusted"]  # parser text quotes the page
 
 
 def test_parse_non_list_input_raises_browser_error():

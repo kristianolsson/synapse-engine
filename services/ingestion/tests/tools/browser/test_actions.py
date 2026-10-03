@@ -167,6 +167,8 @@ async def test_screenshot_and_eval(act, site):
     with pytest.raises(BrowserError) as e:
         await act.execute({"cmd": "eval", "js": "(() => { throw new Error('boom') })()"})
     assert e.value.code == "eval_error"
+    assert "boom" not in e.value.message  # page-controlled text stays out of the message
+    assert "boom" in e.value.details["untrusted"]
 
 
 async def test_back(act, site):
@@ -187,6 +189,15 @@ async def test_run_batch_and_failure(act, site):
         await act.execute({"cmd": "run", "steps": [{"cmd": "snapshot"}, {"cmd": "click", "ref": "e9999"}]})
     assert e.value.code == "stale_ref" and e.value.message.startswith("step 2 (click) failed")
     assert e.value.details["completed"][0]["cmd"] == "snapshot"
+    assert "url" not in e.value.details["completed"][0]  # page-derived, kept out of stderr
+
+
+async def test_run_failure_keeps_inner_untrusted_details(act, site):
+    await act.execute({"cmd": "open", "url": site + "/page2.html"})
+    with pytest.raises(BrowserError) as e:
+        await act.execute({"cmd": "run", "steps": [{"cmd": "eval", "js": "(() => { throw new Error('boom') })()"}]})
+    assert "boom" not in e.value.message
+    assert "boom" in e.value.details["untrusted"]
 
 
 async def test_unknown_command_and_bad_mode(act):
