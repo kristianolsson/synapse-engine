@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
@@ -21,6 +22,10 @@ logger = logging.getLogger("browser.session")
 class SnapState:
     doc: Optional[str]
     nodes: list
+    refs: dict = field(default_factory=dict)  # display ref -> Playwright ref
+
+
+_RAW_REF_RE = re.compile(r"\[ref=([^\]]+)\]")
 
 
 def _empty_events() -> dict:
@@ -36,6 +41,8 @@ class Session:
         self.current = 0
         self.trackers: dict = {}
         self.last: dict = {}
+        self._ref_counter = 0
+        self._ref_maps: dict = {}  # (page, doc) -> {pw_ref: display_ref}
         self.events = _empty_events()
         self.accept_dialog = False
         self.closed = asyncio.Event()
@@ -117,6 +124,8 @@ class Session:
             self.pages.remove(page)
             self.trackers.pop(page, None)
             self.last.pop(page, None)
+            for key in [k for k in self._ref_maps if k[0] is page]:
+                del self._ref_maps[key]
             if current_page is not None:
                 self.current = self.pages.index(current_page)
             else:
@@ -180,9 +189,28 @@ class Session:
         else:
             ws_route.connect_to_server()
 
+    def _display_ref(self, page, doc, pw_ref: str) -> str:
+        """Session-unique ref: never reused across documents or tabs, stable within a document."""
+        refs = self._ref_maps.setdefault((page, doc), {})
+        if pw_ref not in refs:
+            self._ref_counter += 1
+            refs[pw_ref] = f"e{self._ref_counter}"
+        return refs[pw_ref]
+
+    def _remap(self, page, doc, nodes: list) -> list:
+        return [
+            replace(n, ref=self._display_ref(page, doc, n.ref) if n.ref else None,
+                    children=self._remap(page, doc, n.children))
+            for n in nodes
+        ]
+
     async def snapshot(self, page) -> tuple:
         raw = await page.aria_snapshot(mode="ai")
-        state = SnapState(doc=await doc_id(page), nodes=filter_interactive(parse(raw)))
+        doc = await doc_id(page)
+        nodes = self._remap(page, doc, filter_interactive(parse(raw)))
+        raw = _RAW_REF_RE.sub(lambda m: f"[ref={self._display_ref(page, doc, m.group(1))}]", raw)
+        reverse = {d: pw for pw, d in self._ref_maps.get((page, doc), {}).items()}
+        state = SnapState(doc=doc, nodes=nodes, refs=reverse)
         prev = self.last.get(page)
         self.last[page] = state
         return raw, prev, state

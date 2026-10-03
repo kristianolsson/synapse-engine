@@ -13,7 +13,7 @@ from .settle import doc_id, settle, wait_for_condition
 from .snapshot import clean_raw, diff, render_diff, render_tree
 from .urlpolicy import check_scheme
 
-REF_RE = re.compile(r"^(f\d+)?e\d+$")
+REF_RE = re.compile(r"^e\d+$")
 SNAPSHOT_MODES = frozenset({"diff", "full", "none"})
 WAIT_UNTIL = frozenset({"domcontentloaded", "load", "networkidle"})
 
@@ -75,7 +75,10 @@ class Actions:
         snap = self.s.last.get(page)
         if snap is None or snap.doc is None or await doc_id(page) != snap.doc:
             raise _stale(ref)
-        locator = page.locator(f"aria-ref={ref}")
+        pw_ref = snap.refs.get(ref)
+        if pw_ref is None:
+            raise _stale(ref)
+        locator = page.locator(f"aria-ref={pw_ref}")
         try:
             count = await locator.count()
         except PlaywrightError:
@@ -198,9 +201,9 @@ class Actions:
             raise BrowserError("no autocomplete options appeared", "no_options")
         if not 1 <= pick <= len(options):
             raise BrowserError(f"--pick {pick} is out of range: {len(options)} options appeared", "usage_error")
-        await page.locator(f"aria-ref={options[pick - 1].ref}").click(timeout=_ms(req))
+        await page.locator(f"aria-ref={cur.refs[options[pick - 1].ref]}").click(timeout=_ms(req))
         # Report the combined change relative to the state before typing.
-        self.s.last[page] = SnapState(cur.doc, baseline.nodes)
+        self.s.last[page] = SnapState(cur.doc, baseline.nodes, cur.refs)
         return await self._after(req, page, before)
 
     async def _wait(self, req: dict) -> dict:

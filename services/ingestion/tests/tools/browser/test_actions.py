@@ -1,6 +1,7 @@
 """Integration tests for browser command handlers against real headless Firefox."""
 
 import json
+import re
 
 import pytest
 import pytest_asyncio
@@ -192,3 +193,14 @@ async def test_unknown_command_and_bad_mode(act):
         with pytest.raises(BrowserError) as e:
             await act.execute(req)
         assert e.value.code == "usage_error"
+
+
+async def test_display_refs_stable_within_doc_and_unique_across_docs(act, site):
+    first = (await act.execute({"cmd": "open", "url": site + "/nav.html"}))["body"]
+    again = (await act.execute({"cmd": "snapshot"}))["body"]
+    assert again == first
+    nav_refs = set(re.findall(r"\[(e\d+)\]", first))
+    assert nav_refs
+    page2 = (await act.execute({"cmd": "open", "url": site + "/page2.html"}))["body"]
+    page2_refs = set(re.findall(r"\[(e\d+)\]", page2))
+    assert page2_refs and not (nav_refs & page2_refs)
