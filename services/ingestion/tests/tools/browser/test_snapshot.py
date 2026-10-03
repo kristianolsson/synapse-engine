@@ -100,10 +100,10 @@ BEFORE = '''- generic [ref=e1]:
 '''
 
 AFTER = '''- generic [ref=e1]:
-  - textbox "Where to?" [ref=e4]: ARN
+  - textbox "Where to?" [ref=e4]: BBB
   - button "Search" [ref=e5]
   - listbox "Suggestions" [ref=e8]:
-    - option "Stockholm Arlanda (ARN)" [ref=e9]
+    - option "Bravo Bay (BBB)" [ref=e9]
   - button "A" [ref=e20]
   - button "B" [ref=e21]
   - button "C" [ref=e22]
@@ -115,9 +115,9 @@ def test_diff_added_removed_changed():
     d = diff(filter_interactive(parse(BEFORE)), filter_interactive(parse(AFTER)))
     assert not d.too_large()
     assert render_diff(d) == "\n".join([
-        '~ [e4] textbox "Where to?" value="ARN" (was "")',
+        '~ [e4] textbox "Where to?" value="BBB" (was "")',
         '+ [e8] listbox "Suggestions"',
-        '+ [e9] option "Stockholm Arlanda (ARN)"',
+        '+ [e9] option "Bravo Bay (BBB)"',
         '- [e6] button "Show more"',
     ])
 

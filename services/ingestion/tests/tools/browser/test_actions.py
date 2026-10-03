@@ -47,15 +47,15 @@ async def test_fill_select_check_click_flow(act, site):
 async def test_type_pick_autocomplete(act, site):
     body = (await act.execute({"cmd": "open", "url": site + "/autocomplete.html"}))["body"]
     combo = ref_of(body, "combobox", "Where from?")
-    resp = await act.execute({"cmd": "type", "ref": combo, "value": "San", "pick": 2})
-    assert 'value="San Jose (SJC)"' in resp["body"]
+    resp = await act.execute({"cmd": "type", "ref": combo, "value": "Alp", "pick": 2})
+    assert 'value="Alphaville (AAV)"' in resp["body"]
 
 
 async def test_type_without_pick_returns_options_diff(act, site):
     body = (await act.execute({"cmd": "open", "url": site + "/autocomplete.html"}))["body"]
-    resp = await act.execute({"cmd": "type", "ref": ref_of(body, "combobox", "Where from?"), "value": "Sto"})
+    resp = await act.execute({"cmd": "type", "ref": ref_of(body, "combobox", "Where from?"), "value": "Bra"})
     # Most of this tiny page changed, so the response falls back to a full snapshot.
-    assert 'option "Stockholm Arlanda (ARN)"' in resp["body"]
+    assert 'option "Bravo Bay (BBB)"' in resp["body"]
     assert "--- page text ---" not in resp["body"]
 
 

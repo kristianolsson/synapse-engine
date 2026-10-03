@@ -22,7 +22,7 @@ def test_build_request_actions():
     assert _req("open", "https://x.test") == {"cmd": "open", "url": "https://x.test"}
     assert _req("click", "e4", "--wait-for", "Departing flights", "--text", "--snapshot", "none", "--timeout", "30") == {
         "cmd": "click", "ref": "e4", "wait_for": "Departing flights", "text": True, "snapshot": "none", "timeout": 30.0}
-    assert _req("type", "e9", "SFO", "--pick", "1") == {"cmd": "type", "ref": "e9", "value": "SFO", "pick": 1}
+    assert _req("type", "e9", "AAA", "--pick", "1") == {"cmd": "type", "ref": "e9", "value": "AAA", "pick": 1}
     assert _req("fill", "e2", "") == {"cmd": "fill", "ref": "e2", "value": ""}
     assert _req("select", "e6", "Business") == {"cmd": "select", "ref": "e6", "value": "Business"}
     assert _req("press", "Enter", "--ref", "e2") == {"cmd": "press", "key": "Enter", "ref": "e2"}
@@ -30,7 +30,7 @@ def test_build_request_actions():
 
 
 def test_type_with_include_text_flag_keeps_typed_value():
-    assert _req("type", "e9", "SFO", "--text") == {"cmd": "type", "ref": "e9", "value": "SFO", "text": True}
+    assert _req("type", "e9", "AAA", "--text") == {"cmd": "type", "ref": "e9", "value": "AAA", "text": True}
 
 
 def test_usage_errors_are_json_on_stderr(capsys):
