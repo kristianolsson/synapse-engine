@@ -2,6 +2,8 @@
 
 import os
 import subprocess
+import threading
+import time
 
 import pytest
 
@@ -68,7 +70,7 @@ def test_group_helpers_and_kill():
         assert runtime.group_alive(proc.pid, "/tmp/sbt-marker-profile")
         assert not runtime.group_alive(proc.pid, "/somewhere/else")
         assert runtime.group_rss_mb(proc.pid) > 0
-        assert runtime.process_matches(proc.pid, ["sleep 60", "sbt-marker-profile"])
+        assert runtime.process_matches(proc.pid, ["/bin/sh", "/tmp/sbt-marker-profile"])
         runtime.kill_group(proc.pid)
         proc.wait(timeout=5)
         assert not runtime.group_alive(proc.pid, "/tmp/sbt-marker-profile")
@@ -76,6 +78,60 @@ def test_group_helpers_and_kill():
         if proc.poll() is None:
             proc.kill()
     runtime.kill_group(proc.pid)  # already gone: must not raise
+
+
+def test_substring_matching_respects_boundaries():
+    """Verify that /tmp/sbt-x/profile2 does NOT match /tmp/sbt-x/profile."""
+    proc = _orphan("/tmp/sbt-x/profile2")
+    try:
+        # The process contains /tmp/sbt-x/profile2 in the command
+        assert runtime.group_alive(proc.pid, "/tmp/sbt-x/profile2")
+        # But it should NOT match /tmp/sbt-x/profile (substring without boundary)
+        assert not runtime.group_alive(proc.pid, "/tmp/sbt-x/profile")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+def test_process_matches_respects_token_boundaries():
+    """Verify that --session s1 does NOT match --session s10."""
+    proc = subprocess.Popen(["/bin/sh", "-c", "sleep 60; : --session s10"], start_new_session=True)
+    try:
+        # The process contains --session s10
+        assert runtime.process_matches(proc.pid, ["--session s10"])
+        # But it should NOT match --session s1 (substring without boundary)
+        assert not runtime.process_matches(proc.pid, ["--session s1"])
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+def test_try_lock_with_wait_retries(tmp_path):
+    """Verify that try_lock(wait_s=0.5) succeeds after lock is released."""
+    lock = tmp_path / "daemon.lock"
+
+    # Hold the lock in a separate thread, then release it after ~0.1s
+    def hold_lock():
+        fd = runtime.try_lock(lock)
+        assert fd is not None
+        time.sleep(0.1)
+        os.close(fd)
+
+    thread = threading.Thread(target=hold_lock)
+    thread.start()
+
+    try:
+        # Immediately after starting the thread, try_lock() without wait should fail
+        assert runtime.try_lock(lock) is None
+
+        # But try_lock with wait_s=0.5 should succeed (waits for lock to be released)
+        fd = runtime.try_lock(lock, wait_s=0.5)
+        assert fd is not None
+        os.close(fd)
+    finally:
+        thread.join()
 
 
 def test_sweep_kills_orphan_and_removes_stale_files(rt_root):

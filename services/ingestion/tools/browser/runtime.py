@@ -7,9 +7,11 @@ kernel releases the lock when the daemon dies (even on kill -9).
 import fcntl
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -74,15 +76,22 @@ def profile_dir(name: str) -> Path:
     return profiles_root() / name
 
 
-def try_lock(path: Path) -> Optional[int]:
-    """Take an exclusive non-blocking flock. Returns the fd (keep it open to hold the lock) or None."""
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return fd
-    except BlockingIOError:
-        os.close(fd)
-        return None
+def try_lock(path: Path, wait_s: float = 0.0) -> Optional[int]:
+    """Take an exclusive non-blocking flock. Returns the fd (keep it open to hold the lock) or None.
+
+    If wait_s > 0, retries every ~20ms until wait_s elapses.
+    """
+    deadline = time.time() + wait_s
+    while True:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            os.close(fd)
+            if wait_s <= 0 or time.time() >= deadline:
+                return None
+            time.sleep(0.020)
 
 
 def is_locked(path: Path) -> bool:
@@ -134,8 +143,13 @@ def list_processes() -> list:
     return parse_ps(out.stdout)
 
 
+def _has_token(command: str, needle: str) -> bool:
+    """Check if needle appears in command followed by whitespace or end of line (not substring)."""
+    return re.search(re.escape(needle) + r"(?=\s|$)", command) is not None
+
+
 def group_alive(pgid: int, must_contain: str) -> bool:
-    return any(p.pgid == pgid and must_contain in p.command for p in list_processes())
+    return any(p.pgid == pgid and _has_token(p.command, must_contain) for p in list_processes())
 
 
 def kill_group(pgid: int) -> None:
@@ -152,14 +166,14 @@ def group_rss_mb(pgid: int) -> float:
 def process_matches(pid: int, needles: list) -> bool:
     for p in list_processes():
         if p.pid == pid:
-            return all(n in p.command for n in needles)
+            return all(_has_token(p.command, n) for n in needles)
     return False
 
 
 def find_browser(profile: Path) -> Optional[Proc]:
     """The Firefox process-group leader launched with `-profile <profile>`."""
     marker = f"-profile {profile}"
-    candidates = [p for p in list_processes() if marker in p.command]
+    candidates = [p for p in list_processes() if _has_token(p.command, marker)]
     leaders = [p for p in candidates if p.pid == p.pgid]
     return (leaders or candidates or [None])[0]
 
