@@ -4,6 +4,8 @@ FROM node:20-slim
 # tzdata: guarantees the IANA zone database is present so TZ=<IANA name>
 # (docker-compose.yml's TZ=${TZ:-UTC}) resolves correctly — config.py's
 # LOCAL_TZ depends on it via tzlocal/zoneinfo.
+# procps: provides `ps`, which the browser CLI's runtime.py uses to find and
+# reap its daemon/Firefox process groups (node:20-slim doesn't ship it).
 RUN apt-get update && apt-get install -y \
     tini \
     git \
@@ -14,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
     tzdata \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code and Gemini CLIs globally

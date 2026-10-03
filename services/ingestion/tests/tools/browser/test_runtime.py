@@ -183,3 +183,14 @@ def test_live_and_all_sessions(rt_root):
         assert runtime.live_sessions() == ["a"]
     finally:
         os.close(fd)
+
+
+def test_list_processes_without_ps_raises_clear_error(monkeypatch):
+    def no_ps(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "ps")
+
+    monkeypatch.setattr(runtime.subprocess, "run", no_ps)
+    with pytest.raises(BrowserError) as exc:
+        runtime.list_processes()
+    assert exc.value.code == "daemon_error"
+    assert "procps" in str(exc.value)

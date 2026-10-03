@@ -140,7 +140,10 @@ def parse_ps(text: str) -> list:
 
 
 def list_processes() -> list:
-    out = subprocess.run(["ps", "-axo", "pid=,pgid=,rss=,command="], capture_output=True, text=True, check=False)
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,pgid=,rss=,command="], capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        raise BrowserError("`ps` not found — install procps", "daemon_error") from None
     return parse_ps(out.stdout)
 
 
