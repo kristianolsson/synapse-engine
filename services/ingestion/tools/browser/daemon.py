@@ -40,7 +40,9 @@ class Daemon:
         self.command_tasks: set = set()
 
     async def serve(self) -> None:
-        self.server = await asyncio.start_unix_server(self._handle, path=str(self.paths.sock))
+        # One request is one JSON line; raise asyncio's 64 KiB default so big run/eval/fill fit.
+        self.server = await asyncio.start_unix_server(self._handle, path=str(self.paths.sock),
+                                                      limit=16 * 1024 * 1024)
         os.chmod(self.paths.sock, 0o600)
 
     async def _handle(self, reader, writer) -> None:

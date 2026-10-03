@@ -102,3 +102,9 @@ def test_gc_keeps_lock_file(rt):
     assert "old" in msg
     assert not paths.info.exists() and not paths.artifacts.exists()
     assert paths.lock.exists()
+
+
+def test_large_request_is_accepted(rt):
+    js = "'" + "x" * 100_000 + "'.length"  # > asyncio's default 64 KiB line limit
+    resp = client.request("s1", {"cmd": "eval", "js": js})
+    assert resp["body"] == "100000"
