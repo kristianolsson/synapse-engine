@@ -159,7 +159,7 @@ assert_eq "re-running adds no duplicate lines" "$LINES_BEFORE" "$LINES_AFTER"
 # --- _ensure_qnap_host_dirs ---
 chown() { return 1; }  # no "synapse" user on the test machine — must be fail-soft, not fatal
 _ensure_qnap_host_dirs
-for d in credentials/claude credentials/gemini credentials/etrade credentials/amazon credentials/browser data; do
+for d in credentials/claude credentials/gemini credentials/etrade credentials/amazon credentials/browser/profiles data; do
     assert_eq "_ensure_qnap_host_dirs creates $d" "true" "$([ -d "$SYNAPSE_HOST_DIR/$d" ] && echo true || echo false)"
 done
 unset -f chown

@@ -30,6 +30,8 @@ def render(resp: dict) -> str:
         if resp.get("body"):
             page.append(resp["body"])
         lines += [FENCE_OPEN, neutralize("\n".join(page)), FENCE_CLOSE]
+    if resp.get("untrusted"):
+        lines += [FENCE_OPEN, neutralize(resp["untrusted"]), FENCE_CLOSE]
     if resp.get("message"):
         lines.append(resp["message"])
     return "\n".join(lines)

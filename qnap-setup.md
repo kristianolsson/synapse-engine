@@ -26,7 +26,7 @@ models. Follow steps in order.
     filled in — this guide doesn't recreate that first-time setup, it
     assumes it's already done and just copies the results (`.env`, and if
     you use Calendar/Gmail, `credentials.json`/`token.json`/
-    `calendars.json`) onto QNAP. Steps 7-8 additionally need Playwright's
+    `calendars.json`) onto QNAP. Steps 7, 8 and 8b additionally need Playwright's
     Firefox there: `playwright install --with-deps firefox`.
 
 ## 0. Choose your host directory and export it
@@ -62,6 +62,7 @@ mkdir -p "$SYNAPSE_HOST_DIR"/credentials/claude \
   "$SYNAPSE_HOST_DIR"/credentials/gemini \
   "$SYNAPSE_HOST_DIR"/credentials/etrade \
   "$SYNAPSE_HOST_DIR"/credentials/amazon \
+  "$SYNAPSE_HOST_DIR"/credentials/browser/profiles \
   "$SYNAPSE_HOST_DIR"/ssh \
   "$SYNAPSE_HOST_DIR"/data
 ```
@@ -202,7 +203,9 @@ chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon
 The `browser` CLI works without any setup. Only sites that need a login
 (and whose bot checks need a "trusted device") need a saved profile. Create
 it headed on a machine with the checkout + venv, log in by hand, then stop
-the session so the profile is flushed to disk:
+the session so the profile is flushed to disk. The headed session is still
+subject to the daemon's idle (10 min, `SYNAPSE_BROWSER_IDLE_S`) and 60 min
+lifetime limits, so finish the login within them:
 
 ```bash
 cd ~/Documents/code/synapse-engine
@@ -210,6 +213,7 @@ bin/browser --session setup start --profile <name> --headed
 bin/browser --session setup open https://<site>/login   # log in in the window that opened
 bin/browser --session setup stop
 
+ssh admin@<QNAP_IP> mkdir -p "$SYNAPSE_HOST_DIR"/credentials/browser/profiles
 scp -r ~/.synapse-browser/profiles/<name> \
   admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/browser/profiles/
 ```

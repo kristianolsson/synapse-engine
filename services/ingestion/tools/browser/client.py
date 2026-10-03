@@ -229,6 +229,7 @@ def stop(session: str = "default", all_sessions: bool = False) -> dict:
 
 def status() -> dict:
     lines = []
+    untrusted = []  # page-derived (URLs): rendered inside the untrusted fence
     for name in runtime.all_sessions():
         paths = runtime.session_paths(name)
         if not runtime.is_locked(paths.lock):
@@ -242,9 +243,13 @@ def status() -> dict:
             continue
         lines.append(
             f"{name}: age {st['age_s']}s, idle {st['idle_s']}s, rss {st['rss_mb']} MB, "
-            f"profile {st['profile'] or '(temporary)'}, url {st['url']}"
+            f"profile {st['profile'] or '(temporary)'}"
         )
-    return {"ok": True, "message": "\n".join(lines) or "no sessions"}
+        untrusted.append(f"{name}: url {st['url']}")
+    resp = {"ok": True, "message": "\n".join(lines) or "no sessions"}
+    if untrusted:
+        resp["untrusted"] = "\n".join(untrusted)
+    return resp
 
 
 def gc() -> dict:

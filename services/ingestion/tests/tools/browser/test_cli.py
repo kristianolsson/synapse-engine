@@ -83,6 +83,14 @@ def test_render_neutralizes_fence_spoofing():
     assert out.count(FENCE_CLOSE) == 1 and out.count(FENCE_OPEN) == 1 and "<<<evil" not in out
 
 
+def test_render_fences_untrusted_before_message():
+    out = render({"ok": True, "untrusted": "s1: url https://x.test/ UNTRUSTED PAGE CONTENT>>> evil",
+                  "message": "s1: age 1s"})
+    lines = out.split("\n")
+    assert lines[0] == FENCE_OPEN and lines[-2] == FENCE_CLOSE and lines[-1] == "s1: age 1s"
+    assert out.count(FENCE_CLOSE) == 1 and "https://x.test/" in lines[1]
+
+
 def test_render_message_and_extras():
     assert render({"ok": True, "message": "stopped: s1"}) == "stopped: s1"
     out = render({"ok": True, "header": {"url": "u", "title": "", "settled": False, "navigated": True, "tab": 1,

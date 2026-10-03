@@ -324,7 +324,7 @@ tabs, and cookies survive between CLI calls. Commands run one at a time;
   returns `stale_ref` instead of hitting a different element. Known
   limitation: an iframe navigating inside an unchanged top document is not
   detected.
-- **Settle:** after each action, wait for navigation load or a quiet page (no
+- **Settle:** after each action, wait for DOMContentLoaded after a navigation or a quiet page (no
   in-flight requests, no DOM mutations for 500 ms, at least 500 ms after the
   action), capped at 5 s; then return a diff (or a full snapshot after
   navigation).
@@ -344,7 +344,8 @@ tabs, and cookies survive between CLI calls. Commands run one at a time;
   evaluating a request aborts it).
 - **Profiles:** `--profile <name>` → `~/.synapse-browser/profiles/<name>`
   (persistent logins; one session per profile). Without it, a temporary
-  profile is deleted on shutdown along with screenshots/downloads.
+  profile is deleted on shutdown. Screenshots/downloads are deleted on
+  shutdown for every session.
 
 ## Tests
 

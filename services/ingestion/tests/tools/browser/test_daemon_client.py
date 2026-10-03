@@ -72,8 +72,9 @@ def test_private_blocked_by_default(rt, site):
 
 def test_status_lists_live_session(rt):
     client.request("s1", {"cmd": "open", "url": "about:blank"})
-    msg = client.status()["message"]
-    assert msg.startswith("s1: ") and "about:blank" in msg
+    resp = client.status()
+    assert resp["message"].startswith("s1: ") and "about:blank" not in resp["message"]
+    assert "about:blank" in resp["untrusted"]
 
 
 def test_request_during_shutdown_respawns(rt):

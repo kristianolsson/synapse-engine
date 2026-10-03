@@ -56,7 +56,7 @@ _ensure_qnap_host_dirs() {
         "$SYNAPSE_HOST_DIR"/credentials/gemini \
         "$SYNAPSE_HOST_DIR"/credentials/etrade \
         "$SYNAPSE_HOST_DIR"/credentials/amazon \
-        "$SYNAPSE_HOST_DIR"/credentials/browser \
+        "$SYNAPSE_HOST_DIR"/credentials/browser/profiles \
         "$SYNAPSE_HOST_DIR"/data
     chown -R synapse "$SYNAPSE_HOST_DIR"/credentials "$SYNAPSE_HOST_DIR"/data \
         || echo "⚠️  Could not chown credentials/data dirs to synapse."
