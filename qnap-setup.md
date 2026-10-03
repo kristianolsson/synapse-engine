@@ -205,7 +205,10 @@ The `browser` CLI works without any setup. Only sites that need a login
 it headed on a machine with the checkout + venv, log in by hand, then stop
 the session so the profile is flushed to disk. The headed session is still
 subject to the daemon's idle (10 min, `SYNAPSE_BROWSER_IDLE_S`) and 60 min
-lifetime limits, so finish the login within them:
+lifetime limits, so finish the login within them. Use the same Playwright
+version as the container (compare `venv/bin/pip show playwright` locally with
+`/app/venv/bin/pip show playwright` inside the container), since a profile
+written by a newer Firefox may be refused or reset by an older one:
 
 ```bash
 cd ~/Documents/code/synapse-engine
