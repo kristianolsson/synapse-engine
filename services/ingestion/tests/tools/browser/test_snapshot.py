@@ -1,5 +1,8 @@
 """Unit tests for snapshot parsing, filtering, rendering, and diffing."""
 
+import pytest
+
+from services.ingestion.tools.browser.errors import BrowserError
 from services.ingestion.tools.browser.snapshot import (
     clean_raw,
     diff,
@@ -152,3 +155,49 @@ def test_too_large_when_most_nodes_change():
 
 def test_clean_raw_drops_cursor_noise():
     assert clean_raw('- link "Go" [ref=e12] [cursor=pointer]:') == '- link "Go" [ref=e12]:'
+
+
+def test_parse_values_stay_strings():
+    """Unquoted values should remain strings, not be coerced to int/bool/date."""
+    yaml_text = '''- button "test" [ref=e1]: 07030
+- button "test2" [ref=e2]: yes
+- button "test3" [ref=e3]: off
+- button "test4" [ref=e4]: 1_000
+- button "test5" [ref=e5]: 2026-10-02
+'''
+    by_ref = {n.ref: n for n in _flat(parse(yaml_text))}
+    assert by_ref["e1"].value == "07030"  # not 3608 (octal)
+    assert by_ref["e2"].value == "yes"    # not True
+    assert by_ref["e3"].value == "off"    # not False
+    assert by_ref["e4"].value == "1_000"  # not 1000
+    assert by_ref["e5"].value == "2026-10-02"  # not a date object
+
+
+def test_parse_invalid_yaml_raises_browser_error():
+    """yaml.YAMLError should be caught and converted to BrowserError."""
+    invalid_yaml = '''- button "test":
+  bad indentation
+    worse: indentation
+'''
+    with pytest.raises(BrowserError) as exc_info:
+        parse(invalid_yaml)
+    assert exc_info.value.code == "browser_error"
+    assert "could not parse page snapshot" in exc_info.value.message
+
+
+def test_parse_non_list_input_raises_browser_error():
+    """Non-list top-level input should raise BrowserError."""
+    with pytest.raises(BrowserError) as exc_info:
+        parse("hello world")
+    assert exc_info.value.code == "browser_error"
+    assert "could not parse page snapshot" in exc_info.value.message
+
+
+def test_parse_invalid_escape_in_name_falls_back_to_raw():
+    """Invalid JSON escape in name should fall back to raw captured name text."""
+    # This YAML will have a name with an invalid escape sequence that json.loads can't parse
+    # Using a raw backslash followed by invalid char like \x (not a valid JSON escape)
+    yaml_text = '''- button "test\\xvalue" [ref=e1]
+'''
+    nodes = parse(yaml_text)
+    assert nodes[0].name == "test\\xvalue"  # falls back to raw text

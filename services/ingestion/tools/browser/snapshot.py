@@ -11,6 +11,8 @@ from typing import Optional
 
 import yaml
 
+from .errors import BrowserError
+
 INTERACTIVE_ROLES = frozenset({
     "button", "link", "textbox", "searchbox", "checkbox", "radio", "combobox",
     "listbox", "option", "menuitem", "menuitemcheckbox", "menuitemradio", "tab",
@@ -38,7 +40,12 @@ class Node:
 
 
 def parse(text: str) -> list:
-    data = yaml.safe_load(text) if text.strip() else None
+    try:
+        data = yaml.load(text, Loader=yaml.BaseLoader) if text.strip() else None
+    except yaml.YAMLError as e:
+        raise BrowserError(f"could not parse page snapshot: {e}", "browser_error")
+    if data is not None and not isinstance(data, list):
+        raise BrowserError(f"could not parse page snapshot: expected list, got {type(data).__name__}", "browser_error")
     return [n for n in (_parse_item(i) for i in data or []) if n]
 
 
@@ -61,7 +68,13 @@ def _parse_item(item) -> Optional[Node]:
             ref = val
         elif attr not in _IGNORED_ATTRS:
             states.append(f"{attr}={val}" if val else attr)
-    name = json.loads(f'"{m["name"]}"') if m["name"] is not None else ""
+    if m["name"] is not None:
+        try:
+            name = json.loads(f'"{m["name"]}"')
+        except json.JSONDecodeError:
+            name = m["name"]
+    else:
+        name = ""
     node = Node(role=m["role"], name=name, ref=ref, states=tuple(states))
     if isinstance(rest, list):
         node.children = [c for c in (_parse_item(i) for i in rest) if c]
