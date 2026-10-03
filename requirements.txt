@@ -15,4 +15,4 @@ pyetrade>=1.1.0
 wetrade>=0.1.0
 pyyaml>=6.0
 markdown>=3.6
-playwright>=1.45.0
+playwright>=1.61
