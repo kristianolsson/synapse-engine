@@ -18,7 +18,7 @@ models. Follow steps in order.
   - **Step 6** (Gemini/Antigravity): a machine where those CLIs are already
     installed and authenticated (`~/.gemini` populated) — no
     `synapse-engine` checkout needed.
-  - **Steps 7-10** (E\*TRADE, Amazon Fresh, SmartThings, Google
+  - **Steps 7-10** (E\*TRADE, Amazon Fresh, browser profiles, SmartThings, Google
     Calendar/Gmail): a machine that's completed README.md's
     [Setup](README.md#setup) section —
     dependencies installed (`python3 -m venv venv && source
@@ -196,6 +196,25 @@ On QNAP:
 # credentials/ — ./synapse.sh setup doesn't touch it)
 chown synapse "$SYNAPSE_HOST_DIR"/synapse-engine/services/ingestion/tools/amazon_fresh/selectors.json
 ```
+
+### 8b. `browser` CLI login profiles (Optional)
+
+The `browser` CLI works without any setup. Only sites that need a login
+(and whose bot checks need a "trusted device") need a saved profile. Create
+it headed on a machine with the checkout + venv, log in by hand, then stop
+the session so the profile is flushed to disk:
+
+```bash
+cd ~/Documents/code/synapse-engine
+bin/browser --session setup start --profile <name> --headed
+bin/browser --session setup open https://<site>/login   # log in in the window that opened
+bin/browser --session setup stop
+
+scp -r ~/.synapse-browser/profiles/<name> \
+  admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/browser/profiles/
+```
+
+On QNAP, re-run `./synapse.sh setup` (or `chown -R synapse "$SYNAPSE_HOST_DIR"/credentials/browser`) so the container can write to it.
 
 ## 9. Set up SmartThings credentials (Optional)
 
