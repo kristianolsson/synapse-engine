@@ -96,11 +96,17 @@ async def settle(page, tracker: NetworkTracker, doc_before: Optional[str], cap: 
 
 
 async def wait_for_condition(page, text: Optional[str], selector: Optional[str], timeout_s: float) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
+    what = ""
     try:
         if text:
-            await page.get_by_text(text).first.wait_for(state="visible", timeout=timeout_s * 1000)
+            what = f"text {text!r}"
+            await page.get_by_text(text).filter(visible=True).first.wait_for(
+                state="visible", timeout=max(0.0, deadline - loop.time()) * 1000)
         if selector:
-            await page.wait_for_selector(selector, state="visible", timeout=timeout_s * 1000)
+            what = f"selector {selector!r}"
+            await page.wait_for_selector(
+                selector, state="visible", timeout=max(0.0, deadline - loop.time()) * 1000)
     except PlaywrightTimeoutError as e:
-        what = f"text {text!r}" if text else f"selector {selector!r}"
         raise BrowserError(f"timeout after {timeout_s:g}s waiting for {what}", "timeout") from e

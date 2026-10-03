@@ -4,7 +4,8 @@ import time
 
 import pytest
 
-from services.ingestion.tools.browser.settle import doc_id, settle
+from services.ingestion.tools.browser.errors import BrowserError
+from services.ingestion.tools.browser.settle import doc_id, settle, wait_for_condition
 from services.ingestion.tools.browser.session import Session
 from services.ingestion.tools.browser.snapshot import render_tree
 
@@ -100,12 +101,10 @@ async def test_dialog_dismissed_by_default_and_accepted_on_request(session, site
 async def test_download_saved_to_artifacts(session, site):
     page = await _goto(session, site + "/download.html")
     session.begin_command(accept_dialog=False)
+    before = await doc_id(page)
     await page.get_by_role("link", name="Get report").click()
+    await settle(page, session.trackers[page], before)
     await session.drain_downloads(5)
-    for _ in range(50):
-        if session.events["downloads"]:
-            break
-        await page.wait_for_timeout(100)
     [path] = session.events["downloads"]
     assert path.endswith("report.csv")
     assert (session.artifacts / "report.csv").read_text() == "a,b\n1,2\n"
@@ -131,3 +130,54 @@ async def test_private_network_blocked_without_allow_private(tmp_path, site):
         assert "127.0.0.1" in s.events["blocked"]
     finally:
         await s.close()
+
+
+async def test_closing_earlier_tab_keeps_current_page(session, site):
+    page = await _goto(session, site + "/nav.html")
+    await page.get_by_role("link", name="Open in new tab").click()
+    for _ in range(50):
+        if len(session.pages) == 2:
+            break
+        await page.wait_for_timeout(100)
+    third = await session.context.new_page()
+    for _ in range(50):
+        if len(session.pages) == 3:
+            break
+        await page.wait_for_timeout(100)
+    session.current = 1
+    chosen = session.page
+    await session.pages[0].close()
+    for _ in range(50):
+        if len(session.pages) == 2:
+            break
+        await chosen.wait_for_timeout(100)
+    assert len(session.pages) == 2
+    assert session.page is chosen
+    assert third in session.pages
+
+
+async def test_websocket_to_private_host_blocked(tmp_path):
+    s = Session(profile=tmp_path / "p", artifacts=tmp_path / "a", allow_private=False)
+    await s.start()
+    try:
+        page = await s.ensure_page()
+        s.begin_command(accept_dialog=False)
+        await page.set_content("<script>new WebSocket('ws://127.0.0.1:9/')</script>")
+        await page.wait_for_timeout(1000)
+        assert "127.0.0.1" in s.events["blocked"]
+    finally:
+        await s.close()
+
+
+async def test_wait_for_condition_uses_first_visible_text(session):
+    page = await session.ensure_page()
+    await page.set_content("<p hidden>Ready</p><p>Ready</p>")
+    await wait_for_condition(page, "Ready", None, 2)
+
+
+async def test_wait_for_condition_timeout_names_selector(session):
+    page = await session.ensure_page()
+    await page.set_content("<p>Ready</p>")
+    with pytest.raises(BrowserError) as ei:
+        await wait_for_condition(page, "Ready", "#missing", 1)
+    assert ei.value.code == "timeout" and "#missing" in ei.value.message

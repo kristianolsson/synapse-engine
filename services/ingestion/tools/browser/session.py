@@ -54,6 +54,7 @@ class Session:
                 headless=not self.headed,
                 viewport={"width": 1280, "height": 900},
                 accept_downloads=True,
+                service_workers="block",
             )
         except Exception:
             await self._pw.stop()
@@ -61,12 +62,14 @@ class Session:
         await self.context.add_init_script(INIT_SCRIPT)
         if self._guard:
             await self.context.route("**/*", self._route)
+            await self.context.route_web_socket("**/*", self._route_ws)
         self.context.on("page", self._on_new_page)
         self.context.on("close", lambda _ctx: self.closed.set())
-        for page in self.context.pages:
-            self._attach(page)
-        if not self.pages:
-            self._attach(await self.context.new_page())
+        # Pages that predate route_web_socket() are not covered by it, so replace them.
+        stale = list(self.context.pages)
+        self._attach(await self.context.new_page())
+        for page in stale:
+            await page.close()
         self.current = 0
         self.events = _empty_events()
 
@@ -109,10 +112,15 @@ class Session:
 
     def _on_close(self, page) -> None:
         if page in self.pages:
+            was_current = self.pages[self.current] is page
+            current_page = None if was_current else self.pages[self.current]
             self.pages.remove(page)
             self.trackers.pop(page, None)
             self.last.pop(page, None)
-            self.current = min(self.current, max(0, len(self.pages) - 1))
+            if current_page is not None:
+                self.current = self.pages.index(current_page)
+            else:
+                self.current = max(0, len(self.pages) - 1)
 
     async def _on_dialog(self, dialog) -> None:
         action = "accepted" if self.accept_dialog else "dismissed"
@@ -142,14 +150,35 @@ class Session:
         if self._pending_downloads:
             await asyncio.wait(set(self._pending_downloads), timeout=timeout)
 
+    def _record_blocked(self, host: str) -> None:
+        if host not in self.events["blocked"]:
+            self.events["blocked"].append(host)
+
     async def _route(self, route) -> None:
         host = urlsplit(route.request.url).hostname
-        if host and await self._guard.blocked(host):
-            if host not in self.events["blocked"]:
-                self.events["blocked"].append(host)
+        try:
+            blocked = bool(host) and await self._guard.blocked(host)
+        except Exception:  # fail closed
+            await route.abort("blockedbyclient")
+            return
+        if blocked:
+            self._record_blocked(host)
             await route.abort("blockedbyclient")
         else:
             await route.continue_()
+
+    async def _route_ws(self, ws_route) -> None:
+        host = urlsplit(ws_route.url).hostname
+        try:
+            blocked = bool(host) and await self._guard.blocked(host)
+        except Exception:  # fail closed
+            blocked = True
+        if blocked:
+            if host:
+                self._record_blocked(host)
+            await ws_route.close()
+        else:
+            ws_route.connect_to_server()
 
     async def snapshot(self, page) -> tuple:
         raw = await page.aria_snapshot(mode="ai")
