@@ -181,3 +181,16 @@ async def test_wait_for_condition_timeout_names_selector(session):
     with pytest.raises(BrowserError) as ei:
         await wait_for_condition(page, "Ready", "#missing", 1)
     assert ei.value.code == "timeout" and "#missing" in ei.value.message
+
+
+async def test_start_failure_after_launch_closes_browser(tmp_path):
+    from unittest.mock import patch
+
+    from services.ingestion.tools.browser import runtime
+
+    profile = tmp_path / "profile"
+    s = Session(profile=profile, artifacts=tmp_path / "artifacts", allow_private=True)
+    with patch.object(Session, "_attach", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError, match="boom"):
+            await s.start()
+    assert runtime.find_browser(profile) is None

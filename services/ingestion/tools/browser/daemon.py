@@ -67,11 +67,17 @@ class Daemon:
         if cmd == "status":
             return {"ok": True, "status": self.status()}
         if cmd == "stop":
+            if self.closing:
+                return {"ok": True, "message": f"session {self.name} already stopping"}
             asyncio.get_running_loop().call_soon(lambda: asyncio.ensure_future(self.shutdown("stop")))
             return {"ok": True, "message": f"session {self.name} stopping"}
         if self.closing:
-            raise BrowserError(f"session {self.name} is shutting down — retry", "daemon_error")
+            raise BrowserError(f"session {self.name} is shutting down — retry", "daemon_error",
+                               {"shutting_down": True})
         async with self.lock:
+            if self.closing:
+                raise BrowserError(f"session {self.name} is shutting down — retry", "daemon_error",
+                               {"shutting_down": True})
             self.last_activity = time.monotonic()
             deadline = protocol.command_deadline(req)
             task = asyncio.ensure_future(self.actions.execute(req))
@@ -133,8 +139,9 @@ class Daemon:
             return
         self.closing = True
         logger.info("shutting down session %s: %s", self.name, reason)
-        if self.server:
-            self.server.close()
+        # Unlink first so new clients see "not running" and start a fresh daemon; the listener stays open
+        # until cleanup so a request already queued gets an error response instead of a dropped connection.
+        self.paths.sock.unlink(missing_ok=True)
         pending = set(self.command_tasks)
         if pending:
             _, still_running = await asyncio.wait(pending, timeout=5)
@@ -148,6 +155,8 @@ class Daemon:
         if pgid and profile and runtime.group_alive(pgid, profile):
             runtime.kill_group(pgid)
         runtime.cleanup(self.paths)
+        if self.server:
+            self.server.close()
         self.stopped.set()
 
 
@@ -187,6 +196,7 @@ async def _run(args) -> int:
         return 0
     _setup_logging(paths.log)
     session = None
+    info: dict = {}
     try:
         for action in runtime.sweep(paths):
             logger.info("startup sweep: %s", action)
@@ -209,9 +219,10 @@ async def _run(args) -> int:
         try:
             await session.start()
         except Exception as e:
-            session = None
             raise BrowserError(f"failed to launch Firefox: {e}", "daemon_start_failed") from e
         browser = runtime.find_browser(profile)
+        if browser is None:
+            logger.warning("browser process not found: memory guard and browser-exit detection are disabled")
         info = {
             "daemon_pid": os.getpid(),
             "session": args.session,
@@ -226,10 +237,19 @@ async def _run(args) -> int:
         runtime.write_info(paths, info)
         daemon = Daemon(args.session, paths, session, info)
         await daemon.serve()
-    except BrowserError as e:
+    except Exception as e:
+        if not isinstance(e, BrowserError):
+            logger.exception("startup failed")
+            e = BrowserError(f"daemon startup failed: {e}", "daemon_start_failed")
         logger.error("startup failed: %s", e.message)
         if session is not None:
-            await session.close()
+            try:
+                await asyncio.wait_for(session.close(), 10)
+            except Exception:
+                pass
+            pgid, prof = info.get("browser_pgid"), info.get("profile")
+            if pgid and prof and runtime.group_alive(pgid, prof):
+                runtime.kill_group(pgid)
         runtime.cleanup(paths)
         ready.send(e.to_response())
         return 1

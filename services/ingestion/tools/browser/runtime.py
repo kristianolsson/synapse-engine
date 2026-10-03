@@ -81,6 +81,7 @@ def try_lock(path: Path, wait_s: float = 0.0) -> Optional[int]:
 
     If wait_s > 0, retries every ~20ms until wait_s elapses.
     """
+    path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.time() + wait_s
     while True:
         fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)

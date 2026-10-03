@@ -66,19 +66,26 @@ class Session:
         except Exception:
             await self._pw.stop()
             raise
-        await self.context.add_init_script(INIT_SCRIPT)
-        if self._guard:
-            await self.context.route("**/*", self._route)
-            await self.context.route_web_socket("**/*", self._route_ws)
-        self.context.on("page", self._on_new_page)
-        self.context.on("close", lambda _ctx: self.closed.set())
-        # Pages that predate route_web_socket() are not covered by it, so replace them.
-        stale = list(self.context.pages)
-        self._attach(await self.context.new_page())
-        for page in stale:
-            await page.close()
-        self.current = 0
-        self.events = _empty_events()
+        try:
+            await self.context.add_init_script(INIT_SCRIPT)
+            if self._guard:
+                await self.context.route("**/*", self._route)
+                await self.context.route_web_socket("**/*", self._route_ws)
+            self.context.on("page", self._on_new_page)
+            self.context.on("close", lambda _ctx: self.closed.set())
+            # Pages that predate route_web_socket() are not covered by it, so replace them.
+            stale = list(self.context.pages)
+            self._attach(await self.context.new_page())
+            for page in stale:
+                await page.close()
+            self.current = 0
+            self.events = _empty_events()
+        except BaseException:
+            try:
+                await self.close()
+            except Exception:
+                logger.warning("cleanup after failed start also failed", exc_info=True)
+            raise
 
     async def close(self) -> None:
         try:

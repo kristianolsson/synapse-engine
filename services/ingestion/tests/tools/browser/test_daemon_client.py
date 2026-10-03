@@ -74,3 +74,30 @@ def test_status_lists_live_session(rt):
     client.request("s1", {"cmd": "open", "url": "about:blank"})
     msg = client.status()["message"]
     assert msg.startswith("s1: ") and "about:blank" in msg
+
+
+def test_request_during_shutdown_respawns(rt):
+    client.request("s1", {"cmd": "open", "url": "about:blank"})
+    old = runtime.read_info(runtime.session_paths("s1"))["daemon_pid"]
+    client.request("s1", {"cmd": "stop"}, autostart=False)
+    resp = client.request("s1", {"cmd": "open", "url": "about:blank"})
+    assert resp["ok"]
+    assert runtime.read_info(runtime.session_paths("s1"))["daemon_pid"] != old
+
+
+def test_stop_waits_for_session_already_stopping(rt):
+    client.request("s1", {"cmd": "open", "url": "about:blank"})
+    client.request("s1", {"cmd": "stop"}, autostart=False)
+    client.stop("s1")
+    assert not runtime.is_locked(runtime.session_paths("s1").lock)
+
+
+def test_gc_keeps_lock_file(rt):
+    paths = runtime.session_paths("old")
+    paths.dir.mkdir(parents=True)
+    paths.info.write_text("{}")
+    paths.artifacts.mkdir()
+    msg = client.gc()["message"]
+    assert "old" in msg
+    assert not paths.info.exists() and not paths.artifacts.exists()
+    assert paths.lock.exists()

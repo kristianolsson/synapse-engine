@@ -86,17 +86,27 @@ def request(session: str, req: dict, start_opts: Optional[dict] = None, autostar
     paths = runtime.session_paths(session)
     deadline = protocol.command_deadline(req) + protocol.client_slack_s()
     try:
+        resp, restart = None, False
         try:
             resp = _send(paths, req, deadline)
+            if (resp.get("details") or {}).get("shutting_down") and autostart:
+                _wait_unlocked(paths.lock, STOP_WAIT_S)  # command was not run; safe to replay on a new daemon
+                restart = True
         except (FileNotFoundError, ConnectionRefusedError):
             if not autostart:
                 raise BrowserError(f"session {session} is not running", "no_session")
+            restart = True
+        if restart:
             msg = spawn_daemon(session, start_opts or {})
             if msg.get("already_running") and not _wait_ready(paths, protocol.start_timeout_s()):
                 if runtime.is_locked(paths.lock):
                     raise _kill_unresponsive(session, paths)  # holds the lock but never listens: wedged
-                raise BrowserError(f"daemon for session {session} exited during startup — see {paths.log}",
-                                   "daemon_start_failed")
+                # The previous daemon finished shutting down meanwhile: start a fresh one.
+                if spawn_daemon(session, start_opts or {}).get("already_running") and not _wait_ready(
+                    paths, protocol.start_timeout_s()
+                ):
+                    raise BrowserError(f"daemon for session {session} exited during startup — see {paths.log}",
+                                       "daemon_start_failed")
             resp = _send(paths, req, deadline)
     except TimeoutError:  # before OSError: TimeoutError is an OSError subclass
         if _ping(paths):
@@ -198,11 +208,22 @@ def stop(session: str = "default", all_sessions: bool = False) -> dict:
         except BrowserError as e:
             if e.code != "no_session":
                 raise
-            continue
+            if not runtime.is_locked(runtime.session_paths(name).lock):
+                continue  # not running; otherwise it is starting or stopping: wait for it below
         stopped.append(name)
     for name in stopped:
-        if not _wait_unlocked(runtime.session_paths(name).lock, STOP_WAIT_S):
-            raise BrowserError(f"session {name} did not exit within {STOP_WAIT_S:g}s", "daemon_error")
+        lock = runtime.session_paths(name).lock
+        if _wait_unlocked(lock, STOP_WAIT_S):
+            continue
+        pid = (runtime.read_info(runtime.session_paths(name)) or {}).get("daemon_pid")
+        if pid and runtime.process_matches(pid, [DAEMON_MODULE, f"--session {name}"]):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            if _wait_unlocked(lock, 5.0):
+                continue
+        raise BrowserError(f"session {name} did not exit within {STOP_WAIT_S:g}s", "daemon_error")
     return {"ok": True, "message": "stopped: " + (", ".join(stopped) or "(none running)")}
 
 
@@ -235,7 +256,13 @@ def gc() -> dict:
             continue
         try:
             runtime.sweep(paths)
-            shutil.rmtree(paths.dir, ignore_errors=True)
+            for entry in paths.dir.iterdir():  # keep daemon.lock: removing it would let two daemons lock different inodes
+                if entry == paths.lock:
+                    continue
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink(missing_ok=True)
             cleaned.append(name)
         finally:
             os.close(fd)
