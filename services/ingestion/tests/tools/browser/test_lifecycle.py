@@ -64,15 +64,19 @@ def test_stale_socket_and_info(rt):
     s.close()  # leaves a socket file with no listener
     runtime.write_info(paths, {"daemon_pid": 999999, "browser_pgid": 999999, "profile": str(paths.temp_profile)})
     assert _open_blank()["ok"]
+    assert _info()["daemon_pid"] != 999999
 
 
 def test_stale_firefox_profile_lock(rt):
     profile = runtime.profile_dir("p1")
     profile.mkdir(parents=True)
     for name in ("parent.lock", ".parentlock"):
-        (profile / name).write_text("")
+        (profile / name).write_text("stale")
     assert "started" in client.start("s1", {"profile": "p1"})["message"]
     assert _open_blank()["ok"]
+    for name in ("parent.lock", ".parentlock"):
+        f = profile / name
+        assert not f.exists() or f.read_text() != "stale"
 
 
 def test_profile_in_use_by_other_session(rt):
@@ -108,20 +112,26 @@ def test_idle_timeout(rt, monkeypatch):
     paths = runtime.session_paths("s1")
     assert _wait(lambda: not runtime.is_locked(paths.lock))
     assert not paths.sock.exists() and not paths.info.exists()
+    assert "idle timeout" in paths.log.read_text()
 
 
 def test_max_lifetime_despite_activity(rt, monkeypatch):
     monkeypatch.setenv("SYNAPSE_BROWSER_MAX_LIFETIME_S", "3")
     _open_blank()
-    lock = runtime.session_paths("s1").lock
+    paths = runtime.session_paths("s1")
+    lock = paths.lock
+    successes = 0
     end = time.monotonic() + 15
     while runtime.is_locked(lock) and time.monotonic() < end:
         try:
             client.request("s1", {"cmd": "snapshot"}, autostart=False)
+            successes += 1
         except BrowserError:
             pass
         time.sleep(0.5)
     assert not runtime.is_locked(lock)
+    assert successes >= 1
+    assert "max lifetime" in paths.log.read_text()
 
 
 def test_memory_guard(rt, monkeypatch):
@@ -135,18 +145,25 @@ def test_memory_guard(rt, monkeypatch):
 def test_sigterm_shuts_down_cleanly(rt):
     _open_blank()
     info = _info()
+    paths = runtime.session_paths("s1")
+    assert paths.temp_profile.exists()
     os.kill(info["daemon_pid"], signal.SIGTERM)
-    assert _wait(lambda: not runtime.is_locked(runtime.session_paths("s1").lock))
-    assert not runtime.group_alive(info["browser_pgid"], info["profile"])
-    assert not runtime.session_paths("s1").temp_profile.exists()
+    assert _wait(lambda: not runtime.is_locked(paths.lock))
+    assert _wait(lambda: not runtime.group_alive(info["browser_pgid"], info["profile"]))
+    assert not paths.temp_profile.exists()
+    assert not paths.sock.exists() and not paths.info.exists()
+    assert "signal SIGTERM" in paths.log.read_text()
 
 
 def test_session_cap(rt, monkeypatch):
     monkeypatch.setenv("SYNAPSE_BROWSER_MAX_SESSIONS", "1")
-    _open_blank("a")
+    _open_blank("alpha")
     with pytest.raises(BrowserError) as e:
-        _open_blank("b")
-    assert e.value.code == "session_cap" and "a" in e.value.message
+        _open_blank("beta")
+    assert e.value.code == "session_cap" and "alpha" in e.value.message
+    beta = runtime.session_paths("beta")
+    assert _wait(lambda: not runtime.is_locked(beta.lock), 5)  # daemon exits right after reporting the error
+    assert not beta.info.exists()
 
 
 def test_status_and_gc_for_stale_session(rt):
