@@ -64,9 +64,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from services.ingestion.tools.browser import client  # noqa: E402
 from services.ingestion.tools.browser.errors import BrowserError  # noqa: E402
 from services.ingestion.tools.browser.protocol import WAIT_DEFAULT_TIMEOUT_S  # noqa: E402
-from services.ingestion.tools.browser.render import render  # noqa: E402
+from services.ingestion.tools.browser.render import neutralize, render  # noqa: E402
 
 ACTION_COMMANDS = ("open", "click", "fill", "type", "select", "press", "back")
+
+
+class _JsonArgumentParser(argparse.ArgumentParser):
+    """Reports usage errors as the CLI's stderr JSON contract instead of argparse's text."""
+
+    def error(self, message):
+        print(json.dumps({"error": neutralize(message), "code": "usage_error"}, ensure_ascii=False),
+              file=sys.stderr)
+        sys.exit(1)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -81,10 +90,10 @@ def build_parser() -> argparse.ArgumentParser:
     action.add_argument("--timeout", type=float)
     action.add_argument("--accept-dialog", action="store_true")
 
-    parser = argparse.ArgumentParser(prog="browser", description=__doc__,
+    parser = _JsonArgumentParser(prog="browser", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--session", default=None)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=_JsonArgumentParser)
 
     p = sub.add_parser("start", parents=[common])
     p.add_argument("--profile")
@@ -139,7 +148,7 @@ def _session(args) -> str:
 
 
 def _set(req: dict, key: str, value) -> None:
-    if value not in (None, False):
+    if value is not None and value is not False:
         req[key] = value
 
 
@@ -156,7 +165,7 @@ def build_request(args) -> dict:
     elif cmd == "fill":
         req.update(ref=args.ref, value=args.value)
     elif cmd == "type":
-        req.update(ref=args.ref, text=args.text)
+        req.update(ref=args.ref, value=args.text)
         _set(req, "pick", args.pick)
     elif cmd == "select":
         req.update(ref=args.ref, value=args.option)
@@ -179,7 +188,10 @@ def build_request(args) -> dict:
     elif cmd == "eval":
         req["js"] = args.js
     elif cmd == "run":
-        source = sys.stdin.read() if args.steps_file == "-" else Path(args.steps_file).read_text()
+        try:
+            source = sys.stdin.read() if args.steps_file == "-" else Path(args.steps_file).read_text()
+        except OSError as e:
+            raise BrowserError(f"cannot read steps file: {e}", "usage_error")
         try:
             req["steps"] = json.loads(source)
         except ValueError as e:
@@ -195,8 +207,15 @@ def build_request(args) -> dict:
     return req
 
 
+def _print_error(err: dict) -> None:
+    print(json.dumps(err, ensure_ascii=False), file=sys.stderr)
+
+
 def main(argv=None) -> int:
-    args = build_parser().parse_args(argv)
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as e:  # usage error (already printed as JSON) or --help
+        return e.code if isinstance(e.code, int) else 1
     session = _session(args)
     try:
         if args.command == "start":
@@ -211,10 +230,15 @@ def main(argv=None) -> int:
         else:
             resp = client.request(session, build_request(args))
     except BrowserError as e:
-        err = {"error": e.message, "code": e.code}
+        err = {"error": neutralize(e.message), "code": e.code}
         if e.details:
             err["details"] = e.details
-        print(json.dumps(err, ensure_ascii=False), file=sys.stderr)
+        _print_error(err)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+    except Exception as e:
+        _print_error({"error": neutralize(f"unexpected error: {e!r}"), "code": "daemon_error"})
         return 1
     print(render(resp))
     return 0

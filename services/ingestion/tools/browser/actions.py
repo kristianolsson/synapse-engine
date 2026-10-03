@@ -186,7 +186,7 @@ class Actions:
     async def _type(self, req: dict) -> dict:
         page = await self.s.ensure_page()
         locator = await self._resolve(page, _require(req, "ref"))
-        text = str(_require(req, "text"))
+        text = str(_require(req, "value"))
         before = await doc_id(page)
         baseline = self.s.last[page]
         await locator.fill("", timeout=_ms(req))

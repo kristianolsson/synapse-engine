@@ -47,21 +47,22 @@ async def test_fill_select_check_click_flow(act, site):
 async def test_type_pick_autocomplete(act, site):
     body = (await act.execute({"cmd": "open", "url": site + "/autocomplete.html"}))["body"]
     combo = ref_of(body, "combobox", "Where from?")
-    resp = await act.execute({"cmd": "type", "ref": combo, "text": "San", "pick": 2})
+    resp = await act.execute({"cmd": "type", "ref": combo, "value": "San", "pick": 2})
     assert 'value="San Jose (SJC)"' in resp["body"]
 
 
 async def test_type_without_pick_returns_options_diff(act, site):
     body = (await act.execute({"cmd": "open", "url": site + "/autocomplete.html"}))["body"]
-    resp = await act.execute({"cmd": "type", "ref": ref_of(body, "combobox", "Where from?"), "text": "Sto"})
+    resp = await act.execute({"cmd": "type", "ref": ref_of(body, "combobox", "Where from?"), "value": "Sto"})
     # Most of this tiny page changed, so the response falls back to a full snapshot.
     assert 'option "Stockholm Arlanda (ARN)"' in resp["body"]
+    assert "--- page text ---" not in resp["body"]
 
 
 async def test_type_pick_no_options(act, site):
     body = (await act.execute({"cmd": "open", "url": site + "/autocomplete.html"}))["body"]
     with pytest.raises(BrowserError) as e:
-        await act.execute({"cmd": "type", "ref": ref_of(body, "combobox", "Where from?"), "text": "zzz", "pick": 1})
+        await act.execute({"cmd": "type", "ref": ref_of(body, "combobox", "Where from?"), "value": "zzz", "pick": 1})
     assert e.value.code == "no_options"
 
 

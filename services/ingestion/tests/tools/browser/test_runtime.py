@@ -113,9 +113,12 @@ def test_try_lock_with_wait_retries(tmp_path):
     lock = tmp_path / "daemon.lock"
 
     # Hold the lock in a separate thread, then release it after ~0.1s
+    acquired = threading.Event()
+
     def hold_lock():
         fd = runtime.try_lock(lock)
         assert fd is not None
+        acquired.set()
         time.sleep(0.1)
         os.close(fd)
 
@@ -123,7 +126,8 @@ def test_try_lock_with_wait_retries(tmp_path):
     thread.start()
 
     try:
-        # Immediately after starting the thread, try_lock() without wait should fail
+        # Once the holder has the lock, try_lock() without wait should fail
+        assert acquired.wait(timeout=5)
         assert runtime.try_lock(lock) is None
 
         # But try_lock with wait_s=0.5 should succeed (waits for lock to be released)
