@@ -43,18 +43,37 @@ def test_public_name():
     assert not is_private_name("www.google.com")
 
 
-async def test_guard_uses_resolver_and_caches():
+async def test_guard_returns_checked_addresses_and_caches():
     calls = []
 
     async def resolve(host):
         calls.append(host)
-        return {"intranet.example": ["192.168.1.5"], "www.example.com": ["93.184.216.34"]}[host]
+        return {"intranet.example": ["192.168.1.5"],
+                "www.example.com": ["93.184.216.34", "93.184.216.34", "2606:2800::1"]}[host]
 
     guard = PrivateNetworkGuard(resolve=resolve)
-    assert await guard.blocked("intranet.example")
-    assert not await guard.blocked("www.example.com")
-    assert await guard.blocked("intranet.example")
+    assert await guard.addresses("intranet.example") is None
+    assert await guard.addresses("www.example.com") == ["93.184.216.34", "2606:2800::1"]
+    assert await guard.addresses("intranet.example") is None
     assert calls == ["intranet.example", "www.example.com"]
+
+
+async def test_guard_blocks_if_any_address_is_private():
+    async def resolve(host):
+        return ["93.184.216.34", "10.0.0.1"]
+
+    assert await PrivateNetworkGuard(resolve=resolve).addresses("mixed.example") is None
+
+
+async def test_guard_pins_first_answer_against_rebinding():
+    answers = [["93.184.216.34"], ["192.168.1.1"]]
+
+    async def resolve(host):
+        return answers.pop(0)
+
+    guard = PrivateNetworkGuard(resolve=resolve)
+    assert await guard.addresses("rebind.example") == ["93.184.216.34"]
+    assert await guard.addresses("rebind.example") == ["93.184.216.34"]
 
 
 async def test_guard_literal_and_names_skip_resolver():
@@ -62,16 +81,21 @@ async def test_guard_literal_and_names_skip_resolver():
         raise AssertionError("should not resolve")
 
     guard = PrivateNetworkGuard(resolve=resolve)
-    assert await guard.blocked("127.0.0.1")
-    assert await guard.blocked("localhost")
-    assert not await guard.blocked("8.8.8.8")
+    assert await guard.addresses("127.0.0.1") is None
+    assert await guard.addresses("[::1]") is None
+    assert await guard.addresses("localhost") is None
+    assert await guard.addresses("8.8.8.8") == ["8.8.8.8"]
 
 
-async def test_guard_unresolvable_host_not_blocked():
+async def test_guard_unresolvable_host_has_no_addresses_and_is_not_cached():
+    answers = [[], ["93.184.216.34"]]
+
     async def resolve(host):
-        return []
+        return answers.pop(0)
 
-    assert not await PrivateNetworkGuard(resolve=resolve).blocked("nxdomain.invalid")
+    guard = PrivateNetworkGuard(resolve=resolve)
+    assert await guard.addresses("flaky.example") == []
+    assert await guard.addresses("flaky.example") == ["93.184.216.34"]
 
 
 def test_command_deadline():

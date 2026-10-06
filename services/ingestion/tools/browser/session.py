@@ -6,16 +6,25 @@ import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlsplit
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
+from .netproxy import NetProxy
 from .settle import INIT_SCRIPT, NetworkTracker, doc_id
 from .snapshot import filter_interactive, parse
 from .urlpolicy import PrivateNetworkGuard
 
 logger = logging.getLogger("browser.session")
+
+PROXY_CLOSE_TIMEOUT_S = 5.0
+# With the policy proxy active, nothing may bypass it: proxy loopback too, and turn off WebRTC,
+# whose ICE connections do not go through an HTTP proxy.
+GUARDED_FIREFOX_PREFS = {
+    "network.proxy.allow_hijacking_localhost": True,
+    "network.proxy.no_proxies_on": "",
+    "media.peerconnection.enabled": False,
+}
 
 
 @dataclass
@@ -47,6 +56,7 @@ class Session:
         self.accept_dialog = False
         self.closed = asyncio.Event()
         self._guard = None if allow_private else PrivateNetworkGuard()
+        self._proxy: Optional[NetProxy] = None
         self._pending_downloads: set = set()
         self._pw = None
         self.context = None
@@ -54,26 +64,31 @@ class Session:
     async def start(self) -> None:
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self.profile.mkdir(parents=True, exist_ok=True)
-        self._pw = await async_playwright().start()
+        guarded = {}
+        if self._guard:
+            # Every connection Firefox makes (each redirect hop, subresources, WebSockets,
+            # workers) goes through this proxy, which checks and pins it.
+            self._proxy = NetProxy(self._guard, self._record_blocked)
+            port = await self._proxy.start()
+            guarded = {"proxy": {"server": f"http://127.0.0.1:{port}"}, "firefox_user_prefs": GUARDED_FIREFOX_PREFS}
         try:
+            self._pw = await async_playwright().start()
             self.context = await self._pw.firefox.launch_persistent_context(
                 str(self.profile),
                 headless=not self.headed,
                 viewport={"width": 1280, "height": 900},
                 accept_downloads=True,
                 service_workers="block",
+                **guarded,
             )
-        except Exception:
-            await self._pw.stop()
+        except BaseException:
+            await self.close()
             raise
         try:
             await self.context.add_init_script(INIT_SCRIPT)
-            if self._guard:
-                await self.context.route("**/*", self._route)
-                await self.context.route_web_socket("**/*", self._route_ws)
             self.context.on("page", self._on_new_page)
             self.context.on("close", lambda _ctx: self.closed.set())
-            # Pages that predate route_web_socket() are not covered by it, so replace them.
+            # Start from exactly one fresh page.
             stale = list(self.context.pages)
             self._attach(await self.context.new_page())
             for page in stale:
@@ -92,8 +107,15 @@ class Session:
             if self.context:
                 await self.context.close()
         finally:
-            if self._pw:
-                await self._pw.stop()
+            try:
+                if self._pw:
+                    await self._pw.stop()
+            finally:
+                if self._proxy:
+                    try:
+                        await asyncio.wait_for(self._proxy.close(), PROXY_CLOSE_TIMEOUT_S)
+                    except Exception:
+                        logger.warning("policy proxy did not close cleanly", exc_info=True)
 
     @property
     def page(self):
@@ -169,32 +191,6 @@ class Session:
     def _record_blocked(self, host: str) -> None:
         if host not in self.events["blocked"]:
             self.events["blocked"].append(host)
-
-    async def _route(self, route) -> None:
-        host = urlsplit(route.request.url).hostname
-        try:
-            blocked = bool(host) and await self._guard.blocked(host)
-        except Exception:  # fail closed
-            await route.abort("blockedbyclient")
-            return
-        if blocked:
-            self._record_blocked(host)
-            await route.abort("blockedbyclient")
-        else:
-            await route.continue_()
-
-    async def _route_ws(self, ws_route) -> None:
-        host = urlsplit(ws_route.url).hostname
-        try:
-            blocked = bool(host) and await self._guard.blocked(host)
-        except Exception:  # fail closed
-            blocked = True
-        if blocked:
-            if host:
-                self._record_blocked(host)
-            await ws_route.close()
-        else:
-            ws_route.connect_to_server()
 
     def _display_ref(self, page, doc, pw_ref: str) -> str:
         """Session-unique ref: never reused across documents or tabs, stable within a document."""

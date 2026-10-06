@@ -24,6 +24,9 @@ def rt_root(monkeypatch):
     shutil.rmtree(root, ignore_errors=True)
 
 
+REQUEST_LOG: list = []  # (Host header, path) of every GET the fixture server receives
+
+
 class _Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(FIXTURES), **kwargs)
@@ -42,6 +45,13 @@ class _Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
+        REQUEST_LOG.append((self.headers.get("Host", ""), url.path))
+        if url.path == "/redirect":
+            self.send_response(302)
+            self.send_header("Location", parse_qs(url.query)["to"][0])
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
         if url.path == "/slow":
             time.sleep(int(parse_qs(url.query).get("ms", ["1000"])[0]) / 1000)
             return self._send(b"Loaded results", "text/plain")
@@ -56,7 +66,7 @@ class _Handler(SimpleHTTPRequestHandler):
 
 @pytest.fixture(scope="session")
 def site():
-    """Base URL of a local HTTP server serving fixtures/ plus /slow, /hang, /download."""
+    """Base URL of a local HTTP server serving fixtures/ plus /slow, /hang, /download, /redirect?to=."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)

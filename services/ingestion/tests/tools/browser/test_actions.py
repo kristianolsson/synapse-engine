@@ -216,3 +216,24 @@ async def test_display_refs_stable_within_doc_and_unique_across_docs(act, site):
     page2 = (await act.execute({"cmd": "open", "url": site + "/page2.html"}))["body"]
     page2_refs = set(re.findall(r"\[(e\d+)\]", page2))
     assert page2_refs and not (nav_refs & page2_refs)
+
+
+async def test_open_redirect_to_blocked_host_is_policy_blocked(tmp_path, site):
+    from services.ingestion.tools.browser.session import Session
+
+    class LocalhostOnlyGuard:
+        async def addresses(self, host):
+            return None if host == "localhost" else [host]
+
+    port = site.rsplit(":", 1)[1]
+    s = Session(profile=tmp_path / "p", artifacts=tmp_path / "a", allow_private=False)
+    s._guard = LocalhostOnlyGuard()
+    await s.start()
+    try:
+        act = Actions(s)
+        s.begin_command(accept_dialog=False)
+        with pytest.raises(BrowserError) as e:
+            await act.execute({"cmd": "open", "url": f"{site}/redirect?to=http://localhost:{port}/page2.html"})
+        assert e.value.code == "policy_blocked" and "localhost" in e.value.message
+    finally:
+        await s.close()

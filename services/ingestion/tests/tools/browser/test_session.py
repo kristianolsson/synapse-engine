@@ -156,14 +156,19 @@ async def test_closing_earlier_tab_keeps_current_page(session, site):
     assert third in session.pages
 
 
-async def test_websocket_to_private_host_blocked(tmp_path):
+async def test_websocket_to_private_host_blocked(tmp_path, site):
+    # Port 9 would be refused by Firefox's banned-port list before reaching the proxy, so aim
+    # at the live fixture server's port.
+    port = site.rsplit(":", 1)[1]
     s = Session(profile=tmp_path / "p", artifacts=tmp_path / "a", allow_private=False)
     await s.start()
     try:
         page = await s.ensure_page()
         s.begin_command(accept_dialog=False)
-        await page.set_content("<script>new WebSocket('ws://127.0.0.1:9/')</script>")
-        await page.wait_for_timeout(1000)
+        await page.evaluate(f"""() => new Promise(done => {{
+            const ws = new WebSocket('ws://127.0.0.1:{port}/');
+            ws.onerror = ws.onclose = () => done();
+        }})""")
         assert "127.0.0.1" in s.events["blocked"]
     finally:
         await s.close()
@@ -216,3 +221,124 @@ async def test_snapshot_reads_doc_id_before_aria_snapshot(tmp_path):
     _raw, _prev, state = await s.snapshot(page)
     # Refs from the old document must be filed under the old doc id, so they go stale.
     assert state.doc == "old-doc"
+
+
+class _LocalhostOnlyGuard:
+    """Blocks only the name 'localhost', so 127.0.0.1 stays reachable for the fixture server."""
+
+    async def addresses(self, host: str):
+        return None if host == "localhost" else [host]
+
+
+async def _guarded_session(tmp_path):
+    s = Session(profile=tmp_path / "p", artifacts=tmp_path / "a", allow_private=False)
+    s._guard = _LocalhostOnlyGuard()
+    await s.start()
+    return s
+
+
+async def test_redirect_to_blocked_host_is_blocked(tmp_path, site):
+    from .conftest import REQUEST_LOG
+
+    port = site.rsplit(":", 1)[1]
+    s = await _guarded_session(tmp_path)
+    try:
+        page = await s.ensure_page()
+        s.begin_command(accept_dialog=False)
+        REQUEST_LOG.clear()
+        with pytest.raises(Exception):
+            await page.goto(f"{site}/redirect?to=http://localhost:{port}/page2.html")
+        assert s.events["blocked"] == ["localhost"]
+        assert not page.url.startswith("http://localhost")
+        assert ("127.0.0.1:" + port, "/redirect") in REQUEST_LOG
+        assert (f"localhost:{port}", "/page2.html") not in REQUEST_LOG
+    finally:
+        await s.close()
+
+
+async def test_two_hop_redirect_to_blocked_host_is_blocked(tmp_path, site):
+    from urllib.parse import quote
+
+    from .conftest import REQUEST_LOG
+
+    port = site.rsplit(":", 1)[1]
+    inner = f"{site}/redirect?to=http://localhost:{port}/page2.html"
+    s = await _guarded_session(tmp_path)
+    try:
+        page = await s.ensure_page()
+        s.begin_command(accept_dialog=False)
+        REQUEST_LOG.clear()
+        with pytest.raises(Exception):
+            await page.goto(f"{site}/redirect?to={quote(inner, safe='')}")
+        assert s.events["blocked"] == ["localhost"]
+        assert len([r for r in REQUEST_LOG if r[1] == "/redirect"]) == 2
+        assert (f"localhost:{port}", "/page2.html") not in REQUEST_LOG
+    finally:
+        await s.close()
+
+
+async def test_redirect_to_allowed_host_still_works(tmp_path, site):
+    s = await _guarded_session(tmp_path)
+    try:
+        page = await s.ensure_page()
+        s.begin_command(accept_dialog=False)
+        await page.goto(f"{site}/redirect?to={site}/page2.html")
+        assert page.url == site + "/page2.html"
+        assert await page.title() == "Page two"
+        assert s.events["blocked"] == []
+    finally:
+        await s.close()
+
+
+async def test_websocket_to_blocked_host_via_proxy(tmp_path, site):
+    port = site.rsplit(":", 1)[1]
+    s = await _guarded_session(tmp_path)
+    try:
+        page = await s.ensure_page()
+        await page.goto(site + "/page2.html")
+        s.begin_command(accept_dialog=False)
+        await page.evaluate(f"""() => new Promise(done => {{
+            const ws = new WebSocket('ws://localhost:{port}/');
+            ws.onerror = ws.onclose = () => done();
+        }})""")
+        assert s.events["blocked"] == ["localhost"]
+    finally:
+        await s.close()
+
+
+async def test_worker_fetch_to_blocked_host_is_blocked(tmp_path, site):
+    from .conftest import REQUEST_LOG
+
+    port = site.rsplit(":", 1)[1]
+    s = await _guarded_session(tmp_path)
+    try:
+        page = await s.ensure_page()
+        await page.goto(site + "/page2.html")
+        s.begin_command(accept_dialog=False)
+        REQUEST_LOG.clear()
+        result = await page.evaluate(f"""() => new Promise(done => {{
+            const src = "fetch('http://localhost:{port}/page2.html', {{mode: 'no-cors'}})"
+                + ".then(() => postMessage('loaded'), () => postMessage('failed'))";
+            const w = new Worker(URL.createObjectURL(new Blob([src])));
+            w.onmessage = e => done(e.data);
+        }})""")
+        assert result == "failed"
+        assert s.events["blocked"] == ["localhost"]
+        assert (f"localhost:{port}", "/page2.html") not in REQUEST_LOG
+    finally:
+        await s.close()
+
+
+async def test_close_stops_proxy(tmp_path):
+    import asyncio
+
+    s = Session(profile=tmp_path / "p", artifacts=tmp_path / "a", allow_private=False)
+    await s.start()
+    port = s._proxy.port
+    await s.close()
+    with pytest.raises(OSError):
+        await asyncio.open_connection("127.0.0.1", port)
+
+
+async def test_allow_private_runs_without_proxy(session):
+    assert session._proxy is None

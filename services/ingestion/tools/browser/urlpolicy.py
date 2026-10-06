@@ -58,22 +58,29 @@ async def _default_resolve(host: str) -> list[str]:
 
 
 class PrivateNetworkGuard:
-    """Decides (with a per-host cache) whether a host resolves to a private address."""
+    """Resolves a host once and decides whether it may be reached.
+
+    The approved addresses are cached per host for the life of the session and are the only
+    addresses the proxy dials (DNS pinning), so a later lookup cannot rebind the name to the LAN.
+    """
 
     def __init__(self, resolve: Optional[Callable[[str], Awaitable[list[str]]]] = None):
         self._resolve = resolve or _default_resolve
-        self._cache: dict[str, bool] = {}
+        self._cache: dict[str, Optional[list[str]]] = {}
 
-    async def blocked(self, host: str) -> bool:
+    async def addresses(self, host: str) -> Optional[list[str]]:
+        """Checked addresses for host; None if it is (or resolves to anything) private; [] if unresolvable."""
         if host in self._cache:
             return self._cache[host]
         if is_private_name(host):
-            result = True
+            result = None
         else:
+            literal = host.strip("[]")
             try:
-                result = is_private_ip(host.strip("[]"))
+                result = None if is_private_ip(literal) else [literal]
             except ValueError:
-                # Unresolvable hosts are not blocked: the browser reports the DNS failure itself.
-                result = any(is_private_ip(ip) for ip in await self._resolve(host))
-        self._cache[host] = result
+                ips = list(dict.fromkeys(await self._resolve(host)))
+                result = None if any(is_private_ip(ip) for ip in ips) else ips
+        if result != []:  # don't pin a transient DNS failure
+            self._cache[host] = result
         return result
