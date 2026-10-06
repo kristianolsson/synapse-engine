@@ -336,12 +336,19 @@ tabs, and cookies survive between CLI calls. Commands run one at a time;
   (`tools/browser/protocol.py`). `browser gc` sweeps stale sessions but keeps
   each session dir's `daemon.lock`: deleting a held lock file could let two
   daemons start.
-- **Security:** only `http`/`https`/`about:blank`; requests to private
-  addresses (localhost, RFC 1918, link-local, CGNAT, `.local`) are aborted
-  via `context.route` unless the session was started with `--allow-private`.
-  WebSockets are guarded the same way via `route_web_socket`, service
-  workers are blocked, and the route guard fails closed (an error while
-  evaluating a request aborts it).
+- **Security:** only `http`/`https`/`about:blank`. Unless the session was
+  started with `--allow-private`, Firefox sends all its traffic through a
+  daemon-local forward proxy (`tools/browser/netproxy.py`, 127.0.0.1,
+  ephemeral port; loopback is proxied too). For every connection (each
+  redirect hop, subresources, WebSockets, worker fetches) the proxy resolves
+  the host, refuses it if any address is private (localhost, RFC 1918,
+  link-local, CGNAT, `.local`; `tools/browser/urlpolicy.py`), and otherwise
+  dials one of the checked addresses itself, so a later DNS answer cannot
+  rebind the name to the LAN. A refused connection fails the load with a
+  network error and the host is reported as blocked (`open` returns
+  `policy_blocked`); an error while checking also refuses. WebRTC (which
+  bypasses HTTP proxies) is disabled and service workers are blocked. With
+  `--allow-private` there is no proxy.
 - **Profiles:** `--profile <name>` → `~/.synapse-browser/profiles/<name>`
   (persistent logins; one session per profile). Without it, a temporary
   profile is deleted on shutdown. Screenshots/downloads are deleted on
