@@ -74,11 +74,11 @@ class TestExtractBodyHtmlFallback:
         payload = {
             "mimeType": "multipart/alternative",
             "parts": [
-                {"mimeType": "text/html", "body": {"data": _b64("<p>Bostadsformedlingen fee notice</p>")}},
+                {"mimeType": "text/html", "body": {"data": _b64("<p>Housing agency fee notice</p>")}},
             ],
         }
         result = gmail_cli._extract_body(payload)
-        assert "Bostadsformedlingen fee notice" in result
+        assert "Housing agency fee notice" in result
 
     def test_html_fallback_is_labeled(self, gmail_cli):
         payload = {"mimeType": "text/html", "body": {"data": _b64("<p>Hello html</p>")}}
@@ -155,7 +155,7 @@ class TestReadThreadRendersHtmlBody:
                     "labelIds": ["INBOX"],
                     "payload": {
                         "headers": [
-                            {"name": "From", "value": "queue@bostadsformedlingen.se"},
+                            {"name": "From", "value": "queue@housing-agency.example"},
                             {"name": "Date", "value": "Mon, 1 Jan 2026 10:00:00 +0000"},
                             {"name": "Subject", "value": "Avgift"},
                         ],
