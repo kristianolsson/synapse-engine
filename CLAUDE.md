@@ -76,6 +76,7 @@ Each of these caused a real bug once. Don't reintroduce them.
   constants — never recompute `VAULT_PATH`/`CALENDAR_*_PATH` locally. Follow
   `etrade_cli.py`/`reminder_cli.py`/`options_bot_cli.py`/`amazon_fresh_cli.py`'s
   shape, not `gmail_cli.py`/`calendar_cli.py`'s older plain-text convention.
+  One documented exception: `browser_cli.py` prints plain text (fenced untrusted page content) on stdout; its errors still follow the JSON `{error, code}` convention — see `docs/ARCHITECTURE.md`.
 - **Tests** for the Python service live under `services/ingestion/tests/<module>/`,
   mirroring the source tree (`tests/channels/`, `tests/core/`, `tests/tools/`,
   `tests/utils/`). Don't add a new top-level test location for Python code.
@@ -134,4 +135,5 @@ bash scripts/tests/test_*.sh          # deployment-dispatcher tests (one file pe
 | E*TRADE / options-bot | `tools/etrade_cli.py`, `tools/stocks/`, `tools/options_bot_cli.py` |
 | Gmail / Calendar | `tools/gmail_cli.py`, `tools/calendar_cli.py` — share OAuth conceptually (`get_credentials()`) though it's duplicated rather than actually shared today. |
 | SmartThings / Home automation | `tools/smartthings_cli.py`, `tools/smartthings/` (`auth.py` OAuth2 token lifecycle, `client.py` REST wrapper, `resolver.py` device-name resolution). |
+| General-purpose web browsing (`browser` CLI) | `tools/browser_cli.py`, `tools/browser/` (`client.py` thin client → `daemon.py` per-session daemon → `session.py`/`actions.py` Playwright; `snapshot.py` pure parse/diff; `runtime.py` locks + stale-state sweep; `netproxy.py` + `urlpolicy.py` private-network proxy). See `docs/ARCHITECTURE.md`'s "The browser daemon". |
 | Deploying/updating the service (Mac `launchd` or QNAP/Docker) | `synapse.sh` (entrypoint) + `scripts/synapse-mac.sh`/`scripts/synapse-qnap.sh`/`scripts/synapse-common.sh` (shared helpers, vault clone/detach). See `README.md`'s Deployment section and `qnap-setup.md` for the user-facing walkthroughs these scripts implement. |

@@ -1,0 +1,14 @@
+<!doctype html><title>Nav</title>
+<h1 id=h>Home</h1>
+<a href="/page2.html">Go to page two</a>
+<button id=virtual>Virtual route</button>
+<button id=other>Other button</button>
+<a href="/page2.html" target="_blank">Open in new tab</a>
+<script>
+document.getElementById("virtual").addEventListener("click", () => {
+  history.pushState({}, "", "/virtual"); document.getElementById("h").textContent = "Virtual";
+});
+document.getElementById("other").addEventListener("click", () => {
+  document.getElementById("h").textContent = "Other clicked";
+});
+</script>

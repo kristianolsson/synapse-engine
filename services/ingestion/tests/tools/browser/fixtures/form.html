@@ -1,0 +1,18 @@
+<!doctype html><title>Form</title>
+<main>
+<label>Name <input id=name></label>
+<label>Cabin <select id=cabin><option>Economy</option><option>Business</option></select></label>
+<label><input type=checkbox id=nonstop> Nonstop</label>
+<button id=submit>Submit</button>
+<p id=out></p>
+</main>
+<script>
+document.getElementById("submit").addEventListener("click", () => {
+  const v = {name: document.getElementById("name").value, cabin: document.getElementById("cabin").value,
+             nonstop: document.getElementById("nonstop").checked};
+  document.getElementById("out").textContent = "Submitted " + JSON.stringify(v);
+});
+document.getElementById("name").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("out").textContent = "Enter pressed";
+});
+</script>

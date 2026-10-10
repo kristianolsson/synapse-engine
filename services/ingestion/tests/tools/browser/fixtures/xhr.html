@@ -1,0 +1,9 @@
+<!doctype html><title>XHR</title>
+<button id=load>Load results</button><div id=results></div>
+<script>
+document.getElementById("load").addEventListener("click", async () => {
+  const r = await fetch("/slow?ms=1500");
+  const t = await r.text();
+  document.getElementById("results").innerHTML = `<p>${t}</p><button>Next page</button>`;
+});
+</script>

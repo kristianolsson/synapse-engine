@@ -1,0 +1,7 @@
+<!doctype html><title>Dialog</title>
+<button id=c>Delete</button><p id=out></p>
+<script>
+document.getElementById("c").addEventListener("click", () => {
+  document.getElementById("out").textContent = confirm("Really delete?") ? "confirmed" : "cancelled";
+});
+</script>

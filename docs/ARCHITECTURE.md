@@ -299,6 +299,61 @@ and recompute their own default paths instead of importing `config.py`'s
 majority pattern and the more machine-parseable one for the AI provider that
 actually calls these tools.
 
+**Exception: `browser_cli.py`** prints plain text on stdout — a one-line
+header (`settled | navigated | tab`) plus everything page-derived (url, title,
+downloads, blocked hosts, dialogs, body) inside an `UNTRUSTED PAGE CONTENT`
+fence — because snapshots and diffs are read by the agent on every step and
+JSON escaping roughly doubles their noise. Errors still follow the
+convention: `{"error", "code"}` JSON on stderr (argparse usage errors
+included), exit 1, taxonomy in the module docstring.
+
+## The browser daemon
+
+`bin/browser` is a thin client (`tools/browser/client.py`, no Playwright
+import) that sends one JSON request per connection to a per-session daemon
+(`tools/browser/daemon.py`) on `/tmp/synapse-browser/<session>/daemon.sock`.
+The daemon owns a Playwright Firefox persistent context, so DOM, form state,
+tabs, and cookies survive between CLI calls. Commands run one at a time;
+`ping` / `status` / `stop` bypass the queue.
+
+- **Refs:** snapshots come from `page.aria_snapshot(mode="ai")`. Playwright's
+  refs are per-document, so the daemon translates them into session-unique
+  display refs (`eN`, never reused across documents or tabs). Actions resolve
+  display ref → Playwright ref → `aria-ref=`. An init script stamps each
+  document with an ID (`window.__synapseDoc`); a ref from before a navigation
+  returns `stale_ref` instead of hitting a different element. Known
+  limitation: an iframe navigating inside an unchanged top document is not
+  detected.
+- **Settle:** after each action, wait for DOMContentLoaded after a navigation or a quiet page (no
+  in-flight requests, no DOM mutations for 500 ms, at least 500 ms after the
+  action), capped at 5 s; then return a diff (or a full snapshot after
+  navigation).
+- **Liveness:** decided by `flock` on `daemon.lock`, never by a PID file
+  alone. Startup sweeps stale state (orphaned Firefox process group, stale
+  socket, Firefox profile locks). One idempotent `shutdown()` serves `stop`,
+  idle (10 min), max lifetime (60 min), memory guard (1.5 GB RSS), signals,
+  and browser exit. All limits are `SYNAPSE_BROWSER_*` env vars
+  (`tools/browser/protocol.py`). `browser gc` sweeps stale sessions but keeps
+  each session dir's `daemon.lock`: deleting a held lock file could let two
+  daemons start.
+- **Security:** only `http`/`https`/`about:blank`. Unless the session was
+  started with `--allow-private`, Firefox sends all its traffic through a
+  daemon-local forward proxy (`tools/browser/netproxy.py`, 127.0.0.1,
+  ephemeral port; loopback is proxied too). For every connection (each
+  redirect hop, subresources, WebSockets, worker fetches) the proxy resolves
+  the host, refuses it if any address is private (localhost, RFC 1918,
+  link-local, CGNAT, `.local`; `tools/browser/urlpolicy.py`), and otherwise
+  dials one of the checked addresses itself, so a later DNS answer cannot
+  rebind the name to the LAN. A refused connection fails the load with a
+  network error and the host is reported as blocked (`open` returns
+  `policy_blocked`); an error while checking also refuses. WebRTC (which
+  bypasses HTTP proxies) is disabled and service workers are blocked. With
+  `--allow-private` there is no proxy.
+- **Profiles:** `--profile <name>` → `~/.synapse-browser/profiles/<name>`
+  (persistent logins; one session per profile). Without it, a temporary
+  profile is deleted on shutdown. Screenshots/downloads are deleted on
+  shutdown for every session.
+
 ## Tests
 
 Tests live under `services/ingestion/tests/<module>/`, mirroring the source

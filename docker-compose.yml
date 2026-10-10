@@ -22,3 +22,5 @@ services:
       - ${SYNAPSE_HOST_DIR}/credentials/etrade/.etrade_browser_profile:/home/synapse/.etrade_browser_profile
       # Amazon Fresh: persistent Firefox browser session
       - ${SYNAPSE_HOST_DIR}/credentials/amazon/.amazon-fresh-session:/home/synapse/.amazon-fresh-session
+      # Browser CLI: persistent Firefox login profiles (~/.synapse-browser/profiles/<name>)
+      - ${SYNAPSE_HOST_DIR}/credentials/browser:/home/synapse/.synapse-browser

@@ -61,7 +61,7 @@ flowchart TB
     subgraph exec["Agent Execution — serialized by GLOBAL_PROVIDER_LOCK"]
         direction TB
         VAULT[("Synapse Vault<br/>git-backed vault repo")]
-        TOOLS["Injected tool CLIs (bin/)<br/>calendar · gmail · etrade · options-bot · amazon-fresh · reminder · smartthings"]
+        TOOLS["Injected tool CLIs (bin/)<br/>calendar · gmail · etrade · options-bot · amazon-fresh · reminder · smartthings · browser"]
         VAULT --> TOOLS
     end
 
@@ -101,6 +101,7 @@ The service is organized into the following layers under `services/ingestion/`:
 | | `tools/options_bot_cli.py` | Weekday options-opportunity scan → HTML report |
 | | `tools/amazon_fresh_cli.py` + `tools/amazon_fresh/` | Amazon Fresh grocery browsing (Playwright) |
 | | `tools/smartthings_cli.py` + `tools/smartthings/` | SmartThings device list/status/control (OAuth2, rate-limit backoff, TTL-cached device-name resolution) |
+| | `tools/browser_cli.py` + `tools/browser/` | General-purpose headless Firefox (Playwright): per-session daemon, accessibility-snapshot element refs, act → settle → diff responses, private-network blocking — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | **Setup-only** | `tools/setup_google.py` | One-time OAuth2 setup for Calendar + Gmail — run manually, not agent-facing |
 | **Utils** | `utils/stats_formatter.py` | Per-channel token/cost/usage stats formatting |
 | | `utils/task_formatter.py` | Two-way task-completion parsing and formatting |
@@ -130,7 +131,7 @@ When interacting with the bot via Telegram, the following commands are available
     -   (Recommended) A Telegram bot token from [@BotFather](https://t.me/BotFather).
 
     **Install dependencies** (needed for the Google API Setup commands
-    below, and for E\*TRADE/Amazon Fresh/SmartThings if you use those):
+    below, and for E\*TRADE/Amazon Fresh/SmartThings/`browser` login profiles if you use those):
     ```bash
     python3 -m venv venv
     source venv/bin/activate
@@ -229,7 +230,7 @@ When interacting with the bot via Telegram, the following commands are available
 
 3.  **Install & run:** installation is deployment-specific — jump to [Deployment](#deployment) below and follow whichever fits:
     - **Option A — macOS (`launchd`)**: runs directly on your Mac in a local Python venv.
-    - **Option B — Docker / QNAP NAS**: runs in a container with everything bundled — no local venv needed to run the service itself. If you use Calendar/Gmail, E\*TRADE, Amazon Fresh, or SmartThings, though, you'll still need a local checkout + venv somewhere to bootstrap those credentials once — see [`qnap-setup.md`](qnap-setup.md)'s Prerequisites.
+    - **Option B — Docker / QNAP NAS**: runs in a container with everything bundled — no local venv needed to run the service itself. If you use Calendar/Gmail, E\*TRADE, Amazon Fresh, SmartThings, or `browser` login profiles, though, you'll still need a local checkout + venv somewhere to bootstrap those credentials once — see [`qnap-setup.md`](qnap-setup.md)'s Prerequisites.
 
 ## Deployment
 
@@ -276,7 +277,7 @@ Best for running on a personal Mac. Runs the service in the background via a `la
 
 Best for always-on, headless operation. The `Dockerfile` bundles the Claude,
 Antigravity, and Gemini (deprecated) CLIs plus a Playwright Firefox (for
-E\*TRADE and Amazon Fresh browser auth), and `docker-compose.yml` mounts the
+E\*TRADE and Amazon Fresh browser auth and the general-purpose `browser` CLI), and `docker-compose.yml` mounts the
 Vault, CLI credentials, and SSH key from persistent storage.
 
 ```bash

@@ -1,0 +1,34 @@
+<!doctype html><title>Autocomplete</title>
+<main>
+<label for=from>Where from?</label>
+<input id=from role=combobox aria-autocomplete=list aria-controls=list aria-expanded=false>
+<ul id=list role=listbox aria-label="Suggestions" hidden></ul>
+<button id=search>Search</button>
+<p id=out></p>
+</main>
+<script>
+const cities = ["Alpha City (AAA)", "Alphaville (AAV)", "Bravo Bay (BBB)", "Alpine Junction (AAJ)"];
+const input = document.getElementById("from"), list = document.getElementById("list");
+let timer;
+input.addEventListener("input", () => {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    const q = input.value.toLowerCase();
+    list.innerHTML = "";
+    for (const c of cities.filter(c => q && c.toLowerCase().includes(q))) {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.textContent = c;
+      li.addEventListener("click", () => {
+        input.value = c; list.hidden = true; input.setAttribute("aria-expanded", "false");
+      });
+      list.appendChild(li);
+    }
+    list.hidden = !list.children.length;
+    input.setAttribute("aria-expanded", String(!list.hidden));
+  }, 300);
+});
+document.getElementById("search").addEventListener("click", () => {
+  document.getElementById("out").textContent = "Searching from " + input.value;
+});
+</script>
