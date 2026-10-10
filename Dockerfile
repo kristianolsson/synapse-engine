@@ -21,8 +21,8 @@ RUN apt-get update && apt-get install -y \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code and Gemini CLIs globally
-RUN npm install -g @anthropic-ai/claude-code @google/gemini-cli
+# Install Claude Code globally (the deprecated Gemini CLI is no longer bundled)
+RUN npm install -g @anthropic-ai/claude-code
 
 # Create non-root user (required for --dangerously-skip-permissions)
 RUN useradd -m -u 1002 synapse

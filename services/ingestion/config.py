@@ -59,10 +59,10 @@ RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 _raw_providers = os.getenv("AI_PROVIDERS", "").strip()
 if not _raw_providers:
     # Backward compat: fall back to the old single-provider env var
-    _raw_providers = os.getenv("AI_PROVIDER", "gemini").strip()
+    _raw_providers = os.getenv("AI_PROVIDER", "claude").strip()
 AI_PROVIDERS = [p.strip().lower() for p in _raw_providers.split(",") if p.strip()]
 
-_ai_provider = AI_PROVIDERS[0] if AI_PROVIDERS else "gemini"  # mutable runtime value
+_ai_provider = AI_PROVIDERS[0] if AI_PROVIDERS else "claude"  # mutable runtime value
 
 def get_ai_provider() -> str:
     """Get the current AI provider (may differ from .env after /provider command)."""

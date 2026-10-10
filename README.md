@@ -6,7 +6,7 @@ backend — capturing messages, standardizing them into a structured format, and
 routing them to the configured AI provider for autonomous processing of the
 **Synapse Vault**.
 
-> **Supported providers:** Claude Code CLI, Antigravity CLI (agy), Gemini CLI (deprecated — replaced by agy)
+> **Supported providers:** Claude Code CLI, Antigravity CLI (agy), Gemini CLI (deprecated — replaced by agy; not bundled in the Docker image)
 >
 > **Vault template:** [synapse-vault](https://github.com/kristianolsson/synapse-vault) — a generic, public starter vault (protocols only, no personal data) to pair with this engine.
 >
@@ -275,8 +275,8 @@ Best for running on a personal Mac. Runs the service in the background via a `la
 
 ### Option B — Docker / QNAP NAS
 
-Best for always-on, headless operation. The `Dockerfile` bundles the Claude,
-Antigravity, and Gemini (deprecated) CLIs plus a Playwright Firefox (for
+Best for always-on, headless operation. The `Dockerfile` bundles the Claude
+and Antigravity CLIs plus a Playwright Firefox (for
 E\*TRADE and Amazon Fresh browser auth and the general-purpose `browser` CLI), and `docker-compose.yml` mounts the
 Vault, CLI credentials, and SSH key from persistent storage.
 

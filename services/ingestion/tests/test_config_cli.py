@@ -42,3 +42,18 @@ def test_falls_back_to_path_without_local_install(tmp_path, monkeypatch):
     _make_exe(on_path)
     monkeypatch.setenv("PATH", str(on_path.parent))
     assert config._resolve_claude_cmd(repo_root=tmp_path / "no-repo") == str(on_path)
+
+
+def test_default_provider_is_claude(monkeypatch):
+    import importlib
+
+    try:
+        with monkeypatch.context() as m:
+            m.delenv("AI_PROVIDERS", raising=False)
+            m.delenv("AI_PROVIDER", raising=False)
+            m.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+            importlib.reload(config)
+            assert config.AI_PROVIDERS == ["claude"]
+            assert config.get_ai_provider() == "claude"
+    finally:
+        importlib.reload(config)
