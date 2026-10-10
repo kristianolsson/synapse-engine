@@ -36,6 +36,16 @@ assert_eq "_set_env_var leaves other keys alone" "qux with spaces" "$(_env_var "
 _set_env_var "$TMP/env2" NEWKEY "newvalue"
 assert_eq "_set_env_var appends a missing key" "newvalue" "$(_env_var "$TMP/env2" NEWKEY)"
 
+# --- _unset_env_var ---
+cp "$TMP/env1" "$TMP/env4"
+_unset_env_var "$TMP/env4" FOO
+assert_eq "_unset_env_var removes the key" "" "$(_env_var "$TMP/env4" FOO)"
+assert_eq "_unset_env_var leaves other keys alone" "qux with spaces" "$(_env_var "$TMP/env4" BAZ)"
+_unset_env_var "$TMP/env4" MISSING
+assert_eq "_unset_env_var on a missing key is a no-op" "qux with spaces" "$(_env_var "$TMP/env4" BAZ)"
+_unset_env_var "$TMP/does-not-exist-2" FOO
+assert_eq "_unset_env_var on a missing file creates nothing" "no" "$([ -e "$TMP/does-not-exist-2" ] && echo yes || echo no)"
+
 # --- metacharacter handling ---
 # Test values with sed/regex metacharacters
 mkdir -p "$TMP/meta"

@@ -826,6 +826,45 @@ class TestTaskButtons:
         assert "Unauthorized" in call_args[0][0]
 
 
+# ── /update-cli tests ───────────────────────────────────────────────
+
+
+class TestTelegramUpdateCli:
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.subprocess.run")
+    async def test_update_cli_installs_only_claude_and_switches_cli(self, mock_run, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config._resolve_claude_cmd.return_value = "/repo/node_modules/.bin/claude"
+        mock_run.return_value = MagicMock(returncode=0, stdout="changed 1 package", stderr="")
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-cli")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        args = mock_run.call_args[0][0]
+        assert args == ["npm", "install", "@anthropic-ai/claude-code@latest"]
+        assert mock_config.CLAUDE_CMD == "/repo/node_modules/.bin/claude"
+        reply = update.message.reply_text.call_args[0][0]
+        assert "/repo/node_modules/.bin/claude" in reply
+
+    @pytest.mark.asyncio
+    @patch("services.ingestion.channels.telegram.listener.config")
+    @patch("services.ingestion.channels.telegram.listener.subprocess.run")
+    async def test_update_cli_failure_keeps_current_cli(self, mock_run, mock_config):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.CLAUDE_CMD = "/usr/local/bin/claude"
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="npm ERR! network")
+        rl = RateLimiter(10, 60)
+        update = _make_update(text="/update-cli")
+
+        await handle_message(update, None, rl, MagicMock(spec=SessionManager))
+
+        assert mock_config.CLAUDE_CMD == "/usr/local/bin/claude"
+        reply = update.message.reply_text.call_args[0][0]
+        assert "failed" in reply and "npm ERR! network" in reply
+
+
 # ── Claude re-auth tests ────────────────────────────────────────────
 
 

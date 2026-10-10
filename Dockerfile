@@ -1,11 +1,13 @@
-FROM node:20-slim
+# Node 22+: Claude Code releases after 2.1.197 require it — on an older Node,
+# npm silently installs that last compatible (stale) version instead.
+FROM node:22-bookworm-slim
 
 # System deps
 # tzdata: guarantees the IANA zone database is present so TZ=<IANA name>
 # (docker-compose.yml's TZ=${TZ:-UTC}) resolves correctly — config.py's
 # LOCAL_TZ depends on it via tzlocal/zoneinfo.
 # procps: provides `ps`, which the browser CLI's runtime.py uses to find and
-# reap its daemon/Firefox process groups (node:20-slim doesn't ship it).
+# reap its daemon/Firefox process groups (the slim Node image doesn't ship it).
 RUN apt-get update && apt-get install -y \
     tini \
     git \

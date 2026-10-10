@@ -347,7 +347,7 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
             "/new, /clear — Clears the current session and starts a fresh context.\n"
             "/stats on|off — Toggles the display of token usage and request stats.\n"
             "/update — Pulls the latest code via git and restarts the bot.\n"
-            "/update-cli — Locally updates the Claude and Gemini CLI tools.\n"
+            "/update-cli — Updates the Claude CLI to the latest version (no rebuild needed).\n"
             "/update-claude-auth — Re-authenticates the Claude CLI (OAuth login).\n"
             "/update-etrade-auth — Re-authenticates ETRADE (manual OAuth PIN).\n"
             "/update-smartthings-auth — Re-authenticates SmartThings (manual OAuth code).\n"
@@ -389,17 +389,24 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         # locally, launchd's KeepAlive does the same for our own exit.
         os.kill(os.getpid(), signal.SIGTERM)
 
-    # /update-cli command — update Claude and Gemini CLI tools locally
+    # /update-cli command — install the latest Claude CLI into the repo's
+    # node_modules (writable by the container user, unlike the image's global
+    # install) and switch to it immediately; config prefers this copy on
+    # later starts too.
     if stripped == "/update-cli":
-        await message.reply_text("Updating CLI tools locally (this might take a minute)...")
+        await message.reply_text("Updating the Claude CLI (this might take a minute)...")
         try:
             result = subprocess.run(
-                ["npm", "install", "@anthropic-ai/claude-code@latest", "@google/gemini-cli@latest"],
+                ["npm", "install", "@anthropic-ai/claude-code@latest"],
                 cwd=Path(__file__).resolve().parents[4],
                 capture_output=True, text=True, timeout=120
             )
             if result.returncode == 0:
-                await message.reply_text(f"Successfully updated CLI tools:\n{result.stdout.strip()}")
+                config.CLAUDE_CMD = config._resolve_claude_cmd()
+                await message.reply_text(
+                    f"Successfully updated the Claude CLI:\n{result.stdout.strip()}\n\n"
+                    f"Active Claude CLI: {config.CLAUDE_CMD}"
+                )
             else:
                 await message.reply_text(f"CLI update failed:\n{result.stderr.strip()}")
                 return

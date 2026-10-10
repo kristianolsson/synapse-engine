@@ -145,7 +145,8 @@ EOF
 _ensure_qnap_runtime_env_defaults "$RUNTIME_ENV"
 
 assert_eq "existing unrelated key is preserved" "abc123" "$(_env_var "$RUNTIME_ENV" TELEGRAM_BOT_TOKEN)"
-assert_eq "existing CLAUDE_CMD is overridden to the container path" "/usr/local/bin/claude" "$(_env_var "$RUNTIME_ENV" CLAUDE_CMD)"
+assert_eq "stale CLAUDE_CMD is removed so the container auto-detects its CLI" "" "$(_env_var "$RUNTIME_ENV" CLAUDE_CMD)"
+assert_eq "no CLAUDE_CMD line remains" "0" "$(grep -c "^CLAUDE_CMD=" "$RUNTIME_ENV")"
 assert_eq "VAULT_PATH set to the container mount point" "/app/vault" "$(_env_var "$RUNTIME_ENV" VAULT_PATH)"
 assert_eq "AGY_CMD set to the container path" "/home/synapse/.local/bin/agy" "$(_env_var "$RUNTIME_ENV" AGY_CMD)"
 assert_eq "SESSION_STORAGE_PATH set to the container path" "/app/data/sessions.json" "$(_env_var "$RUNTIME_ENV" SESSION_STORAGE_PATH)"

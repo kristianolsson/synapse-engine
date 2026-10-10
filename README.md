@@ -115,7 +115,7 @@ When interacting with the bot via Telegram, the following commands are available
 - `/new` | `/clear` — Clears the current session and starts a fresh context.
 - `/stats on` | `/stats off` — Toggles the display of token usage and request stats after responses.
 - `/update` — Pulls the latest code via git and gracefully restarts the service.
-- `/update-cli` — Locally updates the Claude and Gemini CLI tools via npm (useful for getting the latest CLI versions without rebuilding the container).
+- `/update-cli` — Installs the latest Claude CLI into the checkout's `node_modules` and switches the bot to it immediately (useful for getting the latest CLI without rebuilding the container; the bot keeps preferring that copy until it's removed).
 - `/update-claude-auth` — Re-authenticates the Claude CLI: replies with an OAuth URL, then completes login once you reply with the code (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
 - `/update-smartthings-auth` — Re-authenticates SmartThings: replies with an authorization URL, then exchanges and saves `smartthings_token.json` directly once you reply with the code shown on the redirect page — no SSH/scp needed (see [Token refresh](qnap-setup.md#token-refresh) in `qnap-setup.md`).
 - `/provider <claude|agy|gemini>` — Switches the active AI provider (`gemini` deprecated — replaced by agy). Without an argument, shows the current provider.

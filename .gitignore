@@ -54,3 +54,8 @@ docs/superpowers/
 # Personal, instance-specific runbooks (real paths/identity) — never public
 docs/personal/
 
+
+# Repo-local Claude CLI installed by the Telegram /update-cli command
+/node_modules/
+/package.json
+/package-lock.json

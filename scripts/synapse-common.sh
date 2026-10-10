@@ -72,6 +72,16 @@ _set_env_var() {
     mv "$temp_file" "$file"
 }
 
+# Removes every KEY=... line; a missing key or file is a no-op.
+_unset_env_var() {
+    local file="$1" key="$2"
+    [ -f "$file" ] || return 0
+    local temp_file
+    temp_file=$(mktemp)
+    awk -v k="$key" 'BEGIN { FS = "=" } $1 != k { print }' "$file" > "$temp_file"
+    mv "$temp_file" "$file"
+}
+
 # Prefers .venv, falls back to venv, empty string if neither has a python.
 _detect_venv_dir() {
     local project_dir="$1"

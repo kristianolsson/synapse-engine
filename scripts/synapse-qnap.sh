@@ -80,7 +80,12 @@ _ensure_qnap_host_dirs() {
 _ensure_qnap_runtime_env_defaults() {
     local env_file="$1"
     _set_env_var "$env_file" VAULT_PATH "/app/vault"
-    _set_env_var "$env_file" CLAUDE_CMD "/usr/local/bin/claude"
+    # CLAUDE_CMD is deliberately NOT pinned: inside the container config.py
+    # auto-detects the CLI (the /update-cli copy in node_modules first, then
+    # the image's global install). Remove a stale value — e.g. a Mac path from
+    # a copied .env, or the /usr/local/bin/claude older setups wrote — so it
+    # can't shadow /update-cli.
+    _unset_env_var "$env_file" CLAUDE_CMD
     _set_env_var "$env_file" AGY_CMD "/home/synapse/.local/bin/agy"
     _set_env_var "$env_file" SESSION_STORAGE_PATH "/app/data/sessions.json"
     _set_env_var "$env_file" REMINDERS_JSON_PATH "/app/vault/reminders/reminders.json"

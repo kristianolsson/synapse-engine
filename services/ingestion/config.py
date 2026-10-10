@@ -124,11 +124,23 @@ GEMINI_FALLBACK_MODELS = [
 ]
 
 # --- Claude CLI ---
-def _resolve_claude_cmd() -> str:
-    """Resolve the claude CLI path, auto-detecting from the login shell if needed."""
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _resolve_claude_cmd(repo_root: Path = _REPO_ROOT) -> str:
+    """Resolve the claude CLI path.
+
+    Order: an explicit CLAUDE_CMD; then the repo-local install that the
+    Telegram /update-cli command maintains (node_modules/.bin/claude), so an
+    update takes effect without rebuilding the image; then claude on PATH
+    (the image's global install); then the login shell's claude.
+    """
     explicit = os.getenv("CLAUDE_CMD", "").strip()
     if explicit:
         return explicit
+    local = repo_root / "node_modules" / ".bin" / "claude"
+    if local.is_file() and os.access(local, os.X_OK):
+        return str(local)
     import subprocess
     import shutil
     found = shutil.which("claude")
