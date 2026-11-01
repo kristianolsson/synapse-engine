@@ -20,11 +20,14 @@ import heapq
 import json
 import logging
 import os
+import re
 import threading
 import time
 import subprocess
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from .. import config
 from ..core.pipe import IncomingMessage, sync_and_build_prompt, pipe_to_provider
@@ -39,11 +42,56 @@ LOCAL_TZ = config.LOCAL_TZ
 MISSED_THRESHOLD_SECONDS = 300  # 5 minutes
 
 FALLBACK_PROMPT_TEMPLATE = (
-    "Delivery of a scheduled reminder failed. "
-    "Please log the following task to tasks/master_todos.md under the appropriate section "
-    "so it is not lost:\n\n"
-    "Task: {task}"
+    "A scheduled task failed and its result could not be delivered. "
+    "Log exactly one todo to tasks/master_todos.md under the appropriate section so it "
+    "is not lost, using exactly this line and nothing more (do not copy the original "
+    "task text into it):\n\n"
+    "{todo}"
 )
+
+# Quota handling: when the provider reports a usage/session limit, scheduled
+# work is deferred until the limit resets instead of failing (and instead of
+# spawning a failure-logging session that would hit the same limit).
+# Undelivered results are re-sent on each hourly scan; after this long they
+# are given up on (alert + todo) and deleted.
+UNDELIVERED_MAX_AGE = timedelta(days=30)
+
+QUOTA_RETRY_BUFFER = timedelta(minutes=2)       # wait this long past the reset time
+QUOTA_DEFAULT_RETRY = timedelta(hours=1)        # if no reset time can be parsed
+QUOTA_MAX_DEFERRALS = 3                         # then give up and alert
+_QUOTA_RESET_RE = re.compile(
+    r"resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)(?:\s*\(([A-Za-z_]+/[A-Za-z_/]+)\))?",
+    re.IGNORECASE,
+)
+
+
+def is_quota_error(text: str) -> bool:
+    """True if a provider error is a usage/session limit (providers normalize
+    these to contain "quota" — see providers/claude.py)."""
+    return "quota" in (text or "").lower()
+
+
+def parse_quota_reset(text: str, now: datetime) -> Optional[datetime]:
+    """Parse a "resets 8:30pm" / "resets 9pm (America/Los_Angeles)" time out
+    of a quota error. Returns the next such time after `now`, or None."""
+    m = _QUOTA_RESET_RE.search(text or "")
+    if not m:
+        return None
+    hour, minute, ampm, tz_name = int(m.group(1)), int(m.group(2) or 0), m.group(3).lower(), m.group(4)
+    if not 1 <= hour <= 12 or minute > 59:
+        return None
+    hour = hour % 12 + (12 if ampm == "pm" else 0)
+    tz = now.tzinfo
+    if tz_name:
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            pass
+    local_now = now.astimezone(tz)
+    reset = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if reset <= local_now:
+        reset += timedelta(days=1)
+    return reset.astimezone(now.tzinfo)
 
 WEEKDAY_MAP = {
     "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
@@ -176,6 +224,10 @@ class ReminderScheduler:
 
         # Track which reminder IDs are currently in the heap (with their fire times and snapshots)
         self._scheduled_ids: dict[str, tuple[datetime, dict]] = {}
+
+        # Set while the provider is over its usage limit (see _defer_for_quota)
+        self._quota_lock = threading.Lock()
+        self._quota_blocked_until: Optional[datetime] = None
 
     # ── JSON I/O ─────────────────────────────────────────────────────────
 
@@ -351,17 +403,19 @@ class ReminderScheduler:
 
     # ── Delivery ─────────────────────────────────────────────────────────
 
-    def _send_telegram(self, text: str, reply_markup=None) -> Optional[int]:
-        """Send a message via Telegram. Returns the message_id on success."""
-        from ..channels.telegram.sender import send_telegram_message
+    def _send_telegram(self, text: str, reply_markup=None) -> list[int]:
+        """Send a message via Telegram, split across several messages if it's
+        over Telegram's length limit. Returns every message_id sent, or []
+        on failure."""
+        from ..channels.telegram.sender import send_telegram_messages
         from ..utils.html_utils import sanitize_telegram_html
 
         if not config.TELEGRAM_ALLOWED_USER_IDS:
             logger.error("No TELEGRAM_ALLOWED_USER_IDS configured, cannot send reminder")
-            return None
+            return []
 
         chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0]
-        return send_telegram_message(chat_id, sanitize_telegram_html(text), reply_markup=reply_markup)
+        return send_telegram_messages(chat_id, sanitize_telegram_html(text), reply_markup=reply_markup)
 
     def _send_email(self, text: str, subject: str, session_id: str = None) -> bool:
         """Send a message via Email. Never raises — callers (e.g. delivery-
@@ -388,6 +442,18 @@ class ReminderScheduler:
             logger.error("Failed to send email (subject=%r): %s", subject, e)
             return False
 
+    def _email_fallback(self, text: str, subject: str, session_id: str = None) -> bool:
+        """Telegram delivery failed — send the same content by email instead,
+        so a Telegram outage or rejection never loses the result. Saves the
+        email thread session (if any) so a reply continues the conversation."""
+        logger.warning("Telegram delivery failed, falling back to email: %s", subject)
+        sent = self._send_email(text, subject=subject, session_id=session_id)
+        if sent and session_id:
+            UserSession(
+                self.session_manager, f"<{session_id}@synapse.local>", daily_reset=False
+            ).save(session_id)
+        return sent
+
     def _make_subject(self, text: str, prefix: str = "Reminder") -> str:
         """Generate a concise email subject from the task/message text."""
         first_line = text.split("\n")[0].strip()
@@ -404,10 +470,13 @@ class ReminderScheduler:
         if channel == "telegram":
             if subject:
                 text = f"<b>{subject}</b>\n\n{text}"
-            msg_id = self._send_telegram(text, reply_markup=reply_markup)
-            if msg_id and session_id:
-                self.session_manager.save_message_session(msg_id, session_id)
-            return msg_id
+            msg_ids = self._send_telegram(text, reply_markup=reply_markup)
+            if session_id:
+                # Every part of a split message maps back to the session, so
+                # replying to any of them continues the conversation.
+                for msg_id in msg_ids:
+                    self.session_manager.save_message_session(msg_id, session_id)
+            return msg_ids[-1] if msg_ids else None
         elif channel == "email":
             return self._send_email(text, subject=subject, session_id=session_id)
         else:
@@ -431,15 +500,30 @@ class ReminderScheduler:
             text,
             subject=subject,
         )
+        if not success and channel == "telegram":
+            success = self._email_fallback(
+                text, subject=subject or self._make_subject(task, prefix="Reminder")
+            )
         if not success:
-            self._handle_delivery_failure(task, error=f"Failed to deliver message via {channel}.")
+            self._handle_delivery_failure(
+                task, error=f"Failed to deliver message via {channel}.", title=subject_override
+            )
 
-    def _handle_work_reminder(self, channel: str, task: str, is_missed: bool = False, seconds_late: float = 0, subject_override: str = None) -> None:
+    def _handle_work_reminder(self, channel: str, task: str, is_missed: bool = False, seconds_late: float = 0, subject_override: str = None, quota_attempt: int = 0) -> None:
         """Re-pipe a work reminder through the normal ingestion flow.
 
         Builds an IncomingMessage as if it came from the user, pipes it
         to the AI provider, and delivers the response.
         """
+        scheduled_for = datetime.now(LOCAL_TZ) - timedelta(seconds=seconds_late)
+
+        # Already over the usage limit: don't start a session that's certain
+        # to fail — defer straight to the reset time.
+        with self._quota_lock:
+            blocked_until = self._quota_blocked_until
+        if blocked_until and datetime.now(LOCAL_TZ) < blocked_until:
+            self._defer_for_quota(channel, task, subject_override, scheduled_for, quota_attempt, error="")
+            return
         # If significantly late, give the AI timing context so it can adjust
         # (e.g., a "check this weekend's F1 race" task firing mid-weekend)
         actual_task = task
@@ -451,7 +535,12 @@ class ReminderScheduler:
                 late_desc = f"{hours_late:.0f} hour(s)"
             else:
                 late_desc = f"{seconds_late / 60:.0f} minute(s)"
-            actual_task = f"[Context: this task is from a scheduled reminder that was {late_desc} late] {task}"
+            actual_task = (
+                f"[Context: this task is from a scheduled reminder that was {late_desc} late. "
+                f"If it covers a fixed lookback window (e.g. \"the last 6 hours\"), extend that "
+                f"window back by {late_desc} so the missed period is still covered — this "
+                f"overrides any \"do not go further back\" limit in the task.] {task}"
+            )
 
         # Determine sender identity based on channel
         if channel == "telegram":
@@ -497,9 +586,13 @@ class ReminderScheduler:
                 logger.warning("Work reminder failed due to quota. Falling back to %s...", alt_provider)
                 result = pipe_to_provider(prompt, model="work", provider_name=alt_provider)
 
+        if result.is_error and is_quota_error(result.output):
+            self._defer_for_quota(channel, task, subject_override, scheduled_for, quota_attempt, error=result.output)
+            return
+
         if result.is_error:
             logger.error("Work reminder failed: %s", result.output)
-            self._handle_delivery_failure(task, error=result.output)
+            self._handle_delivery_failure(task, error=result.output, title=subject_override)
             return
 
         if not result.requires_reply:
@@ -512,6 +605,10 @@ class ReminderScheduler:
 
         if is_missed:
             response_text = f"⏰ _Missed reminder (firing late):_\n\n{response_text}"
+
+        # Pre-stats copy, kept for the email fallback and the undelivered-result
+        # file if Telegram delivery fails.
+        base_text = response_text
 
         if channel == "telegram":
             from ..utils.stats_formatter import append_stats_telegram
@@ -555,7 +652,8 @@ class ReminderScheduler:
                 dispatch_text = f"<b>{subject}</b>\n\n{dispatch_text}"
                 deliver_subject = ""
             chat_id = config.TELEGRAM_ALLOWED_USER_IDS[0] if config.TELEGRAM_ALLOWED_USER_IDS else None
-            response_text, keyboard, form_id = build_reply_keyboard(chat_id, sender, dispatch_text)
+            # No truncation: _send_telegram splits long text across messages.
+            response_text, keyboard, form_id = build_reply_keyboard(chat_id, sender, dispatch_text, truncate=False)
 
         msg_id = self._deliver(
             channel,
@@ -565,26 +663,139 @@ class ReminderScheduler:
             reply_markup=keyboard,
         )
         if not msg_id:
-            self._handle_delivery_failure(task, error=f"Task completed but failed to deliver the response via {channel}.")
             if form_id:
                 from ..core import form_state
                 form_state.delete_form(form_id)
+            delivered = False
+            if channel == "telegram":
+                from ..utils.stats_formatter import append_stats_email
+                delivered = self._email_fallback(
+                    append_stats_email(base_text, result.stats, session),
+                    subject=email_subject,
+                    session_id=result.session_id,
+                )
+            if not delivered:
+                saved_path = self._save_undelivered_result(
+                    task, base_text, channel=channel,
+                    subject=subject_override or "", email_subject=email_subject,
+                    session_id=result.session_id,
+                )
+                # A saved result is re-sent automatically, so it doesn't need a
+                # todo (which would go stale once the re-send succeeds).
+                self._handle_delivery_failure(
+                    task,
+                    error=f"Task completed but failed to deliver the response via {channel}.",
+                    title=subject_override,
+                    saved_path=saved_path,
+                    log_todo=not saved_path,
+                )
         elif form_id:
             from ..channels.telegram.reply_dispatch import attach_form_message_id
             attach_form_message_id(form_id, msg_id, result.session_id)
 
-    def _handle_delivery_failure(self, task: str, error: str = "") -> None:
+    def _save_undelivered_result(self, task: str, text: str, channel: str = "telegram", subject: str = "", email_subject: str = "", session_id: str = "") -> str:
+        """Persist a completed-but-undelivered result so _resend_undelivered()
+        can deliver it later without paying for the run again. Returns the
+        file path, or "" if saving failed."""
+        try:
+            out_dir = Path(config.UNDELIVERED_RESULTS_DIR)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            now = datetime.now(LOCAL_TZ)
+            path = out_dir / f"{now.strftime('%Y-%m-%dT%H%M%S')}-{os.getpid()}-{threading.get_ident()}.json"
+            record = {
+                "saved_at": now.isoformat(),
+                "task": task,
+                "channel": channel,
+                "subject": subject,
+                "email_subject": email_subject or self._make_subject(task, prefix="Synapse"),
+                "session_id": session_id or "",
+                "text": text,
+            }
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+            os.rename(tmp, path)
+            logger.info("Saved undelivered result to %s", path)
+            return str(path)
+        except Exception as e:
+            logger.error("Failed to save undelivered result: %s", e)
+            return ""
+
+    def _resend_undelivered(self) -> None:
+        """Re-deliver saved results (called on each hourly scan). Each is sent
+        on its original channel, falling back to email for Telegram, and
+        deleted once sent. One older than UNDELIVERED_MAX_AGE is given up on:
+        alert + todo, then deleted."""
+        out_dir = Path(config.UNDELIVERED_RESULTS_DIR)
+        if not out_dir.is_dir():
+            return
+        now = datetime.now(LOCAL_TZ)
+        for path in sorted(out_dir.glob("*.json")):
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+                saved_at = datetime.fromisoformat(record["saved_at"])
+                task = record.get("task", "")
+                title = record.get("subject") or None
+                if now - saved_at > UNDELIVERED_MAX_AGE:
+                    logger.error("Giving up on undelivered result %s (saved %s)", path, record["saved_at"])
+                    self._handle_delivery_failure(
+                        task, error=f"Could not deliver the result for {UNDELIVERED_MAX_AGE.days} days; it has been discarded.",
+                        title=title,
+                    )
+                    path.unlink()
+                    continue
+
+                text = f"📬 <i>Delayed delivery (completed {saved_at.strftime('%Y-%m-%d %H:%M')}):</i>\n\n{record['text']}"
+                session_id = record.get("session_id") or None
+                channel = record.get("channel", "telegram")
+                if channel == "email":
+                    sent = self._email_fallback(text, subject=record["email_subject"], session_id=session_id)
+                else:
+                    sent = self._deliver(channel, text, subject=record.get("subject", ""), session_id=session_id)
+                    if not sent and channel == "telegram":
+                        sent = self._email_fallback(text, subject=record["email_subject"], session_id=session_id)
+                if sent:
+                    path.unlink()
+                    logger.info("Re-sent undelivered result %s", path)
+                else:
+                    logger.warning("Re-send of undelivered result %s failed; will retry next scan", path)
+            except Exception as e:
+                logger.error("Failed to process undelivered result %s: %s", path, e, exc_info=True)
+
+    def _short_title(self, task: str, title: Optional[str] = None) -> str:
+        """A short label for a task: its subject if set, else its first line."""
+        if title:
+            return title
+        first_line = task.split("\n")[0].strip()
+        return first_line if len(first_line) <= 60 else first_line[:57] + "..."
+
+    def _handle_delivery_failure(self, task: str, error: str = "", title: Optional[str] = None, saved_path: str = "", log_todo: bool = True) -> None:
         """Alert the user and ask AI to log the failed reminder to master_todos.
 
         This ensures no reminder is silently lost, and the user is always
         told when a scheduled task fails, regardless of the failure reason.
+        The todo gets a short title, not the full task prompt. log_todo=False
+        skips the AI logging step (e.g. when the provider is over its usage
+        limit and would fail too, or the result was saved for re-sending).
         """
         logger.warning("Delivery failed, sending fallback to log task: %s", task)
+        saved_line = (
+            f"\n\nThe completed result was saved to {saved_path} and will be re-sent "
+            f"automatically on the next hourly scan."
+        ) if saved_path else ""
         self._alert(
-            text=f"A scheduled task failed. The original task was:\n\n{task}\n\nError:\n{error or 'No error detail available.'}",
+            text=f"A scheduled task failed. The original task was:\n\n{task}\n\nError:\n{error or 'No error detail available.'}{saved_line}",
             subject="[Synapse Alert] Scheduled task failed",
         )
-        fallback_prompt = FALLBACK_PROMPT_TEMPLATE.format(task=task)
+        if not log_todo:
+            return
+        today = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")
+        todo = f"- [ ] Scheduled task failed ({today}): {self._short_title(task, title)}"
+        fallback_prompt = sync_and_build_prompt(IncomingMessage(
+            source_type="scheduled_work",
+            sender="system",
+            subject="Scheduled Task Failure Log",
+            body=FALLBACK_PROMPT_TEMPLATE.format(todo=todo),
+        ))
         try:
             result = pipe_to_provider(fallback_prompt)
 
@@ -606,6 +817,70 @@ class ReminderScheduler:
                 text=f"Failed to execute and log reminder. The original task was:\n\n{task}\n\nException:\n{e}",
                 subject="[Synapse Alert] Failed to execute and log reminder"
             )
+
+    def _defer_for_quota(self, channel: str, task: str, subject_override: Optional[str], scheduled_for: datetime, attempt: int, error: str) -> None:
+        """Re-run a work reminder after the provider's usage limit resets.
+
+        The first task to hit the limit records the reset time and sends one
+        alert. Tasks firing while blocked are deferred to the same time
+        without starting a session. After QUOTA_MAX_DEFERRALS tries the task
+        is reported as failed, without the AI todo-logging step.
+        """
+        now = datetime.now(LOCAL_TZ)
+        title = self._short_title(task, subject_override)
+        if attempt >= QUOTA_MAX_DEFERRALS:
+            logger.error("Work reminder still over quota after %d deferrals: %s", attempt, title)
+            self._handle_delivery_failure(
+                task, error=f"Still over the usage limit after {attempt} retries. {error}".strip(),
+                title=subject_override, log_todo=False,
+            )
+            return
+
+        newly_blocked = False
+        with self._quota_lock:
+            if error:
+                reset = parse_quota_reset(error, now) or (now + QUOTA_DEFAULT_RETRY)
+                retry_at = reset + QUOTA_RETRY_BUFFER
+                if not self._quota_blocked_until or self._quota_blocked_until <= now:
+                    newly_blocked = True
+                if not self._quota_blocked_until or retry_at > self._quota_blocked_until:
+                    self._quota_blocked_until = retry_at
+            retry_at = self._quota_blocked_until or (now + QUOTA_DEFAULT_RETRY)
+
+        delay = max((retry_at - now).total_seconds(), 0)
+        logger.warning("Usage limit hit — deferring %r to %s (attempt %d)", title, retry_at.isoformat(), attempt + 1)
+        if newly_blocked:
+            self._notify(
+                f"⚠️ AI usage limit reached ({error.strip()[:200]}). Scheduled tasks are paused "
+                f"and will retry at {retry_at.strftime('%H:%M')}. First deferred: {title}",
+                subject="[Synapse Alert] Usage limit reached — scheduled tasks deferred",
+            )
+
+        def _retry():
+            seconds_late = (datetime.now(LOCAL_TZ) - scheduled_for).total_seconds()
+            try:
+                self._handle_work_reminder(
+                    channel, task, is_missed=seconds_late > MISSED_THRESHOLD_SECONDS,
+                    seconds_late=seconds_late, subject_override=subject_override,
+                    quota_attempt=attempt + 1,
+                )
+            except Exception as e:
+                logger.error("Deferred work reminder failed: %s", e, exc_info=True)
+                self._handle_delivery_failure(task, error=str(e), title=subject_override)
+
+        timer = threading.Timer(delay, _retry)
+        timer.daemon = True
+        timer.name = "quota-deferred-reminder"
+        timer.start()
+
+    def _notify(self, text: str, subject: str) -> None:
+        """Best-effort user notification: Telegram first, email fallback."""
+        try:
+            if self._send_telegram(f"<b>{subject}</b>\n\n{text}"):
+                return
+        except Exception as e:
+            logger.error("Failed to send Telegram notification: %s", e)
+        self._alert(text=text, subject=subject)
 
     def _alert(self, text: str, subject: str) -> None:
         """Best-effort alert email — a notification failure must never mask
@@ -739,6 +1014,10 @@ class ReminderScheduler:
                 self._scan_and_schedule()
             except Exception as e:
                 logger.error("Scan loop error: %s", e, exc_info=True)
+            try:
+                self._resend_undelivered()
+            except Exception as e:
+                logger.error("Undelivered re-send error: %s", e, exc_info=True)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 

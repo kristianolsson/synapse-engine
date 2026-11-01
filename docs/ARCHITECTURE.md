@@ -155,7 +155,13 @@ formatting happens:
   button), and `build_reply_keyboard()` (truncation + Actionable-Form/
   task-checklist detection + keyboard construction) for inline replies.
   `channels/telegram/sender.py`'s `send_telegram_message(..., stats=None,
-  session=None)` for standalone sends.
+  session=None)` for standalone sends (and `send_telegram_messages()`,
+  which returns every message_id). Standalone sends never truncate: text
+  over Telegram's 4096-char limit is split on line boundaries by
+  `split_telegram_html()`, which closes tags still open at each split and
+  re-opens them in the next part (a naive slice can cut a tag in half and
+  get the whole message rejected). Each part falls back to plain text if
+  Telegram still rejects its HTML.
 
 **Rule: pass the raw `stats` dict plus a `session` handle through
 `send_reply()`/`send_telegram_message()` — never pre-gate or pre-format
@@ -172,13 +178,47 @@ it, including the two below that can't call `send_reply`/
 `response_text` themselves rather than calling `send_telegram_message` for
 their primary replies, because that text also feeds
 `build_reply_keyboard()`'s truncation and Actionable-Form detection, which
-must run *after* the stats footer is appended (send_telegram_message's own
-truncation runs too late for that ordering). They call
+must run *after* the stats footer is appended. (The scheduler passes
+`truncate=False` and sends through `send_telegram_messages()`, so long
+scheduled results are split rather than cut off.) They call
 `append_stats_telegram`/`append_stats_email` directly instead:
 
 ```python
 reply_text = append_stats_telegram(reply_text, result.stats, session)
 ```
+
+### Scheduled-task delivery and failure handling
+
+`core/scheduler.py` tries hard not to lose a scheduled result or pay for a
+run twice:
+
+1. **Telegram → email fallback.** If a Telegram reminder or work result
+   can't be sent, the same content goes out by email (`_email_fallback()`),
+   with the email-thread session saved so replying continues the
+   conversation.
+2. **Saved result + auto re-send.** If both channels fail, the completed
+   result is written as JSON to `UNDELIVERED_RESULTS_DIR` (default
+   `undelivered_results/` next to `SESSION_STORAGE_PATH`, i.e.
+   `/app/data/undelivered_results/` on QNAP). The hourly scan
+   (`_resend_undelivered()`) re-delivers each one on its original channel
+   (Telegram → email fallback) and deletes it once sent, so nothing is
+   re-run. After `UNDELIVERED_MAX_AGE` (30 days) it gives up: alert + todo,
+   then delete.
+3. **Failure log.** `_handle_delivery_failure()` emails an alert, then asks
+   the AI to log one todo with a short title (the reminder's `subject`, else
+   the task's first line) — never the full task prompt. That prompt is built
+   through `sync_and_build_prompt()` like any other. A result saved for
+   re-sending gets no todo, since it would go stale once the re-send lands.
+4. **Usage limits.** A quota error (`is_quota_error()`) doesn't go to the
+   failure path. `_defer_for_quota()` parses the reset time
+   (`"resets 8:30pm"`; 1h default if unparseable), sends **one** alert per
+   limit window (Telegram, email fallback), and re-runs the task on a timer
+   just after the reset. Work reminders that fire while blocked are deferred
+   the same way without starting a session. The re-run gets the usual
+   late-reminder context, which tells the AI to widen any fixed lookback
+   window ("last 6 hours") by the delay. After `QUOTA_MAX_DEFERRALS` it
+   alerts without the AI todo-logging step. Deferral timers are in-memory:
+   a restart while blocked drops them.
 
 Same function, called one layer up the stack — not a reimplementation.
 Never reimplement the gate-and-format logic itself at a new call site;

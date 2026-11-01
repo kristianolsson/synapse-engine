@@ -38,6 +38,7 @@ notes
 
 # Sessions
 sessions.json
+undelivered_results/
 .venv/
 
 # Testing

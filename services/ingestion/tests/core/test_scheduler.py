@@ -6,6 +6,7 @@ failure handling for the refactored two-tier scheduler.
 """
 
 import json
+import os
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch, mock_open
 
@@ -14,7 +15,11 @@ import pytest
 from services.ingestion.core.scheduler import (
     ReminderScheduler,
     compute_next_fire,
+    is_quota_error,
+    parse_quota_reset,
     MISSED_THRESHOLD_SECONDS,
+    QUOTA_MAX_DEFERRALS,
+    QUOTA_RETRY_BUFFER,
     LOCAL_TZ,
 )
 
@@ -24,6 +29,24 @@ from services.ingestion.core.scheduler import (
 # regardless of what timezone the test happens to run in. These tests
 # exercise wall-clock/day-of-week arithmetic, which is correct for any
 # zone as long as fixtures and assertions use the same one.
+
+
+@pytest.fixture(autouse=True)
+def no_real_git_pull():
+    """sync_and_build_prompt() runs a real `git pull` against VAULT_PATH —
+    never let a unit test touch the real vault."""
+    with patch("services.ingestion.core.pipe._sync_git", return_value="Git Context: OK"):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def no_real_outbound_messages():
+    """Never send real email/Telegram from a unit test — config loads the
+    real .env, so an unmocked fallback path would message the actual user.
+    Tests that exercise these functions patch them again themselves."""
+    with patch("services.ingestion.channels.email.reply.send_reply", return_value=False), \
+         patch("services.ingestion.channels.telegram.sender.send_telegram_messages", return_value=[]):
+        yield
 
 
 @pytest.fixture
@@ -226,18 +249,18 @@ class TestDelivery:
         mock_config.TELEGRAM_BOT_TOKEN = "test-token"
 
         with patch(
-            "services.ingestion.channels.telegram.sender.send_telegram_message"
+            "services.ingestion.channels.telegram.sender.send_telegram_messages"
         ) as mock_send:
-            mock_send.return_value = True
+            mock_send.return_value = [101]
             result = scheduler._send_telegram("Hello!")
             mock_send.assert_called_once_with(12345, "Hello!", reply_markup=None)
-            assert result is True
+            assert result == [101]
 
     @patch("services.ingestion.core.scheduler.config")
     def test_send_telegram_no_user_ids(self, mock_config, scheduler):
         mock_config.TELEGRAM_ALLOWED_USER_IDS = []
         result = scheduler._send_telegram("Hello!")
-        assert result is None
+        assert result == []
 
     @patch("services.ingestion.core.scheduler.config")
     def test_send_telegram_sanitizes_html(self, mock_config, scheduler):
@@ -248,9 +271,9 @@ class TestDelivery:
         mock_config.TELEGRAM_BOT_TOKEN = "test-token"
 
         with patch(
-            "services.ingestion.channels.telegram.sender.send_telegram_message"
+            "services.ingestion.channels.telegram.sender.send_telegram_messages"
         ) as mock_send:
-            mock_send.return_value = True
+            mock_send.return_value = [101]
             scheduler._send_telegram("<div>Reminder</div><script>bad()</script>")
             sent_text = mock_send.call_args.args[1]
             assert "<div>" not in sent_text
@@ -325,12 +348,28 @@ class TestMessageReminder:
         text = mock_deliver.call_args.args[1]
         assert "⏰ Missed reminder:" in text
 
+    @patch.object(ReminderScheduler, "_email_fallback")
     @patch.object(ReminderScheduler, "_handle_delivery_failure")
     @patch.object(ReminderScheduler, "_deliver")
-    def test_message_delivery_failure(self, mock_deliver, mock_fallback, scheduler):
+    def test_message_delivery_failure(self, mock_deliver, mock_fallback, mock_email, scheduler):
+        """Telegram and the email fallback both fail → failure handler runs."""
         mock_deliver.return_value = False
+        mock_email.return_value = False
         scheduler._handle_message_reminder("telegram", "Call the dentist")
-        mock_fallback.assert_called_once_with("Call the dentist", error="Failed to deliver message via telegram.")
+        mock_email.assert_called_once()
+        mock_fallback.assert_called_once_with(
+            "Call the dentist", error="Failed to deliver message via telegram.", title=None
+        )
+
+    @patch.object(ReminderScheduler, "_email_fallback")
+    @patch.object(ReminderScheduler, "_handle_delivery_failure")
+    @patch.object(ReminderScheduler, "_deliver")
+    def test_message_telegram_failure_falls_back_to_email(self, mock_deliver, mock_fallback, mock_email, scheduler):
+        mock_deliver.return_value = None
+        mock_email.return_value = True
+        scheduler._handle_message_reminder("telegram", "Call the dentist")
+        assert "Call the dentist" in mock_email.call_args.args[0]
+        mock_fallback.assert_not_called()
 
 
 # ── Work Reminder Handling ───────────────────────────────────────────
@@ -380,7 +419,7 @@ class TestWorkReminder:
 
         scheduler._handle_work_reminder("telegram", "Research stocks")
 
-        mock_fallback.assert_called_once_with("Research stocks", error="API error")
+        mock_fallback.assert_called_once_with("Research stocks", error="API error", title=None)
 
     @patch.object(ReminderScheduler, "_deliver")
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
@@ -446,6 +485,8 @@ class TestWorkReminder:
         assert call_args.kwargs["reply_markup"] is fake_keyboard
         mock_attach.assert_called_once_with("form-abc", 999, "sess-1")
 
+    @patch.object(ReminderScheduler, "_save_undelivered_result", return_value="/data/undelivered/x.html")
+    @patch.object(ReminderScheduler, "_email_fallback", return_value=False)
     @patch("services.ingestion.core.form_state.delete_form")
     @patch("services.ingestion.channels.telegram.reply_dispatch.build_reply_keyboard")
     @patch.object(ReminderScheduler, "_handle_delivery_failure")
@@ -453,7 +494,8 @@ class TestWorkReminder:
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
     @patch("services.ingestion.core.scheduler.config")
     def test_work_reminder_form_delivery_failure_cleans_up_form(
-        self, mock_config, mock_pipe, mock_deliver, mock_fallback, mock_build_reply_keyboard, mock_delete_form, scheduler
+        self, mock_config, mock_pipe, mock_deliver, mock_fallback, mock_build_reply_keyboard, mock_delete_form,
+        mock_email, mock_save, scheduler
     ):
         """If delivery of a form-bearing reminder fails, the form must not leak in form_state."""
         mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
@@ -466,8 +508,10 @@ class TestWorkReminder:
 
         scheduler._handle_work_reminder("telegram", "Fitness check-in")
 
+        mock_email.assert_called_once()
         mock_fallback.assert_called_once_with(
-            "Fitness check-in", error="Task completed but failed to deliver the response via telegram."
+            "Fitness check-in", error="Task completed but failed to deliver the response via telegram.",
+            title=None, saved_path="/data/undelivered/x.html", log_todo=False,
         )
         mock_delete_form.assert_called_once_with("form-abc")
 
@@ -550,6 +594,8 @@ class TestDeliveryFailure:
         prompt_arg = mock_pipe.call_args[0][0]
         assert "master_todos" in prompt_arg
         assert "Call the dentist" in prompt_arg
+        # Wrapped in the metadata block like every other provider prompt
+        assert prompt_arg.startswith("---\nType: scheduled_work")
 
     @patch.object(ReminderScheduler, "_send_email")
     @patch("services.ingestion.core.scheduler.pipe_to_provider")
@@ -596,6 +642,176 @@ class TestDeliveryFailure:
         assert "Call the dentist" in second_kwargs["text"]
         assert "API error" in second_kwargs["text"]
         assert "execute and log" in second_kwargs["subject"]
+
+
+    @patch.object(ReminderScheduler, "_send_email")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    def test_todo_uses_short_title_not_full_prompt(self, mock_pipe, mock_email, scheduler):
+        mock_pipe.return_value = MagicMock(is_error=False, output="")
+        long_task = "Check if there is a F1 race this weekend. " + "Lots of instructions. " * 50
+
+        scheduler._handle_delivery_failure(long_task, title="F1 weekly")
+
+        prompt_arg = mock_pipe.call_args[0][0]
+        assert "- [ ] Scheduled task failed (" in prompt_arg
+        assert prompt_arg.rstrip().endswith("): F1 weekly")
+        assert "Lots of instructions." not in prompt_arg
+
+    @patch.object(ReminderScheduler, "_send_email")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    def test_log_todo_false_skips_ai_logging(self, mock_pipe, mock_email, scheduler):
+        scheduler._handle_delivery_failure("Call the dentist", log_todo=False)
+        mock_email.assert_called_once()
+        mock_pipe.assert_not_called()
+
+
+class TestTelegramEmailFallback:
+    """Work reminders fall back to email when Telegram delivery fails."""
+
+    @patch.object(ReminderScheduler, "_handle_delivery_failure")
+    @patch.object(ReminderScheduler, "_send_email", return_value=True)
+    @patch.object(ReminderScheduler, "_deliver", return_value=None)
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.core.scheduler.config")
+    def test_work_result_emailed_when_telegram_fails(
+        self, mock_config, mock_pipe, mock_deliver, mock_send_email, mock_failure, scheduler
+    ):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_pipe.return_value = MagicMock(
+            is_error=False, requires_reply=True, output="F1 weekend report", session_id="sess-9", stats=None,
+        )
+
+        scheduler._handle_work_reminder("telegram", "F1 report", subject_override="F1 weekly")
+
+        mock_send_email.assert_called_once()
+        assert "F1 weekend report" in mock_send_email.call_args.args[0]
+        assert mock_send_email.call_args.kwargs["subject"] == "F1 weekly"
+        assert mock_send_email.call_args.kwargs["session_id"] == "sess-9"
+        mock_failure.assert_not_called()
+
+    @patch("services.ingestion.core.scheduler.config")
+    def test_save_undelivered_result(self, mock_config, scheduler, tmp_path):
+        mock_config.UNDELIVERED_RESULTS_DIR = str(tmp_path / "undelivered")
+        path = scheduler._save_undelivered_result(
+            "F1 report", "<b>Result</b>", channel="telegram", subject="F1 weekly", session_id="s1"
+        )
+        assert path.startswith(str(tmp_path))
+        with open(path) as f:
+            record = json.load(f)
+        assert record["text"] == "<b>Result</b>"
+        assert record["channel"] == "telegram"
+        assert record["session_id"] == "s1"
+
+
+class TestResendUndelivered:
+    """Saved results are re-sent on the hourly scan and deleted once sent."""
+
+    def _save(self, scheduler, tmp_path, mock_config, **kw):
+        mock_config.UNDELIVERED_RESULTS_DIR = str(tmp_path)
+        return scheduler._save_undelivered_result(
+            "F1 report", "<b>Result</b>", channel="telegram", subject="F1 weekly",
+            email_subject="F1 weekly", session_id="s1", **kw,
+        )
+
+    @patch.object(ReminderScheduler, "_deliver", return_value=42)
+    @patch("services.ingestion.core.scheduler.config")
+    def test_resend_success_deletes_file(self, mock_config, mock_deliver, scheduler, tmp_path):
+        path = self._save(scheduler, tmp_path, mock_config)
+        scheduler._resend_undelivered()
+        assert mock_deliver.call_args.args[0] == "telegram"
+        assert "<b>Result</b>" in mock_deliver.call_args.args[1]
+        assert "Delayed delivery" in mock_deliver.call_args.args[1]
+        assert not os.path.exists(path)
+
+    @patch.object(ReminderScheduler, "_email_fallback", return_value=False)
+    @patch.object(ReminderScheduler, "_deliver", return_value=None)
+    @patch("services.ingestion.core.scheduler.config")
+    def test_resend_failure_keeps_file(self, mock_config, mock_deliver, mock_email, scheduler, tmp_path):
+        path = self._save(scheduler, tmp_path, mock_config)
+        scheduler._resend_undelivered()
+        mock_email.assert_called_once()
+        assert os.path.exists(path)
+
+    @patch.object(ReminderScheduler, "_handle_delivery_failure")
+    @patch.object(ReminderScheduler, "_deliver")
+    @patch("services.ingestion.core.scheduler.config")
+    def test_expired_result_alerts_and_deletes(self, mock_config, mock_deliver, mock_failure, scheduler, tmp_path):
+        path = self._save(scheduler, tmp_path, mock_config)
+        with open(path) as f:
+            record = json.load(f)
+        record["saved_at"] = (datetime.now(LOCAL_TZ) - timedelta(days=31)).isoformat()
+        with open(path, "w") as f:
+            json.dump(record, f)
+
+        scheduler._resend_undelivered()
+
+        mock_deliver.assert_not_called()
+        mock_failure.assert_called_once()
+        assert mock_failure.call_args.kwargs["title"] == "F1 weekly"
+        assert not os.path.exists(path)
+
+    def test_deliver_maps_every_split_part_to_the_session(self, scheduler):
+        with patch.object(ReminderScheduler, "_send_telegram", return_value=[1, 2, 3]):
+            result = scheduler._deliver("telegram", "long text", session_id="sess-1")
+        assert result == 3
+        saved = [c.args for c in scheduler.session_manager.save_message_session.call_args_list]
+        assert saved == [(1, "sess-1"), (2, "sess-1"), (3, "sess-1")]
+
+
+class TestQuotaHandling:
+    """Usage-limit errors defer scheduled work instead of failing it."""
+
+    def test_is_quota_error(self):
+        assert is_quota_error("Quota limit reached: You've hit your session limit · resets 8:30pm")
+        assert not is_quota_error("Claude CLI timed out")
+
+    def test_parse_reset_later_today(self):
+        now = datetime(2026, 10, 30, 18, 0, tzinfo=LOCAL_TZ)
+        reset = parse_quota_reset("You've hit your session limit · resets 8:30pm", now)
+        assert reset == datetime(2026, 10, 30, 20, 30, tzinfo=LOCAL_TZ)
+
+    def test_parse_reset_rolls_to_tomorrow(self):
+        now = datetime(2026, 10, 30, 23, 0, tzinfo=LOCAL_TZ)
+        reset = parse_quota_reset("resets 2am", now)
+        assert reset == datetime(2026, 10, 31, 2, 0, tzinfo=LOCAL_TZ)
+
+    def test_parse_reset_unparseable(self):
+        now = datetime(2026, 10, 30, 18, 0, tzinfo=LOCAL_TZ)
+        assert parse_quota_reset("Quota limit reached", now) is None
+
+    @patch("services.ingestion.core.scheduler.threading.Timer")
+    @patch.object(ReminderScheduler, "_notify")
+    @patch.object(ReminderScheduler, "_handle_delivery_failure")
+    @patch("services.ingestion.core.scheduler.pipe_to_provider")
+    @patch("services.ingestion.core.scheduler.config")
+    def test_quota_error_defers_with_one_alert_and_no_failure_log(
+        self, mock_config, mock_pipe, mock_failure, mock_notify, mock_timer, scheduler
+    ):
+        mock_config.TELEGRAM_ALLOWED_USER_IDS = [12345]
+        mock_config.get_next_provider.return_value = None
+        mock_pipe.return_value = MagicMock(
+            is_error=True, output="Quota limit reached: You've hit your session limit · resets 8:30pm",
+        )
+
+        scheduler._handle_work_reminder("email", "Scan inbox")
+        # A second task firing while blocked must not start a session or re-alert.
+        scheduler._handle_work_reminder("email", "Scan links")
+
+        assert mock_pipe.call_count == 1
+        mock_notify.assert_called_once()
+        mock_failure.assert_not_called()
+        assert mock_timer.call_count == 2
+        assert scheduler._quota_blocked_until is not None
+        assert scheduler._quota_blocked_until.minute == (30 + QUOTA_RETRY_BUFFER.seconds // 60) % 60
+
+    @patch("services.ingestion.core.scheduler.threading.Timer")
+    @patch.object(ReminderScheduler, "_handle_delivery_failure")
+    def test_gives_up_after_max_deferrals(self, mock_failure, mock_timer, scheduler):
+        scheduler._defer_for_quota(
+            "email", "Scan inbox", None, datetime.now(LOCAL_TZ), QUOTA_MAX_DEFERRALS, error="resets 8pm",
+        )
+        mock_timer.assert_not_called()
+        assert mock_failure.call_args.kwargs["log_todo"] is False
 
 
 # ── Fire Reminder ────────────────────────────────────────────────────

@@ -8,6 +8,8 @@ FROM node:22-bookworm-slim
 # LOCAL_TZ depends on it via tzlocal/zoneinfo.
 # procps: provides `ps`, which the browser CLI's runtime.py uses to find and
 # reap its daemon/Firefox process groups (the slim Node image doesn't ship it).
+# poppler-utils: provides `pdftoppm`/`pdftotext`, which Claude Code's Read tool
+# needs to open PDF attachments (without it, PDF reads fail outright).
 RUN apt-get update && apt-get install -y \
     tini \
     git \
@@ -19,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     tzdata \
     procps \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code globally (the deprecated Gemini CLI is no longer bundled)

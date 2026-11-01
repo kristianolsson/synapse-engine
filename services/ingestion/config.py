@@ -222,6 +222,12 @@ SESSION_STORAGE_PATH = os.getenv(
     str(Path(__file__).resolve().parent.parent.parent / "sessions.json")
 )
 SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", "60"))
+# Scheduled-task results that completed but couldn't be delivered on any
+# channel are saved here so they can be re-sent without re-running the task.
+UNDELIVERED_RESULTS_DIR = os.getenv(
+    "UNDELIVERED_RESULTS_DIR",
+    str(Path(SESSION_STORAGE_PATH).resolve().parent / "undelivered_results")
+)
 
 # --- Reminder Scheduler ---
 REMINDERS_JSON_PATH = os.getenv(

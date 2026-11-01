@@ -14,6 +14,10 @@ from ..providers.base import GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
 
+# Pre-flight `git pull` budget. 3 AM scheduled runs occasionally hit the
+# old 10s limit, so this gives the remote more headroom.
+GIT_PULL_TIMEOUT_SECONDS = 20
+
 @dataclass
 class IncomingMessage:
     """Standardized representation of an ingested message."""
@@ -47,7 +51,7 @@ def _sync_git() -> str:
                 cwd=config.VAULT_PATH,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=GIT_PULL_TIMEOUT_SECONDS,
             )
             if result.returncode == 0:
                 return "Git Context: OK"

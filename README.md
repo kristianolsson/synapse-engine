@@ -90,7 +90,7 @@ The service is organized into the following layers under `services/ingestion/`:
 | **Channels** | `channels/email/` | IMAP IDLE listener + SMTP reply |
 | | `channels/telegram/` | Long-polling bot: listener, standalone sender, shared reply-delivery helpers (HTML-fallback sending, Actionable-Form/task keyboards) |
 | **Core** | `core/pipe.py` | Prompt standardization + Vault git sync + provider dispatch |
-| | `core/scheduler.py` | Reminder scheduler (heapq two-tier queue; recurring + one-shot) |
+| | `core/scheduler.py` | Reminder scheduler (heapq two-tier queue; recurring + one-shot). Long Telegram results are split across messages, failed Telegram deliveries fall back to email, and usage-limit errors defer work until the reset — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#scheduled-task-delivery-and-failure-handling) |
 | | `core/session_manager.py` | Per-user/provider session state (TTL + midnight reset) |
 | | `core/rate_limiter.py` | Shared sliding-window rate limiter |
 | **Providers** | `providers/` | Pluggable AI backends via `AIProvider` ABC + factory (`claude`, `agy`, `gemini` (deprecated), `echo`) |

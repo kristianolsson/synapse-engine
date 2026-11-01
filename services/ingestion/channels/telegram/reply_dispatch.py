@@ -71,17 +71,21 @@ async def safe_edit_text(message, text: str, parse_mode: Optional[str] = None, *
         raise
 
 
-def build_reply_keyboard(chat_id, user_key: str, reply_text: str):
+def build_reply_keyboard(chat_id, user_key: str, reply_text: str, truncate: bool = True):
     """
     Truncate to Telegram's message limit, then detect an Actionable Form or
     task checklist and build the matching keyboard.
+
+    Pass truncate=False when the caller sends via sender.py's
+    send_telegram_messages(), which splits long text across several
+    messages instead of cutting it off.
 
     Returns (display_text, keyboard, form_id). form_id is None unless an
     Actionable Form was created. Once the message is actually sent/edited,
     call attach_form_message_id() on success or form_state.delete_form() on
     failure — form_id must not be left dangling either way.
     """
-    if len(reply_text) > TELEGRAM_MESSAGE_LIMIT:
+    if truncate and len(reply_text) > TELEGRAM_MESSAGE_LIMIT:
         reply_text = reply_text[: TELEGRAM_MESSAGE_LIMIT - 3] + "..."
 
     reply_text, form_fields = format_message_with_form(reply_text)

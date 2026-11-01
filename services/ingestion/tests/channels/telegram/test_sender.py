@@ -37,7 +37,7 @@ class TestSendTelegramMessage:
 
     @patch("services.ingestion.channels.telegram.sender.config")
     @patch("services.ingestion.channels.telegram.sender.telegram")
-    def test_truncates_long_message(self, mock_telegram, mock_config):
+    def test_splits_long_message(self, mock_telegram, mock_config):
         mock_config.TELEGRAM_BOT_TOKEN = "test-token"
 
         mock_message = MagicMock()
@@ -51,10 +51,12 @@ class TestSendTelegramMessage:
         long_text = "x" * 5000
         result = send_telegram_message(12345, long_text)
 
+        # Split across messages instead of truncated; returns the last id.
         assert result == 101
-        sent_text = mock_bot.send_message.call_args[1]["text"]
-        assert len(sent_text) <= 4096
-        assert sent_text.endswith("...")
+        sent = [c[1]["text"] for c in mock_bot.send_message.call_args_list]
+        assert len(sent) == 2
+        assert all(len(t) <= 4096 for t in sent)
+        assert "".join(sent) == long_text
 
     @patch("services.ingestion.channels.telegram.sender.config")
     @patch("services.ingestion.channels.telegram.sender.telegram")
@@ -155,3 +157,50 @@ class TestSendTelegramMessage:
 
         sent_text = mock_bot.send_message.call_args[1]["text"]
         assert "[Stats: 1200ms]" in sent_text
+
+
+class TestSplitTelegramHtml:
+    def test_short_text_unchanged(self):
+        from services.ingestion.channels.telegram.sender import split_telegram_html
+        assert split_telegram_html("<b>hi</b>") == ["<b>hi</b>"]
+
+    def test_splits_on_lines_and_rebalances_tags(self):
+        from services.ingestion.channels.telegram.sender import split_telegram_html
+        lines = [f'<a href="https://example.com/{i}">item {i} &amp; more</a>' for i in range(300)]
+        text = "<blockquote>" + "\n".join(lines) + "</blockquote>"
+        chunks = split_telegram_html(text)
+        assert len(chunks) > 1
+        for c in chunks:
+            assert len(c) <= 4096
+            assert c.startswith("<blockquote>") and c.endswith("</blockquote>")
+            assert c.count("<a ") == c.count("</a>")
+
+    def test_hard_split_never_cuts_inside_a_tag(self):
+        from services.ingestion.channels.telegram.sender import split_telegram_html
+        text = "<b>" + ("word " * 2000) + "</b>"
+        chunks = split_telegram_html(text)
+        assert len(chunks) > 1
+        for c in chunks:
+            assert c.startswith("<b>") and c.endswith("</b>")
+
+
+class TestPlainTextFallback:
+    @patch("services.ingestion.channels.telegram.sender.config")
+    @patch("services.ingestion.channels.telegram.sender.telegram")
+    def test_resends_as_plain_text_on_parse_error(self, mock_telegram, mock_config):
+        from telegram.error import BadRequest
+        from services.ingestion.channels.telegram.sender import send_telegram_message
+
+        mock_config.TELEGRAM_BOT_TOKEN = "test-token"
+        ok = MagicMock()
+        ok.message_id = 7
+        mock_bot = AsyncMock()
+        mock_bot.send_message.side_effect = [BadRequest("Can't parse entities: unclosed tag"), ok]
+        mock_telegram.Bot.return_value = mock_bot
+
+        result = send_telegram_message(12345, "<b>Bold &amp; broken")
+
+        assert result == 7
+        retry_kwargs = mock_bot.send_message.call_args_list[1][1]
+        assert retry_kwargs["text"] == "Bold & broken"
+        assert "parse_mode" not in retry_kwargs
