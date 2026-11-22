@@ -1,4 +1,5 @@
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -135,3 +136,57 @@ def test_chrome_cdp_real_chrome_reports_no_webdriver(tmp_path):
             assert page.evaluate("navigator.webdriver") is False
     # Chrome is gone and the profile was flushed to disk
     assert (tmp_path / "profile" / "Default").is_dir()
+
+
+def test_profile_lock_free_then_released(tmp_path):
+    profile = tmp_path / "profile"
+    with launcher._profile_lock(profile, 0.5):
+        pass
+    with launcher._profile_lock(profile, 0.5):  # re-acquirable after release
+        pass
+
+
+def test_profile_lock_held_by_another_times_out(tmp_path):
+    import fcntl
+    profile = tmp_path / "profile"
+    fd = os.open(tmp_path / "profile.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        with pytest.raises(ChromeLaunchError, match="in use"):
+            with launcher._profile_lock(profile, 0.5):
+                pass
+    finally:
+        os.close(fd)
+
+
+def test_clear_stale_state_does_not_kill_unrelated_live_process(tmp_path):
+    proc = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        os.symlink(f"{socket.gethostname()}-{proc.pid}", tmp_path / "SingletonLock")
+        clear_stale_state(tmp_path)  # cmdline lacks the profile path (or no /proc): no kill
+        assert proc.poll() is None
+        assert not os.path.lexists(tmp_path / "SingletonLock")
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_clear_stale_state_unlinks_lock_for_dead_pid_or_other_host(tmp_path):
+    dead = subprocess.Popen(["true"])
+    dead.wait()
+    os.symlink(f"{socket.gethostname()}-{dead.pid}", tmp_path / "SingletonLock")
+    clear_stale_state(tmp_path)
+    assert not os.path.lexists(tmp_path / "SingletonLock")
+    os.symlink("some-other-host-1", tmp_path / "SingletonLock")
+    clear_stale_state(tmp_path)
+    assert not os.path.lexists(tmp_path / "SingletonLock")
+
+
+def test_start_xvfb_missing_binary_raises_and_closes_fds(monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError("Xvfb")
+    monkeypatch.setattr(launcher.subprocess, "Popen", boom)
+    before = len(os.listdir("/dev/fd"))
+    with pytest.raises(ChromeLaunchError, match="Xvfb not found"):
+        launcher._start_xvfb()
+    assert len(os.listdir("/dev/fd")) == before
