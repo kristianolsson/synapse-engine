@@ -13,6 +13,9 @@ import re
 import time
 from typing import Callable, Optional
 
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
 logger = logging.getLogger("options-bot")
 
 LOGIN_URL = "https://us.etrade.com/etx/pxy/login"
@@ -57,7 +60,11 @@ def _wait_past_login(page, timeout_ms: int) -> None:
     while time.monotonic() < deadline:
         if not _is_bare_login(page.url):
             return
-        errors = page.evaluate(ERRORS_JS)
+        try:
+            errors = page.evaluate(ERRORS_JS)
+        except PlaywrightError:  # navigation committed mid-evaluate; re-check the URL
+            page.wait_for_timeout(500)
+            continue
         if errors:
             raise LoginRejected(f"E*TRADE rejected the login: {errors[0]}")
         page.wait_for_timeout(500)
@@ -66,19 +73,25 @@ def _wait_past_login(page, timeout_ms: int) -> None:
 
 def _complete_step_up(page, code_prompt: Callable[[], str], timeout_ms: int) -> None:
     logger.info("E*TRADE step-up: requesting SMS code")
-    page.locator("#send-otp-btn").click()
-    page.locator("#otp").wait_for(state="visible", timeout=30000)
+    try:
+        page.locator("#send-otp-btn").click()
+        page.locator("#otp").wait_for(state="visible", timeout=30000)
+    except PlaywrightTimeout as e:
+        raise StepUpRequired(f"E*TRADE step-up did not complete: SMS code form not available ({e})") from e
     code = code_prompt().strip()
     if not code:
         raise StepUpRequired("E*TRADE step-up: no SMS code entered")
-    human_type(page.locator("#otp"), code)
-    save_yes = page.locator('input[name="saveDevice"][id="Yes"]')
     try:
-        save_yes.check(timeout=3000)
-    except Exception:
-        page.locator('label[for="Yes"]').click(timeout=3000)  # styled radios hide the input
-    page.locator("#verify-otp-btn").click()
-    page.wait_for_url(lambda u: "/etx/pxy/login" not in u, timeout=timeout_ms)
+        human_type(page.locator("#otp"), code)
+        save_yes = page.locator('input[name="saveDevice"][id="Yes"]')
+        try:
+            save_yes.check(timeout=3000)
+        except Exception:
+            page.locator('label[for="Yes"]').click(timeout=3000)  # styled radios hide the input
+        page.locator("#verify-otp-btn").click()
+        page.wait_for_url(lambda u: "/etx/pxy/login" not in u, timeout=timeout_ms)
+    except PlaywrightTimeout as e:
+        raise StepUpRequired(f"E*TRADE step-up did not complete: code rejected or page stuck ({e})") from e
 
 
 def login(page, username: str, password: str, *, totp_secret: Optional[str] = None,

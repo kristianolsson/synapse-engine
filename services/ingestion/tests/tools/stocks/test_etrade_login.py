@@ -160,3 +160,26 @@ def test_human_type_uses_key_presses_not_fill():
 
     etrade_login.human_type(FakeLocator(), "secret", rng=FixedRng())
     assert calls == ["click", ("type", "secret", 80)]
+
+
+def test_step_up_wrong_code_raises_step_up_required(page, site):
+    site["outcome"] = "stepup"
+    with pytest.raises(StepUpRequired, match="did not complete"):
+        _login(page, site, code_prompt=lambda: "000000", timeout_ms=3000)
+
+
+def test_wait_past_login_survives_navigation_race():
+    from playwright.sync_api import Error as PlaywrightError
+
+    class FakePage:
+        def __init__(self):
+            self.url = "https://x/etx/pxy/login"
+
+        def evaluate(self, js):
+            self.url = "https://x/etx/hw/v2/accountshome"
+            raise PlaywrightError("Execution context was destroyed")
+
+        def wait_for_timeout(self, ms):
+            pass
+
+    etrade_login._wait_past_login(FakePage(), 5000)
