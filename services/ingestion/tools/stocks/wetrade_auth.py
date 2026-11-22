@@ -167,8 +167,8 @@ class BrowserAuth:
                 caller that will fall back to the PIN-code flow on failure
                 should pass a short value instead of waiting the full window
                 for a login attempt no one is there to complete)
-            max_retries: Login attempts before giving up. E*TRADE's fraud
-                detection rejects automated submission deterministically —
+            max_retries: Login attempts before giving up. E*TRADE
+                rejections and SMS step-ups are deterministic —
                 retrying never turns a failure into a success, it only
                 doubles the wait before an unattended caller's fallback
                 kicks in, so pass 1 there.

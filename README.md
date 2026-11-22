@@ -97,7 +97,7 @@ The service is organized into the following layers under `services/ingestion/`:
 | **Tools** | `tools/calendar_cli.py` | Google Calendar CLI (list, create events) |
 | _(injected onto the_ | `tools/gmail_cli.py` | Gmail CLI (inbox, labels, drafts) |
 | _agent's `PATH`_ | `tools/reminder_cli.py` | Reminder CRUD backing the scheduler |
-| _via `bin/`)_ | `tools/etrade_cli.py` + `tools/stocks/` | E\*TRADE quotes, options, and positions (Playwright auth; falls back to a manual PIN-auth flow over Telegram/email when automated login is blocked — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)) |
+| _via `bin/`)_ | `tools/etrade_cli.py` + `tools/stocks/` | E\*TRADE quotes, options, and positions (web login in a plain Chrome over CDP — `tools/chrome/` — with a trusted-device profile; falls back to a manual PIN-auth flow over Telegram/email when E\*TRADE asks for SMS or rejects the login — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)) |
 | | `tools/options_bot_cli.py` | Weekday options-opportunity scan → HTML report |
 | | `tools/amazon_fresh_cli.py` + `tools/amazon_fresh/` | Amazon Fresh grocery browsing (Playwright) |
 | | `tools/smartthings_cli.py` + `tools/smartthings/` | SmartThings device list/status/control (OAuth2, rate-limit backoff, TTL-cached device-name resolution) |
@@ -276,8 +276,7 @@ Best for running on a personal Mac. Runs the service in the background via a `la
 ### Option B — Docker / QNAP NAS
 
 Best for always-on, headless operation. The `Dockerfile` bundles the Claude
-and Antigravity CLIs plus a Playwright Firefox (for
-E\*TRADE and Amazon Fresh browser auth and the general-purpose `browser` CLI), and `docker-compose.yml` mounts the
+and Antigravity CLIs plus a Playwright Firefox (for Amazon Fresh auth and the general-purpose `browser` CLI) and Google Chrome + Xvfb (for E\*TRADE login; x86-64 hosts only), and `docker-compose.yml` mounts the
 Vault, CLI credentials, and SSH key from persistent storage.
 
 ```bash

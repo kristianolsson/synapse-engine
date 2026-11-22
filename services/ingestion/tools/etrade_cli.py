@@ -235,8 +235,8 @@ def _authenticate(env: dict, headless: bool = True) -> ETradeClient:
     # An unattended caller has no one to complete a stuck login — give a
     # trusted-device login time to finish (seen taking 6–15s), but not the
     # full attended window before falling back to the PIN-code flow, and
-    # don't retry a login we've confirmed is deterministically blocked
-    # (retrying just doubles the wait).
+    # don't retry: E*TRADE rejections and SMS step-ups are deterministic —
+    # retrying never turns a failure into a success, it just doubles the wait.
     login_timeout_ms = 120000 if not headless else 60000
     max_retries = 2 if not headless else 1
 

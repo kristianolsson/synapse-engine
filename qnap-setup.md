@@ -26,8 +26,9 @@ models. Follow steps in order.
     filled in — this guide doesn't recreate that first-time setup, it
     assumes it's already done and just copies the results (`.env`, and if
     you use Calendar/Gmail, `credentials.json`/`token.json`/
-    `calendars.json`) onto QNAP. Steps 7, 8 and 8b additionally need Playwright's
-    Firefox there: `playwright install --with-deps firefox`.
+    `calendars.json`) onto QNAP. Steps 8 and 8b additionally need Playwright's
+    Firefox there: `playwright install --with-deps firefox`. Step 7 (E\*TRADE)
+    runs entirely on the QNAP, inside the container — no local Chrome or Firefox.
 
 ## 0. Choose your host directory and export it
 
@@ -155,19 +156,17 @@ scp -r ~/.gemini/antigravity-cli \
 
 ## 7. Set up E*TRADE credentials (Optional)
 
-If you use the `etrade` or `options-bot` CLI tools, you must authenticate first on a machine where you can complete SMS 2FA in a real browser. E*TRADE recognizes the saved Playwright profile as a "trusted device" and will not prompt the headless Docker container for SMS codes.
+If you use the `etrade` or `options-bot` CLI tools, E\*TRADE must trust the container's Chrome profile as a device, so unattended logins skip SMS. Do this once, on the QNAP, after the container is running (Chrome profiles can't be copied from a Mac — Chrome there encrypts cookies with a Keychain key):
 
-On that machine (needs the `synapse-engine` checkout + venv + Playwright's
-Firefox from [Prerequisites](#prerequisites)):
 ```bash
-# 1. Run etrade auth locally to generate tokens and trust the browser profile
-cd ~/Documents/code/synapse-engine
-python3 -m services.ingestion.tools.etrade_cli balance
-
-# 2. Transfer the API tokens and browser profile
-scp ~/.etrade_tokens admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/etrade/.etrade_tokens
-scp -r ~/.etrade_browser_profile admin@<QNAP_IP>:$SYNAPSE_HOST_DIR/credentials/etrade/
+# Attended login: E*TRADE texts you a code; type it at the prompt. The CLI
+# answers "Yes, save this device", writes the API tokens, and the Chrome
+# profile at credentials/etrade/.etrade_chrome_profile is now trusted.
+docker exec -it $(docker ps -q --filter label=com.docker.compose.service=synapse) \
+  /app/synapse-engine/bin/etrade --headed balance
 ```
+
+If unattended logins later start asking for SMS again (E\*TRADE forgot the device), the PIN-auth fallback covers you until you re-run the command above.
 
 ## 8. Set up Amazon Fresh credentials (Optional)
 

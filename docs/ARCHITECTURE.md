@@ -227,12 +227,18 @@ directly, or via `send_reply`/`send_telegram_message`).
 
 ## The E*TRADE PIN-auth fallback and retry mechanism
 
-E*TRADE's automated login is reliably blocked by bot detection. When it
-fails, `tools/etrade_cli.py` (shared by `options_bot_cli.py` too) falls back
-to a manual OAuth PIN flow: it sends a Telegram/email prompt with a login
-URL, a human completes login in their own browser and replies with the
+E*TRADE's automated login (`tools/stocks/wetrade_auth.py` → `etrade_login.py`)
+runs in a plain Google Chrome that `tools/chrome/launcher.py` starts itself and
+Playwright attaches to over CDP — no automation flags, so `navigator.webdriver`
+is false; on the QNAP it runs headed on an Xvfb display. Credentials are typed
+key by key (instant `fill()` is rejected), and the Chrome profile
+(`~/.etrade_chrome_profile`) is a trusted device, so normal logins skip SMS.
+When E*TRADE asks for SMS anyway (`StepUpRequired`) or rejects the login
+(`LoginRejected`), `tools/etrade_cli.py` (shared by `options_bot_cli.py` too)
+falls back to a manual OAuth PIN flow: it sends a Telegram/email prompt with a
+login URL, a human completes login in their own browser and replies with the
 verification code, and whichever listener receives that reply completes the
-token exchange.
+token exchange. Neither failure is retried — repeated logins risk fraud flags.
 
 What makes this more than a one-off auth prompt: once the human completes the
 PIN, **every job that failed while this login was in flight** gets retried
