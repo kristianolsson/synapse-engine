@@ -1,10 +1,9 @@
 """Manual OAuth PIN fallback for E*TRADE authentication.
 
-Automated Playwright-driven login gets blocked by E*TRADE's bot detection
-(Akamai Bot Manager + RSA/Cyota device fingerprinting reject the automated
-form submission regardless of typing speed or mouse movement — confirmed
-by direct testing). The only reliable path is a human completing the
-OAuth authorize flow themselves in a real, unautomated browser.
+This is the fallback used when the automated Chrome login
+(wetrade_auth / etrade_login) is rejected, or E*TRADE asks for an SMS code
+with no human present: a human completes the OAuth authorize flow
+themselves in their own browser.
 
 This implements the classic three-legged OAuth PIN flow (the same one
 services/ingestion/tools/stocks/auth.py's ETradeAuth uses interactively),

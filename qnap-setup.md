@@ -18,7 +18,9 @@ models. Follow steps in order.
   - **Step 6** (Gemini/Antigravity): a machine where those CLIs are already
     installed and authenticated (`~/.gemini` populated) — no
     `synapse-engine` checkout needed.
-  - **Steps 7-10** (E\*TRADE, Amazon Fresh, browser profiles, SmartThings, Google
+  - **Step 7** (E\*TRADE): runs on the QNAP itself, inside the container —
+    no separate machine or checkout needed.
+  - **Steps 8-10** (Amazon Fresh, browser profiles, SmartThings, Google
     Calendar/Gmail): a machine that's completed README.md's
     [Setup](README.md#setup) section —
     dependencies installed (`python3 -m venv venv && source
