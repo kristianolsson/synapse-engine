@@ -117,10 +117,10 @@ def login(page, username: str, password: str, *, totp_secret: Optional[str] = No
 
     try:  # intermediate "Continue" interstitials
         btn = page.locator('button:has-text("Continue")')
-        if btn.is_visible(timeout=3000):
-            btn.click()
-            page.wait_for_timeout(2000)
-    except Exception:
+        btn.first.wait_for(state="visible", timeout=3000)
+        btn.first.click()
+        page.wait_for_timeout(2000)
+    except PlaywrightTimeout:
         pass
     logger.info("E*TRADE login complete: %s", page.url.split("?")[0])
 
@@ -129,25 +129,18 @@ def authorize(page, authorize_url: str) -> str:
     logger.info("Navigating to OAuth authorization...")
     page.goto(authorize_url, wait_until="domcontentloaded", timeout=30000)
 
-    for selector in ACCEPT_SELECTORS:
-        try:
-            btn = page.locator(selector)
-            if btn.is_visible(timeout=5000):
-                btn.click(timeout=10000)
-                logger.info("Clicked Accept button with selector: %s", selector)
-                break
-        except Exception:
-            continue
-    else:
+    try:
+        page.locator(", ".join(ACCEPT_SELECTORS)).first.click(timeout=15000)
+        logger.info("Clicked Accept button")
+    except PlaywrightTimeout:
         logger.warning("Could not find Accept button, checking for verification code...")
 
-    page.wait_for_timeout(3000)
     code = None
     try:
-        code_input = page.locator('input[type="text"]')
-        if code_input.is_visible(timeout=3000):
-            code = (code_input.get_attribute("value") or "").strip() or None
-    except Exception:
+        code_input = page.locator('input[type="text"]').first
+        code_input.wait_for(state="visible", timeout=10000)
+        code = (code_input.get_attribute("value") or "").strip() or None
+    except PlaywrightTimeout:
         pass
     if not code:
         matches = re.findall(r'code["\s:]+([A-Z0-9]{5,10})', page.content(), re.IGNORECASE)

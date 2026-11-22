@@ -58,6 +58,10 @@ HOME_PAGE = "<!doctype html><title>E*TRADE - Complete View</title>home"
 AUTHORIZE_PAGE = """<!doctype html><title>Authorize</title>
 <button onclick="document.body.innerHTML='<input type=text value=\\'AB12CD\\'>'">Accept</button>"""
 
+AUTHORIZE_SLOW_PAGE = """<!doctype html><title>Authorize</title>
+<script>setTimeout(() => { document.body.innerHTML =
+  "<button onclick=\\"document.body.innerHTML='<input type=text value=\\\\'AB12CD\\\\'>'\\">Accept</button>"; }, 1500);</script>"""
+
 
 @pytest.fixture
 def site():
@@ -71,6 +75,7 @@ def site():
                 "/etx/pxy/login/step-up": STEP_UP_PAGE,
                 "/etx/hw/v2/accountshome": HOME_PAGE,
                 "/authorize": AUTHORIZE_PAGE,
+                "/authorize-slow": AUTHORIZE_SLOW_PAGE,
             }
             body = pages.get(path)
             self.send_response(200 if body else 404)
@@ -136,6 +141,10 @@ def test_step_up_attended_empty_code_raises(page, site):
 
 def test_authorize_returns_verifier(page, site):
     assert etrade_login.authorize(page, site["base"] + "/authorize") == "AB12CD"
+
+
+def test_authorize_waits_for_late_accept_button(page, site):
+    assert etrade_login.authorize(page, site["base"] + "/authorize-slow") == "AB12CD"
 
 
 def test_human_type_uses_key_presses_not_fill():
