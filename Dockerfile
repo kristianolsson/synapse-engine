@@ -43,12 +43,19 @@ COPY requirements.txt /tmp/requirements.txt
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Install Playwright Firefox for E*TRADE browser-based authentication (wetrade)
+# Install Playwright Firefox for Amazon Fresh auth and the browser CLI
 # Matches options-bot pattern: fixed browser path, owned by synapse for runtime access
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN mkdir -p /ms-playwright && \
     /app/venv/bin/playwright install --with-deps firefox && \
     chown -R synapse:synapse /ms-playwright
+
+# Google Chrome + Xvfb for E*TRADE login: a plain Chrome attached over CDP
+# (tools/chrome/) — Playwright-launched browsers set navigator.webdriver and
+# E*TRADE rejects them. x86-64 only (Google publishes no ARM Linux build).
+RUN /app/venv/bin/playwright install --with-deps chrome && \
+    apt-get update && apt-get install -y --no-install-recommends xvfb && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/synapse-engine
 USER synapse
