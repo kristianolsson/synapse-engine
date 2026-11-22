@@ -481,11 +481,11 @@ def main():
 
     # positions
     p_pos = sub.add_parser("positions", help="List open short put positions")
-    p_pos.add_argument("--account", type=str, default=None, help="Account suffix (e.g. 2057)")
+    p_pos.add_argument("--account", type=str, default=None, help="Account suffix (e.g. 1234)")
 
     # balance
     p_bal = sub.add_parser("balance", help="Get account buying power and balance")
-    p_bal.add_argument("--account", type=str, default=None, help="Account suffix (e.g. 2057)")
+    p_bal.add_argument("--account", type=str, default=None, help="Account suffix (e.g. 1234)")
 
     # accounts
     sub.add_parser("accounts", help="List all E*TRADE accounts")
