@@ -71,3 +71,11 @@ def test_other_failures_are_retried(auth, fake_browser):
     with pytest.raises(RuntimeError):
         auth._browser_login("https://auth", headless=True, max_retries=2)
     assert len(fake_browser["login"]) == 2
+
+
+def test_load_tokens_oserror_degrades(auth, monkeypatch):
+    auth.token_file.write_text("{}")
+    def boom(*a, **k):
+        raise PermissionError("denied")
+    monkeypatch.setattr("builtins.open", boom)
+    assert auth._load_tokens() is False

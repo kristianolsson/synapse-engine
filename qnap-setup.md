@@ -29,8 +29,7 @@ models. Follow steps in order.
     assumes it's already done and just copies the results (`.env`, and if
     you use Calendar/Gmail, `credentials.json`/`token.json`/
     `calendars.json`) onto QNAP. Steps 8 and 8b additionally need Playwright's
-    Firefox there: `playwright install --with-deps firefox`. Step 7 (E\*TRADE)
-    runs entirely on the QNAP, inside the container — no local Chrome or Firefox.
+    Firefox there: `playwright install --with-deps firefox`.
 
 ## 0. Choose your host directory and export it
 
@@ -68,6 +67,15 @@ mkdir -p "$SYNAPSE_HOST_DIR"/credentials/claude \
   "$SYNAPSE_HOST_DIR"/credentials/browser/profiles \
   "$SYNAPSE_HOST_DIR"/ssh \
   "$SYNAPSE_HOST_DIR"/data
+
+# Bind-mount sources for E*TRADE: create them now, or Docker makes them
+# root-owned directories on first start.
+mkdir -p "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_chrome_profile
+chmod 700 "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_chrome_profile
+[ -e "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_tokens ] || {
+  echo '{}' > "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_tokens
+  chmod 600 "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_tokens
+}
 ```
 
 ## 3. Generate SSH key for GitHub

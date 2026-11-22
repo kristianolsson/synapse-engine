@@ -105,7 +105,7 @@ class BrowserAuth:
                 logger.info("Loaded saved access tokens")
                 return True
                 
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, OSError) as e:
             logger.warning(f"Failed to load tokens: {e}")
         
         return False
