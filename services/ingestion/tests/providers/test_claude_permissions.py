@@ -79,3 +79,62 @@ def test_resume_fallback_uses_same_permission_flags(mock_config):
 ])
 def test_parse_permission_mode(raw, expected):
     assert real_config._parse_permission_mode(raw) == expected
+
+
+from services.ingestion.providers.claude_agent_settings import (
+    build_agent_settings, agent_settings_json,
+)
+
+
+def test_settings_deny_rules_cover_secret_paths():
+    deny = build_agent_settings("/home/u", "/app/engine")["permissions"]["deny"]
+    expected_read = [
+        "Read(//proc/**)",
+        "Read(//home/u/.ssh/**)",
+        "Read(//home/u/.claude/.credentials.json)",
+        "Read(//home/u/.claude/settings*.json)",
+        "Read(//home/u/.etrade_tokens)",
+        "Read(//home/u/.etrade_chrome_profile/**)",
+        "Read(//home/u/.synapse-browser/**)",
+        "Read(//home/u/.amazon-fresh-session/**)",
+        "Read(//app/engine/.env)",
+        "Read(//app/engine/token.json)",
+        "Read(//app/engine/credentials.json)",
+        "Read(//app/engine/smartthings_token.json)",
+    ]
+    for rule in expected_read:
+        assert rule in deny
+        assert rule.replace("Read(", "Edit(", 1) in deny
+    assert "Edit(//app/engine/**)" in deny
+    for rule in ["Bash(env)", "Bash(env *)", "Bash(printenv*)", "Bash(cat /proc/*)"]:
+        assert rule in deny
+
+
+def test_settings_keep_session_transcripts_readable():
+    deny = build_agent_settings("/home/u", "/app/engine")["permissions"]["deny"]
+    assert not any(r.startswith("Read(//home/u/.claude/**") or r == "Read(//home/u/.claude)" for r in deny)
+    assert not any("projects" in r for r in deny)
+
+
+def test_settings_only_contains_deny():
+    s = build_agent_settings("/home/u", "/app/engine")
+    assert list(s.keys()) == ["permissions"]
+    assert list(s["permissions"].keys()) == ["deny"]
+
+
+def test_agent_settings_json_is_valid_json():
+    data = json.loads(agent_settings_json())
+    assert data["permissions"]["deny"]
+
+
+def test_auto_mode_passes_settings(mock_config):
+    _, cmds = _run_and_capture(mock_config)
+    cmd = cmds[0]
+    settings = json.loads(cmd[cmd.index("--settings") + 1])
+    assert "Read(//proc/**)" in settings["permissions"]["deny"]
+
+
+def test_bypass_mode_has_no_settings(mock_config):
+    mock_config.CLAUDE_PERMISSION_MODE = "bypass"
+    _, cmds = _run_and_capture(mock_config)
+    assert "--settings" not in cmds[0]

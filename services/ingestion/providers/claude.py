@@ -6,6 +6,7 @@ import threading
 from typing import Optional, List, Dict
 
 from .. import config
+from .claude_agent_settings import agent_settings_json
 from .base import AIProvider, ProviderResult, GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,11 @@ class ClaudeProvider(AIProvider):
         if config.CLAUDE_PERMISSION_MODE == "bypass":
             cmd.append("--dangerously-skip-permissions")
         else:
-            cmd.extend(["--permission-mode", "auto", "--permission-prompts", "none"])
+            cmd.extend([
+                "--permission-mode", "auto",
+                "--permission-prompts", "none",
+                "--settings", agent_settings_json(),
+            ])
         return cmd
 
     def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, extra_env: Optional[Dict[str, str]] = None) -> ProviderResult:
