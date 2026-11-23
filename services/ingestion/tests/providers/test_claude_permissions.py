@@ -170,3 +170,55 @@ def test_denials_land_in_stats_and_log(mock_config, caplog):
 def test_no_denials_key_when_empty(mock_config):
     res, _ = _run_and_capture(mock_config)
     assert "permission_denials" not in (res.stats or {})
+
+
+def _deny(*args, **kwargs):
+    return build_agent_settings(*args, **kwargs)["permissions"]["deny"]
+
+
+def test_extra_secret_files_absolute_and_relative():
+    deny = _deny(
+        "/home/u", "/app/engine",
+        extra_secret_files=["/data/tok.json", "creds/cal.json"],
+    )
+    for rule in (
+        "Read(//data/tok.json)", "Edit(//data/tok.json)",
+        "Read(//app/engine/creds/cal.json)", "Edit(//app/engine/creds/cal.json)",
+    ):
+        assert rule in deny
+
+
+def test_extra_secret_files_deduplicated():
+    deny = _deny(
+        "/home/u", "/app/engine",
+        extra_secret_files=["/app/engine/token.json", "token.json", "/data/t.json", "/data/t.json"],
+    )
+    assert deny.count("Read(//app/engine/token.json)") == 1
+    assert deny.count("Read(//data/t.json)") == 1
+
+
+def test_agent_settings_json_denies_configured_paths(monkeypatch):
+    monkeypatch.setattr(real_config, "CALENDAR_TOKEN_PATH", "/custom/cal_token.json")
+    monkeypatch.setattr(real_config, "SMARTTHINGS_TOKEN_PATH", "/custom/st.json")
+    deny = json.loads(agent_settings_json())["permissions"]["deny"]
+    assert "Read(//custom/cal_token.json)" in deny
+    assert "Edit(//custom/st.json)" in deny
+
+
+def test_vault_claude_settings_edit_denied_not_read():
+    deny = _deny("/home/u", "/app/engine", vault_root="/data/vault/")
+    assert "Edit(//data/vault/.claude/settings*.json)" in deny
+    assert "Read(//data/vault/.claude/settings*.json)" not in deny
+
+
+def test_home_claude_json_read_and_edit_denied():
+    deny = _deny("/home/u", "/app/engine")
+    assert "Read(//home/u/.claude.json)" in deny
+    assert "Edit(//home/u/.claude.json)" in deny
+    assert "Read(//home/u/.claude/projects/**)" not in deny
+
+
+def test_agent_settings_json_denies_vault_settings(monkeypatch):
+    monkeypatch.setattr(real_config, "VAULT_PATH", "/v")
+    deny = json.loads(agent_settings_json())["permissions"]["deny"]
+    assert "Edit(//v/.claude/settings*.json)" in deny

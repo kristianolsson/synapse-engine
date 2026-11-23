@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y \
 # Install Claude Code globally (the deprecated Gemini CLI is no longer bundled)
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create non-root user (required for --dangerously-skip-permissions)
+# Create non-root user (the Claude CLI requires a non-root user)
 RUN useradd -m -u 1002 synapse
 
 # Set up SSH config for GitHub

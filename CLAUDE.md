@@ -67,8 +67,8 @@ Each of these caused a real bug once. Don't reintroduce them.
   Telegram/email flow, the same way `tools/stocks/auth.py`'s `ETradeAuth`
   does today (it used to block on `input()` under `headless=True`, which
   would hang an unattended run indefinitely instead of degrading).
-- **Never reintroduce `--dangerously-skip-permissions` outside
-  `ClaudeProvider._base_cmd()`'s `bypass` branch, and never fall back to it
+- **Never reintroduce `--dangerously-skip-permissions` in the
+  Claude provider outside `ClaudeProvider._base_cmd()`'s `bypass` branch, and never fall back to it
   automatically.** Agent sessions read untrusted email and web pages; auto
   mode is the only per-call check on what they run. `bypass` exists solely as
   an explicit `CLAUDE_PERMISSION_MODE` rollback. A subtle prompt injection

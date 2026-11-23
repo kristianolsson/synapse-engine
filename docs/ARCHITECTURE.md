@@ -68,8 +68,11 @@ blocked calls are denied and the agent continues. `bypass` uses the legacy
 startup warning when it is active.
 
 `providers/claude_agent_settings.py` builds the deny rules: secret paths as
-absolute `//` rules (Read and Edit), `Edit` on the engine tree, and
-`env`/`printenv`. `~/.claude/projects` is deliberately readable.
+absolute `//` rules (Read and Edit, including `/proc` and the configured
+calendar/SmartThings token and credentials paths), `Edit` on the engine tree,
+`env`/`printenv`, and Edit-deny on the agent's own Claude config
+(`<vault>/.claude/settings*.json`, `~/.claude.json`). `~/.claude/projects` is
+deliberately readable.
 
 Denials go into `stats["permission_denials"]`, are logged at WARNING, and
 become an always-on reply footer through `utils/stats_formatter.py`
