@@ -11,6 +11,18 @@ from .base import AIProvider, ProviderResult, GLOBAL_PROVIDER_LOCK
 
 logger = logging.getLogger(__name__)
 
+_DENIAL_SUMMARY_MAX = 200
+
+
+def _summarize_denial(d: dict) -> dict:
+    """Compact, log-safe view of one CLI permission denial."""
+    if not isinstance(d, dict):
+        return {"tool": "unknown", "summary": ""}
+    tool = d.get("tool_name") or "unknown"
+    inp = d.get("tool_input") if isinstance(d.get("tool_input"), dict) else {}
+    summary = inp.get("command") or inp.get("file_path") or inp.get("url") or inp.get("pattern") or ""
+    return {"tool": tool, "summary": str(summary)[:_DENIAL_SUMMARY_MAX]}
+
 
 class ClaudeProvider(AIProvider):
     """
@@ -99,6 +111,12 @@ class ClaudeProvider(AIProvider):
                         stats["duration_api_ms"] = data["duration_api_ms"]
                     elif data.get("duration_ms") is not None:
                         stats["duration_api_ms"] = data["duration_ms"]
+
+                    denials = [_summarize_denial(d) for d in (data.get("permission_denials") or [])]
+                    if denials:
+                        stats["permission_denials"] = denials
+                        for d in denials:
+                            logger.warning("Claude safety check blocked %s: %s", d["tool"], d["summary"])
 
                     # Check for error from Claude's own is_error flag or subtype
                     if is_error_flag or data.get("subtype", "").startswith("error"):

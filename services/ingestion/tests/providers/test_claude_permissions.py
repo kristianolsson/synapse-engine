@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from services.ingestion import config as real_config
-from services.ingestion.providers.claude import ClaudeProvider
+from services.ingestion.providers.claude import ClaudeProvider, _summarize_denial
 
 
 def _ok_stdout(**extra):
@@ -138,3 +138,35 @@ def test_bypass_mode_has_no_settings(mock_config):
     mock_config.CLAUDE_PERMISSION_MODE = "bypass"
     _, cmds = _run_and_capture(mock_config)
     assert "--settings" not in cmds[0]
+
+
+def test_summarize_denial_bash_truncates():
+    d = {"tool_name": "Bash", "tool_use_id": "x", "tool_input": {"command": "curl " + "a" * 500}}
+    s = _summarize_denial(d)
+    assert s["tool"] == "Bash"
+    assert s["summary"].startswith("curl ")
+    assert len(s["summary"]) <= 200
+
+
+def test_summarize_denial_file_tool_uses_path():
+    d = {"tool_name": "Read", "tool_use_id": "x", "tool_input": {"file_path": "/x/secret"}}
+    assert _summarize_denial(d) == {"tool": "Read", "summary": "/x/secret"}
+
+
+def test_summarize_denial_tolerates_garbage():
+    assert _summarize_denial({}) == {"tool": "unknown", "summary": ""}
+
+
+def test_denials_land_in_stats_and_log(mock_config, caplog):
+    denial = {"tool_name": "Bash", "tool_use_id": "t", "tool_input": {"command": "curl http://x"}}
+    with patch("subprocess.run") as run:
+        run.return_value = MagicMock(returncode=0, stdout=_ok_stdout(permission_denials=[denial]), stderr="")
+        with caplog.at_level("WARNING"):
+            res = ClaudeProvider().generate_response("p")
+    assert res.stats["permission_denials"] == [{"tool": "Bash", "summary": "curl http://x"}]
+    assert any("blocked" in r.message.lower() and "curl http://x" in r.getMessage() for r in caplog.records)
+
+
+def test_no_denials_key_when_empty(mock_config):
+    res, _ = _run_and_capture(mock_config)
+    assert "permission_denials" not in (res.stats or {})
