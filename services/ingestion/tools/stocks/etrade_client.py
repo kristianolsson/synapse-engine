@@ -114,7 +114,7 @@ class ETradeClient:
             access_token: OAuth access token
             access_token_secret: OAuth access token secret
             sandbox: If True, use sandbox environment
-            account_suffix: Optional account number suffix to filter by (e.g., "2057")
+            account_suffix: Optional account number suffix to filter by (e.g., "1234")
         """
         self.consumer_key = consumer_key
         self.consumer_secret = consumer_secret

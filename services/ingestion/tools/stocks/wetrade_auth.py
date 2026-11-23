@@ -1,8 +1,11 @@
 """E*TRADE authentication using browser automation.
 
-This module provides browser-based authentication that handles SMS 2FA
-by automating the login process while still allowing manual SMS code entry.
-Includes token persistence so browser only opens once per day.
+Logs in to the E*TRADE website in a plain Google Chrome attached over CDP
+(tools/chrome) to obtain the OAuth verifier, then exchanges it for API tokens.
+Tokens are persisted so the browser is only needed once per day. The Chrome
+profile is a trusted device, so unattended logins skip SMS; if E*TRADE asks for
+SMS anyway, unattended runs raise (etrade_cli falls back to the PIN flow) and
+attended runs (`etrade --headed`) prompt for the code in the terminal.
 """
 
 import os
@@ -13,6 +16,10 @@ from typing import Optional, Tuple
 
 import pyetrade
 
+from ..chrome import chrome_cdp
+from . import etrade_login
+from .etrade_login import LoginRejected, StepUpRequired
+
 logger = logging.getLogger("options-bot")
 
 # Check if playwright is available
@@ -21,19 +28,20 @@ try:
     from playwright.sync_api import sync_playwright
     BROWSER_AUTH_AVAILABLE = True
 except ImportError:
+    sync_playwright = None
     logger.debug("playwright not installed, browser-based auth unavailable")
 
 # Token storage location
 DEFAULT_TOKEN_FILE = Path.home() / ".etrade_tokens"
 
 
+def _terminal_code_prompt() -> str:
+    # Attended (--headed) runs only — unattended callers pass code_prompt=None.
+    return input("E*TRADE sent an SMS verification code — enter it: ")
+
+
 class BrowserAuth:
-    """Authentication handler using Playwright for browser-based login.
-    
-    This handles SMS 2FA by opening a visible browser where you can
-    enter the SMS code manually. Tokens are saved to disk and reused
-    for subsequent runs on the same day.
-    """
+    """E*TRADE OAuth via a web login in Chrome over CDP (see module docstring)."""
 
 
     def __init__(
@@ -58,9 +66,7 @@ class BrowserAuth:
             token_file: Path to store/load access tokens
         """
         if not BROWSER_AUTH_AVAILABLE:
-            raise ImportError(
-                "playwright not installed. Run: pip install playwright && playwright install firefox"
-            )
+            raise ImportError("playwright not installed. Run: pip install playwright")
         
         self.consumer_key = consumer_key
         self.consumer_secret = consumer_secret
@@ -69,7 +75,7 @@ class BrowserAuth:
         self.sandbox = sandbox
         self.totp_secret = totp_secret
         self.token_file = token_file or DEFAULT_TOKEN_FILE
-        self.browser_profile = self.token_file.parent / ".etrade_browser_profile"
+        self.browser_profile = self.token_file.parent / ".etrade_chrome_profile"
         
         self._access_token = None
         self._access_token_secret = None
@@ -99,7 +105,7 @@ class BrowserAuth:
                 logger.info("Loaded saved access tokens")
                 return True
                 
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, OSError) as e:
             logger.warning(f"Failed to load tokens: {e}")
         
         return False
@@ -155,14 +161,14 @@ class BrowserAuth:
         """Perform authentication, using saved tokens if available.
 
         Args:
-            headless: If True and TOTP configured, run headless (not for SMS)
+            headless: True = unattended (no terminal prompt; SMS step-up raises StepUpRequired)
             login_timeout_ms: How long to wait for the post-submit navigation
                 (manual SMS entry needs the full default; an unattended
                 caller that will fall back to the PIN-code flow on failure
                 should pass a short value instead of waiting the full window
                 for a login attempt no one is there to complete)
-            max_retries: Login attempts before giving up. E*TRADE's fraud
-                detection rejects automated submission deterministically —
+            max_retries: Login attempts before giving up. E*TRADE
+                rejections and SMS step-ups are deterministic —
                 retrying never turns a failure into a success, it only
                 doubles the wait before an unattended caller's fallback
                 kicks in, so pass 1 there.
@@ -187,7 +193,7 @@ class BrowserAuth:
         """Perform browser-based OAuth authentication.
 
         Args:
-            headless: If True and TOTP configured, run headless (not for SMS)
+            headless: True = unattended (no terminal prompt; SMS step-up raises StepUpRequired)
             login_timeout_ms: passed through to _do_browser_login
             max_retries: passed through to _browser_login
 
@@ -247,161 +253,45 @@ class BrowserAuth:
 
         Args:
             authorize_url: OAuth authorization URL
-            headless: Run browser in headless mode (only for TOTP)
+            headless: True = unattended (no terminal prompt; SMS step-up raises StepUpRequired)
             login_timeout_ms: How long to wait for the post-submit navigation
             max_retries: Login attempts before giving up
 
         Returns:
             Verification code string, or None if failed
         """
-        # If headless is explicitly requested, honor it.
-        # This is critical for Docker environments where no display exists.
-        use_headless = headless
-
         for attempt in range(1, max_retries + 1):
             logger.info(f"Login attempt {attempt}/{max_retries}")
-
             try:
-                code = self._do_browser_login(authorize_url, use_headless, login_timeout_ms)
+                code = self._do_browser_login(authorize_url, headless, login_timeout_ms)
                 if code:
                     return code
+            except (StepUpRequired, LoginRejected):
+                raise  # deterministic — retrying only risks E*TRADE fraud flags
             except Exception as e:
                 logger.warning(f"Login attempt {attempt} failed: {e}")
                 if attempt >= max_retries:
                     logger.error(f"All {max_retries} login attempts failed")
                     raise
-        
         return None
     
     def _do_browser_login(self, authorize_url: str, headless: bool, login_timeout_ms: int = 120000) -> Optional[str]:
-        """Execute the browser login flow."""
+        """Log in via Chrome over CDP and return the OAuth verifier.
+
+        headless=True means unattended: never prompt; an SMS step-up raises
+        StepUpRequired. Chrome itself always runs headed (Xvfb when no display).
+        """
+        code_prompt = None if headless else _terminal_code_prompt
         with sync_playwright() as p:
-            logger.info("Opening Firefox browser with persistent profile...")
-            context = p.firefox.launch_persistent_context(
-                user_data_dir=str(self.browser_profile),
-                headless=headless,
-                viewport={'width': 1280, 'height': 800}
-            )
-
-            try:
-                page = context.pages[0] if context.pages else context.new_page()
-
-                # Navigate to E*TRADE login
-                logger.info("Navigating to E*TRADE login page...")
-                page.goto('https://us.etrade.com/etx/pxy/login', timeout=30000)
-
-                # Fill in credentials
-                logger.info("Entering credentials...")
-                page.locator('#USER').fill(self.username)
-                page.locator('#password').fill(self.password)
-
-                # Handle 2FA
-                if self.totp_secret:
-                    # Use TOTP
-                    from pyotp import TOTP
-                    totp = TOTP(self.totp_secret)
-                    page.locator('[for="useSecurityCode"]').click()
-                    page.locator('#securityCode').fill(totp.now())
-                else:
-                    # SMS 2FA - user will enter code manually
-                    logger.info("SMS 2FA - please enter your code in the browser when prompted")
-
-                # Click login
-                page.locator('#mfaLogonButton').click()
-                
-                # Wait for login to complete (give user time for SMS)
-                logger.info(f"Waiting for login to complete (up to {login_timeout_ms / 1000:.0f} seconds)...")
-                page.wait_for_url(
-                    lambda url: 'etrade.com/etx/pxy/login' not in url,
-                    timeout=login_timeout_ms
+            with chrome_cdp(p, self.browser_profile) as context:
+                page = context.new_page()
+                etrade_login.login(
+                    page, self.username, self.password,
+                    totp_secret=self.totp_secret, code_prompt=code_prompt,
+                    timeout_ms=login_timeout_ms,
                 )
-                
-                # Handle any intermediate pages (like "Continue" prompts)
-                try:
-                    continue_btn = page.locator('button:has-text("Continue")')
-                    if continue_btn.is_visible(timeout=3000):
-                        continue_btn.click()
-                        page.wait_for_timeout(2000)
-                except Exception:
-                    pass  # No continue button, that's fine
-                
-                # Now navigate to the OAuth authorization page
-                logger.info("Navigating to OAuth authorization...")
-                page.goto(authorize_url, wait_until='domcontentloaded', timeout=30000)
-                
-                # Wait for and click Accept button (try multiple selectors)
-                logger.info("Looking for Accept button...")
-                accept_clicked = False
-                
-                # Try different selectors for the Accept button
-                selectors = [
-                    '[value="Accept"]',
-                    'input[value="Accept"]',
-                    'button:has-text("Accept")',
-                    '#acceptSubmit',
-                    'input[type="submit"][value="Accept"]'
-                ]
-                
-                for selector in selectors:
-                    try:
-                        accept_btn = page.locator(selector)
-                        if accept_btn.is_visible(timeout=5000):
-                            accept_btn.click(timeout=10000)
-                            accept_clicked = True
-                            logger.info(f"Clicked Accept button with selector: {selector}")
-                            break
-                    except Exception:
-                        continue
-                
-                if not accept_clicked:
-                    # Maybe the page shows the code directly without needing to click
-                    logger.warning("Could not find Accept button, checking for verification code...")
-                
-                # Wait for redirect and extract verification code
-                page.wait_for_timeout(3000)
-                
-                # Try to get the verification code from the page
-                code = None
-                
-                # Method 1: Input field
-                try:
-                    code_input = page.locator('input[type="text"]')
-                    if code_input.is_visible(timeout=3000):
-                        code = code_input.get_attribute('value')
-                        if code:
-                            code = code.strip()
-                except Exception:
-                    pass
-                
-                # Method 2: Look for code in page text
-                if not code:
-                    try:
-                        # Sometimes the code is displayed as text
-                        page_text = page.content()
-                        import re
-                        # Look for a verification code pattern (usually alphanumeric, 5-10 chars)
-                        matches = re.findall(r'code["\s:]+([A-Z0-9]{5,10})', page_text, re.IGNORECASE)
-                        if matches:
-                            code = matches[0]
-                    except Exception:
-                        pass
-                
-                if code:
-                    logger.info(f"Got verification code: {code[:3]}...")
-                    return code
-                else:
-                    logger.error("Could not extract verification code from page")
-                    # Take a screenshot for debugging
-                    try:
-                        page.screenshot(path='/tmp/etrade_auth_debug.png')
-                        logger.info("Screenshot saved to /tmp/etrade_auth_debug.png")
-                    except Exception:
-                        pass
-                    return None
-                    
-            finally:
-                context.close()
-    
+                return etrade_login.authorize(page, authorize_url)
+
     def revoke_tokens(self) -> None:
         """Revoke current access tokens and delete stored tokens."""
         if self._access_token and self._access_token_secret:

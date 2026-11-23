@@ -437,10 +437,10 @@ async def handle_message(update: Update, context, rate_limiter: RateLimiter, ses
         return
 
     # /update-etrade-auth command — start the manual E*TRADE OAuth PIN
-    # flow in place. Automated Playwright login is blocked by E*TRADE's
-    # bot detection (confirmed), so this is the only reliable path: open
-    # the link in a real phone browser, log in normally, paste the code
-    # back here. The same flow also gets triggered automatically by a
+    # flow in place. This is the fallback for when the automated Chrome
+    # login is rejected or E*TRADE asks for an SMS code with no human
+    # present: open the link in a real phone browser, log in normally,
+    # paste the code back here. The same flow also gets triggered automatically by a
     # scheduled job's auth fallback (etrade_cli.py) — this command just
     # lets you kick it off proactively instead of waiting for one to fail.
     if stripped == "/update-etrade-auth":

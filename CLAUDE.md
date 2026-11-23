@@ -132,7 +132,7 @@ bash scripts/tests/test_*.sh          # deployment-dispatcher tests (one file pe
 | Scheduled/recurring reminders | `core/scheduler.py` + `tools/reminder_cli.py` (two independent writers to `reminders.json`, coordinated via a `.lock` file) |
 | Telegram bot behavior | `channels/telegram/listener.py` — large file; command handling, E*TRADE PIN interception, Actionable Forms, and message dispatch all live in it |
 | Email behavior | `channels/email/listener.py` + `reply.py` |
-| E*TRADE / options-bot | `tools/etrade_cli.py`, `tools/stocks/`, `tools/options_bot_cli.py` |
+| E*TRADE / options-bot | `tools/etrade_cli.py`, `tools/stocks/` (`wetrade_auth.py` token lifecycle, `etrade_login.py` web-login page flow), `tools/chrome/` (plain Chrome over CDP), `tools/options_bot_cli.py` |
 | Gmail / Calendar | `tools/gmail_cli.py`, `tools/calendar_cli.py` — share OAuth conceptually (`get_credentials()`) though it's duplicated rather than actually shared today. |
 | SmartThings / Home automation | `tools/smartthings_cli.py`, `tools/smartthings/` (`auth.py` OAuth2 token lifecycle, `client.py` REST wrapper, `resolver.py` device-name resolution). |
 | General-purpose web browsing (`browser` CLI) | `tools/browser_cli.py`, `tools/browser/` (`client.py` thin client → `daemon.py` per-session daemon → `session.py`/`actions.py` Playwright; `snapshot.py` pure parse/diff; `runtime.py` locks + stale-state sweep; `netproxy.py` + `urlpolicy.py` private-network proxy). See `docs/ARCHITECTURE.md`'s "The browser daemon". |

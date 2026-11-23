@@ -82,8 +82,8 @@ def _send_pin_auth_prompt(pending: dict, use_telegram: bool) -> bool:
         from services.ingestion.channels.telegram.sender import send_telegram_message
 
         prompt_text = (
-            "E*TRADE needs manual re-authentication — automated login is blocked "
-            "by their fraud detection.\n\n"
+            "E*TRADE needs manual re-authentication — automated login didn't go through "
+            "(E*TRADE asked for an SMS code or rejected it).\n\n"
             "Tap below when you're ready to log in — E*TRADE's login links expire "
             "fast, so I'll hold off generating yours until you're actually about to use it."
         )
@@ -99,8 +99,8 @@ def _send_pin_auth_prompt(pending: dict, use_telegram: bool) -> bool:
         import email.utils
         from services.ingestion.channels.email.reply import send_reply
         prompt_text = (
-            "E*TRADE needs manual re-authentication — automated login is blocked "
-            "by their fraud detection.\n\n"
+            "E*TRADE needs manual re-authentication — automated login didn't go through "
+            "(E*TRADE asked for an SMS code or rejected it).\n\n"
             f"Open this link on your phone and log in normally:\n{pending['authorize_url']}\n\n"
             "E*TRADE will show a verification code on screen — reply to this "
             "message with that code to finish."
@@ -232,11 +232,12 @@ def _authenticate(env: dict, headless: bool = True) -> ETradeClient:
         and env["username"]
         and env["password"]
     )
-    # An unattended caller has no one to complete a stuck login — fail
-    # fast instead of waiting the full manual-SMS window before falling
-    # back to the PIN-code flow, and don't retry a login we've confirmed
-    # is deterministically blocked (retrying just doubles the wait).
-    login_timeout_ms = 120000 if not headless else 20000
+    # An unattended caller has no one to complete a stuck login — give a
+    # trusted-device login time to finish (seen taking 6–15s), but not the
+    # full attended window before falling back to the PIN-code flow, and
+    # don't retry: E*TRADE rejections and SMS step-ups are deterministic —
+    # retrying never turns a failure into a success, it just doubles the wait.
+    login_timeout_ms = 120000 if not headless else 60000
     max_retries = 2 if not headless else 1
 
     try:
@@ -463,8 +464,8 @@ def main():
     parser.add_argument(
         "--headed",
         action="store_true",
-        help="Show the browser for manual login/SMS entry instead of running headless "
-             "(use this for the one-time bootstrap auth on a machine with a display)",
+        help="Attended login: if E*TRADE asks for an SMS code, prompt for it in this terminal "
+             "and save the device (one-time bootstrap, e.g. `docker exec -it <container> etrade --headed balance`)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -480,11 +481,11 @@ def main():
 
     # positions
     p_pos = sub.add_parser("positions", help="List open short put positions")
-    p_pos.add_argument("--account", type=str, default=None, help="Account suffix (e.g. 2057)")
+    p_pos.add_argument("--account", type=str, default=None, help="Account suffix (e.g. 1234)")
 
     # balance
     p_bal = sub.add_parser("balance", help="Get account buying power and balance")
-    p_bal.add_argument("--account", type=str, default=None, help="Account suffix (e.g. 2057)")
+    p_bal.add_argument("--account", type=str, default=None, help="Account suffix (e.g. 1234)")
 
     # accounts
     sub.add_parser("accounts", help="List all E*TRADE accounts")

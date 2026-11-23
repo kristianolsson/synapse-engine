@@ -163,6 +163,12 @@ _ensure_qnap_host_dirs
 for d in credentials/claude credentials/gemini credentials/etrade credentials/amazon credentials/browser/profiles data; do
     assert_eq "_ensure_qnap_host_dirs creates $d" "true" "$([ -d "$SYNAPSE_HOST_DIR/$d" ] && echo true || echo false)"
 done
+assert_eq "_ensure_qnap_host_dirs creates the Chrome profile dir" "true" "$([ -d "$SYNAPSE_HOST_DIR/credentials/etrade/.etrade_chrome_profile" ] && echo true || echo false)"
+assert_eq "_ensure_qnap_host_dirs creates .etrade_tokens as a file" "true" "$([ -f "$SYNAPSE_HOST_DIR/credentials/etrade/.etrade_tokens" ] && echo true || echo false)"
+assert_eq ".etrade_tokens starts as {}" "{}" "$(cat "$SYNAPSE_HOST_DIR/credentials/etrade/.etrade_tokens")"
+echo '{"keep":1}' > "$SYNAPSE_HOST_DIR/credentials/etrade/.etrade_tokens"
+_ensure_qnap_host_dirs
+assert_eq "re-running keeps existing .etrade_tokens" '{"keep":1}' "$(cat "$SYNAPSE_HOST_DIR/credentials/etrade/.etrade_tokens")"
 unset -f chown
 
 # --- _qnap_vault_clone_own ---

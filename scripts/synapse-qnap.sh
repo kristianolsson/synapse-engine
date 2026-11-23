@@ -58,6 +58,14 @@ _ensure_qnap_host_dirs() {
         "$SYNAPSE_HOST_DIR"/credentials/amazon \
         "$SYNAPSE_HOST_DIR"/credentials/browser/profiles \
         "$SYNAPSE_HOST_DIR"/data
+    # Bind-mount sources must exist before `docker compose up`, or Docker
+    # creates them as root-owned directories (breaking the token FILE mount).
+    mkdir -p "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_chrome_profile
+    chmod 700 "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_chrome_profile
+    if [ ! -e "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_tokens ]; then
+        echo '{}' > "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_tokens
+        chmod 600 "$SYNAPSE_HOST_DIR"/credentials/etrade/.etrade_tokens
+    fi
     chown -R synapse "$SYNAPSE_HOST_DIR"/credentials "$SYNAPSE_HOST_DIR"/data \
         || echo "⚠️  Could not chown credentials/data dirs to synapse."
     # credentials/claude's permissions after the step 5 docker-cp bootstrap:
