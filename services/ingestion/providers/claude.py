@@ -16,6 +16,16 @@ class ClaudeProvider(AIProvider):
     Implementation of Claude provider using the Claude Code CLI.
     """
 
+    def _base_cmd(self) -> list[str]:
+        """CLI prefix shared by the main call and the --resume fallback, so
+        the permission flags can never drift between them."""
+        cmd = [config.CLAUDE_CMD, "-p", "--output-format", "json"]
+        if config.CLAUDE_PERMISSION_MODE == "bypass":
+            cmd.append("--dangerously-skip-permissions")
+        else:
+            cmd.extend(["--permission-mode", "auto", "--permission-prompts", "none"])
+        return cmd
+
     def generate_response(self, prompt: str, session_id: Optional[str] = None, attachments: List[str] = [], model: Optional[str] = None, auto_retry: bool = True, cleanup_on_error: bool = False, extra_env: Optional[Dict[str, str]] = None) -> ProviderResult:
         """
         Execute the Claude CLI with the given prompt inside the vault directory.
@@ -154,7 +164,7 @@ class ClaudeProvider(AIProvider):
             current_model = models_to_try[attempt]
 
             # Build cmd for this attempt
-            cmd = [config.CLAUDE_CMD, "-p", "--output-format", "json", "--dangerously-skip-permissions"]
+            cmd = self._base_cmd()
             if session_id:
                 cmd.extend(["--resume", session_id])
             if current_model:
@@ -179,7 +189,7 @@ class ClaudeProvider(AIProvider):
                 is_transient = any(s in res.text.lower() for s in ["overloaded", "rate limit", "capacity", "529"])
                 if not is_transient:
                     logger.warning("Claude CLI failed with --resume (session issue). Retrying as a fresh session...")
-                    fallback_cmd = [config.CLAUDE_CMD, "-p", "--output-format", "json", "--dangerously-skip-permissions"]
+                    fallback_cmd = self._base_cmd()
                     if current_model:
                         fallback_cmd.extend(["--model", current_model])
                     if config.CLAUDE_MAX_BUDGET_USD:
