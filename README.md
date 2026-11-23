@@ -8,6 +8,8 @@ routing them to the configured AI provider for autonomous processing of the
 
 > **Supported providers:** Claude Code CLI, Antigravity CLI (agy), Gemini CLI (deprecated — replaced by agy; not bundled in the Docker image)
 >
+> **Claude permissions:** Claude agent sessions run in Claude Code auto mode (`CLAUDE_PERMISSION_MODE`: `auto` by default, `bypass` for the legacy `--dangerously-skip-permissions` rollback); see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#claude-permission-mode).
+>
 > **Vault template:** [synapse-vault](https://github.com/kristianolsson/synapse-vault) — a generic, public starter vault (protocols only, no personal data) to pair with this engine.
 >
 > **Learn more:** [synapse](https://kristianolsson.github.io/synapse/) — a plain-language overview of what this system actually does.
