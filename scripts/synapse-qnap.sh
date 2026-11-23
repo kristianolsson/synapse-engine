@@ -79,10 +79,10 @@ _ensure_qnap_host_dirs() {
     fi
 }
 
-# These five keys are fixed container-internal paths (docker-compose.yml's
-# bind mounts and the Dockerfile's install locations) — never derived from
-# anything host-specific, so there's nothing for qnap-setup.md to ask the
-# user for. Uses _set_env_var (update-in-place-or-append) rather than the
+# These keys are fixed container-internal values (docker-compose.yml's
+# bind mounts, the Dockerfile's install locations, and container runtime
+# limits) — never derived from anything host-specific, so there's nothing
+# for qnap-setup.md to ask the user for. Uses _set_env_var (update-in-place-or-append) rather than the
 # old doc's mix of `sed` and `echo >>`, so re-running setup can't leave
 # duplicate lines the way a second `echo >>` would have.
 _ensure_qnap_runtime_env_defaults() {
@@ -97,6 +97,11 @@ _ensure_qnap_runtime_env_defaults() {
     _set_env_var "$env_file" AGY_CMD "/home/synapse/.local/bin/agy"
     _set_env_var "$env_file" SESSION_STORAGE_PATH "/app/data/sessions.json"
     _set_env_var "$env_file" REMINDERS_JSON_PATH "/app/vault/reminders/reminders.json"
+    # Chrome (E*TRADE login, tools/chrome/) can't create its namespace
+    # sandbox in the container as the non-root synapse user ("Failed to move
+    # to new namespace: Operation not permitted"), so it must run with
+    # --no-sandbox there.
+    _set_env_var "$env_file" SYNAPSE_CHROME_NO_SANDBOX "1"
 }
 
 # TZ is optional in the compose-local .env — docker-compose.yml's

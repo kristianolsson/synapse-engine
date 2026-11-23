@@ -151,6 +151,7 @@ assert_eq "VAULT_PATH set to the container mount point" "/app/vault" "$(_env_var
 assert_eq "AGY_CMD set to the container path" "/home/synapse/.local/bin/agy" "$(_env_var "$RUNTIME_ENV" AGY_CMD)"
 assert_eq "SESSION_STORAGE_PATH set to the container path" "/app/data/sessions.json" "$(_env_var "$RUNTIME_ENV" SESSION_STORAGE_PATH)"
 assert_eq "REMINDERS_JSON_PATH set to the container path" "/app/vault/reminders/reminders.json" "$(_env_var "$RUNTIME_ENV" REMINDERS_JSON_PATH)"
+assert_eq "SYNAPSE_CHROME_NO_SANDBOX set for the container" "1" "$(_env_var "$RUNTIME_ENV" SYNAPSE_CHROME_NO_SANDBOX)"
 
 LINES_BEFORE="$(wc -l < "$RUNTIME_ENV" | tr -d ' ')"
 _ensure_qnap_runtime_env_defaults "$RUNTIME_ENV"

@@ -305,8 +305,9 @@ On QNAP:
 chown -R synapse "$SYNAPSE_HOST_DIR"/synapse-engine
 ```
 `./synapse.sh setup` in step 11 sets `VAULT_PATH`, `AGY_CMD`,
-`SESSION_STORAGE_PATH`, and `REMINDERS_JSON_PATH` on
-`$SYNAPSE_HOST_DIR/.env` to their fixed container-internal values,
+`SESSION_STORAGE_PATH`, `REMINDERS_JSON_PATH`, and
+`SYNAPSE_CHROME_NO_SANDBOX=1` (Chrome can't create its sandbox inside the
+container) on `$SYNAPSE_HOST_DIR/.env` to their fixed container values,
 overwriting whatever the copied `.env` had for them. It also removes any
 `CLAUDE_CMD` line, so the container auto-detects its Claude CLI (the copy
 `/update-cli` installs, else the image's global install) — a copied Mac path
