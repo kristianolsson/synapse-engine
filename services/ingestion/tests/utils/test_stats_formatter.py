@@ -7,6 +7,7 @@ from services.ingestion.utils.stats_formatter import (
     format_stats_telegram,
     append_stats_email,
     append_stats_telegram,
+    format_denials_footer,
 )
 
 
@@ -181,3 +182,37 @@ class TestAppendStatsTelegram:
         session = MagicMock(stats_enabled=True)
         result = append_stats_telegram("Hello", {"duration_api_ms": 500}, session)
         assert "[Stats:" in result
+
+
+_DENIED = {"permission_denials": [{"tool": "Bash", "summary": "curl http://x?key=SECRET"}]}
+
+
+class TestDenialsFooter:
+    def test_empty(self):
+        assert format_denials_footer(None) == ""
+        assert format_denials_footer({}) == ""
+        assert format_denials_footer({"permission_denials": []}) == ""
+
+    def test_count_and_wording(self):
+        two = {"permission_denials": [{"tool": "Bash", "summary": "a"}, {"tool": "Read", "summary": "b"}]}
+        assert format_denials_footer(two) == "⚠️ 2 action(s) blocked by the safety check — see logs."
+
+    def test_never_includes_command_text(self):
+        assert "SECRET" not in format_denials_footer(_DENIED)
+        assert "SECRET" not in append_stats_email("Hi", _DENIED)
+        assert "SECRET" not in append_stats_telegram("Hi", _DENIED)
+
+    def test_shown_even_when_stats_disabled(self):
+        off_session = MagicMock(stats_enabled=False)
+        email = append_stats_email("Hi", _DENIED, off_session)
+        tg = append_stats_telegram("Hi", _DENIED, off_session)
+        assert "1 action(s) blocked" in email and "Stats" not in email
+        assert "1 action(s) blocked" in tg and "Stats" not in tg
+
+    def test_email_and_telegram_separators(self):
+        assert append_stats_email("Hi", _DENIED).startswith("Hi<br><br>⚠️ 1 action(s)")
+        assert append_stats_telegram("Hi", _DENIED).startswith("Hi\n\n⚠️ 1 action(s)")
+
+    def test_denials_key_does_not_break_stats_footer(self):
+        stats = dict(_DENIED, duration_api_ms=500)
+        assert "500ms" in append_stats_telegram("Hi", stats)

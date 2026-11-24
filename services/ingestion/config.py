@@ -3,6 +3,7 @@ Configuration loader for the ingestion service.
 Reads credentials and settings from environment variables / .env file.
 """
 
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -169,6 +170,25 @@ CLAUDE_FALLBACK_MODELS = [
     if m.strip()
 ]
 CLAUDE_MAX_BUDGET_USD = os.getenv("CLAUDE_MAX_BUDGET_USD", "").strip() or None
+
+# Claude permission mode for agent sessions.
+#   auto   — Claude Code auto mode: a safety check allows or blocks each tool
+#            call; nothing ever waits for a human (--permission-prompts none).
+#   bypass — legacy --dangerously-skip-permissions. Rollback only.
+_VALID_PERMISSION_MODES = ("auto", "bypass")
+
+
+def _parse_permission_mode(raw: str) -> str:
+    value = (raw or "").strip().lower()
+    if value in _VALID_PERMISSION_MODES:
+        return value
+    if value:
+        logging.getLogger(__name__).warning(
+            "Invalid CLAUDE_PERMISSION_MODE=%r; using 'auto'", raw)
+    return "auto"
+
+
+CLAUDE_PERMISSION_MODE = _parse_permission_mode(os.getenv("CLAUDE_PERMISSION_MODE", "auto"))
 
 # --- Antigravity CLI (agy) ---
 def _resolve_agy_cmd() -> str:

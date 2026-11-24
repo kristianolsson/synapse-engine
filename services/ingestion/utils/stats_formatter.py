@@ -131,6 +131,18 @@ def format_stats_telegram(stats: Optional[dict]) -> str:
         return ""
 
 
+def format_denials_footer(stats: Optional[dict]) -> str:
+    """
+    One-line warning when Claude's auto-mode safety check blocked tool calls.
+    Deliberately omits the blocked command (it may contain a secret) and is
+    never gated on the /stats preference.
+    """
+    denials = (stats or {}).get("permission_denials") or []
+    if not denials:
+        return ""
+    return f"⚠️ {len(denials)} action(s) blocked by the safety check — see logs."
+
+
 def append_stats_email(text: str, stats: Optional[dict], session: Optional["UserSession"] = None) -> str:
     """
     Append the email stats footer to `text`, gated on `session.stats_enabled`
@@ -142,7 +154,13 @@ def append_stats_email(text: str, stats: Optional[dict], session: Optional["User
     delivery) that builds its own text before send_reply gets a chance to,
     such as when the text also feeds Actionable-Form/task-keyboard
     detection that must run on the final, stats-included text.
+
+    The blocked-action footer from format_denials_footer() is always
+    appended, regardless of session.
     """
+    footer = format_denials_footer(stats)
+    if footer:
+        text = f"{text}<br><br>{footer}"
     if session is not None and not session.stats_enabled:
         stats = None
     return text + format_stats_email(stats)
@@ -150,6 +168,9 @@ def append_stats_email(text: str, stats: Optional[dict], session: Optional["User
 
 def append_stats_telegram(text: str, stats: Optional[dict], session: Optional["UserSession"] = None) -> str:
     """Telegram counterpart to append_stats_email() — see its docstring."""
+    footer = format_denials_footer(stats)
+    if footer:
+        text = f"{text}\n\n{footer}"
     if session is not None and not session.stats_enabled:
         stats = None
     return text + format_stats_telegram(stats)

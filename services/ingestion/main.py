@@ -31,6 +31,10 @@ def main():
         sys.exit(1)
 
     logger.info("Enabled channels: %s", ", ".join(channels))
+    if config.CLAUDE_PERMISSION_MODE == "bypass":
+        logger.warning(
+            "CLAUDE_PERMISSION_MODE=bypass: Claude runs with "
+            "--dangerously-skip-permissions (no safety check). Rollback only.")
 
     # Shared across all channels — constructed once here and injected into
     # every listener/scheduler below. A fresh instance built per-component

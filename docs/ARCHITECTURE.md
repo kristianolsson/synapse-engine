@@ -52,6 +52,37 @@ prompt on stdin/argv and parsing JSON from stdout. All three currently
 duplicate their own subprocess-env setup, locking, and error handling rather
 than sharing an implementation in `base.py` — see "Known rough edges" below.
 
+### Claude permission mode
+
+Applies to `ClaudeProvider` only; `AgyProvider` is unchanged and still runs
+its CLI with its own skip-permissions flag.
+
+`ClaudeProvider._base_cmd()` is the only place permission flags are set, for
+both the main call and the `--resume` fallback. `CLAUDE_PERMISSION_MODE`
+(`config.py`) selects the mode: `auto` (default) or `bypass`.
+
+In `auto` mode the flags are `--permission-mode auto --permission-prompts none
+--settings <json>`. `-p` is one-shot, so nothing may wait for a prompt:
+blocked calls are denied and the agent continues. `bypass` uses the legacy
+`--dangerously-skip-permissions` and is a rollback only; `main.py` logs a
+startup warning when it is active.
+
+`providers/claude_agent_settings.py` builds the deny rules: secret paths as
+absolute `//` rules (Read and Edit, including `/proc` and the configured
+calendar/SmartThings token and credentials paths), `Edit` on the engine tree,
+`env`/`printenv`, and Edit-deny on the agent's own Claude config
+(`<vault>/.claude/settings*.json`, `~/.claude.json`). `~/.claude/projects` is
+deliberately readable.
+
+Denials go into `stats["permission_denials"]`, are logged at WARNING, and
+become an always-on reply footer through `utils/stats_formatter.py`
+(`format_denials_footer`). Silent runs only log them.
+
+Limits: the agent runs as the same OS user as the engine and inherits every
+secret its tools need (the `etrade` CLI sends the PIN prompt itself, so it
+needs the bot token and email password). The deny rules are a backstop; the
+auto-mode check is the main control. OS-level isolation is future work.
+
 ### `GLOBAL_PROVIDER_LOCK`
 
 The vault (`VAULT_PATH`) is a shared mutable git repo: the AI provider's own
@@ -437,6 +468,9 @@ none of them are on a roadmap to fix immediately:
 - **`gmail_cli.py`/`calendar_cli.py`/`setup_google.py` each redefine their own
   OAuth `get_credentials()`** instead of sharing one implementation, despite
   `gmail_cli.py`'s own docstring saying the intent was one shared auth.
+- **Agent and engine share an OS user and environment; secrets are reachable
+  from the agent's shell.** Auto mode plus deny rules reduce but do not
+  remove this.
 - **`RateLimiter`'s constructor has a `rate_limiter or RateLimiter(...)`
   fallback** in both listeners — harmless today because `main.py` always
   supplies the shared instance, but a silent-second-instance trap if a future
